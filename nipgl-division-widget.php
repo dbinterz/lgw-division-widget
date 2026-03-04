@@ -2,13 +2,13 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Renders mobile-friendly league table and fixtures from Google Sheets CSV. Use shortcode [nipgl_division csv="URL" title="Division 1"] on any page.
- * Version: 4.3
+ * Version: 4.4
  * Author: NIPGL
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * Primary Branch: main
  */
 
-define('NIPGL_VERSION', '4.3');
+define('NIPGL_VERSION', '4.4');
 
 // ── Auto-updater (checks GitHub releases) ────────────────────────────────────
 add_filter('pre_set_site_transient_update_plugins', 'nipgl_check_for_update');
@@ -432,7 +432,7 @@ function nipgl_settings_page() {
         <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
             <?php wp_nonce_field('nipgl_check_updates_nonce'); ?>
             <input type="hidden" name="action" value="nipgl_check_updates">
-            <?php submit_button('Check for Updates Now', 'secondary'); ?>
+            <p><input type="submit" class="button button-secondary" value="Check for Updates Now"></p>
         </form>
 
         <hr>
@@ -441,7 +441,7 @@ function nipgl_settings_page() {
         <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
             <?php wp_nonce_field('nipgl_clear_cache_nonce'); ?>
             <input type="hidden" name="action" value="nipgl_clear_cache">
-            <?php submit_button('Clear Cache Now', 'secondary'); ?>
+            <p><input type="submit" class="button button-secondary" value="Clear Cache Now"></p>
         </form>
     </div>
     <?php
