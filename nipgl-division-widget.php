@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: NIPGL Division Widget
- * Description: Renders mobile-friendly league table and fixtures from Google Sheets CSV. Use shortcode [nipgl_division csv="URL" title="Division 1" promote=0 relegate=0] on any page.
+ * Description: Renders mobile-friendly league table and fixtures from Google Sheets CSV. Use shortcode [nipgl_division csv="URL" title="Division 1"] on any page.
  * Version: 4.3
  * Author: NIPGL
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
@@ -156,10 +156,12 @@ function nipgl_enqueue() {
     wp_enqueue_style('nipgl-widget', plugin_dir_url(__FILE__) . 'nipgl-widget.css', array('nipgl-saira'), NIPGL_VERSION);
     wp_enqueue_script('nipgl-widget', plugin_dir_url(__FILE__) . 'nipgl-widget.js', array(), NIPGL_VERSION, true);
 
-    $badges = get_option('nipgl_badges', array());
+    $badges   = get_option('nipgl_badges',   array());
+    $sponsors = get_option('nipgl_sponsors', array());
     wp_localize_script('nipgl-widget', 'nipglData', array(
-        'ajaxUrl' => admin_url('admin-ajax.php'),
-        'badges'  => $badges,
+        'ajaxUrl'  => admin_url('admin-ajax.php'),
+        'badges'   => $badges,
+        'sponsors' => $sponsors,
     ));
 }
 
@@ -167,27 +169,59 @@ function nipgl_enqueue() {
 add_shortcode('nipgl_division', 'nipgl_division_shortcode');
 function nipgl_division_shortcode($atts) {
     $atts = shortcode_atts(array(
-        'csv'      => '',
-        'title'    => '',
-        'promote'  => '0',
-        'relegate' => '0',
+        'csv'          => '',
+        'title'        => '',
+        'promote'      => '0',
+        'relegate'     => '0',
+        'sponsor_img'  => '',  // override: image URL for primary sponsor
+        'sponsor_url'  => '',  // override: link URL for primary sponsor
+        'sponsor_name' => '',  // override: alt text for primary sponsor
     ), $atts);
 
     if (!$atts['csv']) return '<p>No CSV URL provided.</p>';
 
     $id          = 'nipgl-' . substr(md5($atts['csv']), 0, 8);
     $csv_escaped = esc_attr($atts['csv']);
-    $title_html  = '';
 
+    // Resolve sponsors: shortcode override takes priority over global setting
+    $global_sponsors = get_option('nipgl_sponsors', array());
+    if (!empty($atts['sponsor_img'])) {
+        $primary_sponsor = array(
+            'image' => esc_url($atts['sponsor_img']),
+            'url'   => esc_url($atts['sponsor_url']),
+            'name'  => esc_attr($atts['sponsor_name']),
+        );
+        $extra_sponsors = array_slice($global_sponsors, 1); // keep globals beyond first as extras
+    } else {
+        $primary_sponsor = !empty($global_sponsors[0]) ? $global_sponsors[0] : null;
+        $extra_sponsors  = array_slice($global_sponsors, 1);
+    }
+
+    // Primary sponsor bar (above title)
+    $primary_html = '';
+    if ($primary_sponsor && !empty($primary_sponsor['image'])) {
+        $img = '<img src="' . esc_url($primary_sponsor['image']) . '" alt="' . esc_attr($primary_sponsor['name'] ?: 'Sponsor') . '" class="nipgl-sponsor-img">';
+        $primary_html = '<div class="nipgl-sponsor-bar nipgl-sponsor-primary">'
+            . (!empty($primary_sponsor['url']) ? '<a href="' . esc_url($primary_sponsor['url']) . '" target="_blank" rel="noopener">' . $img . '</a>' : $img)
+            . '</div>';
+    }
+
+    // Title
+    $title_html = '';
     if (!empty($atts['title'])) {
         $title_html = '<div class="nipgl-title">' . esc_html($atts['title']) . '</div>';
     }
 
-    return $title_html
+    // Extra sponsors JSON for JS random rotation below table
+    $extra_json = esc_attr(json_encode($extra_sponsors));
+
+    return $primary_html
+        . $title_html
         . '<div class="nipgl-w" id="' . $id . '"'
         . ' data-csv="' . $csv_escaped . '"'
         . ' data-promote="' . intval($atts['promote']) . '"'
-        . ' data-relegate="' . intval($atts['relegate']) . '">'
+        . ' data-relegate="' . intval($atts['relegate']) . '"'
+        . ' data-sponsors="' . $extra_json . '">'
         . '<div class="nipgl-tabs">'
         . '<div class="nipgl-tab active" data-tab="table">League Table</div>'
         . '<div class="nipgl-tab" data-tab="fixtures">Fixtures &amp; Results</div>'
@@ -234,6 +268,22 @@ function nipgl_save_settings() {
     }
     update_option('nipgl_badges', $badges);
 
+    // Save sponsors
+    $sp_images = isset($_POST['nipgl_sp_image']) ? array_map('esc_url_raw',        $_POST['nipgl_sp_image']) : array();
+    $sp_urls   = isset($_POST['nipgl_sp_url'])   ? array_map('esc_url_raw',        $_POST['nipgl_sp_url'])   : array();
+    $sp_names  = isset($_POST['nipgl_sp_name'])  ? array_map('sanitize_text_field', $_POST['nipgl_sp_name'])  : array();
+    $sponsors  = array();
+    foreach ($sp_images as $i => $img) {
+        if (!empty($img)) {
+            $sponsors[] = array(
+                'image' => $img,
+                'url'   => !empty($sp_urls[$i])  ? $sp_urls[$i]  : '',
+                'name'  => !empty($sp_names[$i]) ? $sp_names[$i] : '',
+            );
+        }
+    }
+    update_option('nipgl_sponsors', $sponsors);
+
     $cache_mins = isset($_POST['nipgl_cache_mins']) ? max(1, intval($_POST['nipgl_cache_mins'])) : 5;
     update_option('nipgl_cache_mins', $cache_mins);
 
@@ -272,6 +322,39 @@ function nipgl_settings_page() {
             <?php wp_nonce_field('nipgl_settings_nonce'); ?>
             <input type="hidden" name="action" value="nipgl_save_settings">
 
+            <h2>Sponsors</h2>
+            <p>The <strong>first sponsor</strong> appears above the division title on all pages. Additional sponsors rotate randomly below the league table. Add a per-division override via the shortcode if needed.</p>
+            <table class="widefat nipgl-badge-table" id="nipgl-sponsor-table">
+                <thead>
+                    <tr>
+                        <th>Sponsor Name / Alt Text</th>
+                        <th>Logo Image</th>
+                        <th>Link URL</th>
+                        <th>Preview</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    $sponsors = get_option('nipgl_sponsors', array());
+                    if (empty($sponsors)) $sponsors = array(array('image'=>'','url'=>'','name'=>''));
+                    foreach ($sponsors as $sp): ?>
+                    <tr class="nipgl-sponsor-row">
+                        <td><input type="text" name="nipgl_sp_name[]" value="<?php echo esc_attr($sp['name']); ?>" placeholder="e.g. Acme Ltd" class="regular-text"></td>
+                        <td>
+                            <input type="text" name="nipgl_sp_image[]" value="<?php echo esc_url($sp['image']); ?>" placeholder="Image URL" class="regular-text nipgl-image-url" readonly>
+                            <button type="button" class="button nipgl-pick-image">Choose Image</button>
+                        </td>
+                        <td><input type="text" name="nipgl_sp_url[]" value="<?php echo esc_url($sp['url']); ?>" placeholder="https://" class="regular-text"></td>
+                        <td><img class="nipgl-badge-preview" src="<?php echo esc_url($sp['image']); ?>" style="<?php echo $sp['image'] ? '' : 'display:none;'; ?>height:40px;object-fit:contain;max-width:120px;"></td>
+                        <td><button type="button" class="button-link-delete nipgl-remove-row">Remove</button></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p><button type="button" class="button" id="nipgl-add-sponsor">+ Add Sponsor</button></p>
+
+            <hr>
             <h2>Club Badges</h2>
             <p>Enter each club name <strong>exactly as it appears in the Google Sheet</strong>, then pick a badge from the Media Library.</p>
 
@@ -320,6 +403,11 @@ function nipgl_settings_page() {
             <ul style="margin-top:10px;list-style:disc;padding-left:20px;line-height:2">
                 <li><code>csv</code> — published Google Sheets CSV URL <em>(required)</em></li>
                 <li><code>title</code> — heading displayed above the widget <em>(optional)</em></li>
+                <li><code>promote</code> — number of promotion places <em>(optional)</em></li>
+                <li><code>relegate</code> — number of relegation places <em>(optional)</em></li>
+                <li><code>sponsor_img</code> — override primary sponsor image for this division <em>(optional)</em></li>
+                <li><code>sponsor_url</code> — override primary sponsor link for this division <em>(optional)</em></li>
+                <li><code>sponsor_name</code> — override primary sponsor alt text for this division <em>(optional)</em></li>
             </ul>
 
         <hr>

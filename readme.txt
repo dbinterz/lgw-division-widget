@@ -1,0 +1,63 @@
+=== NIPGL Division Widget ===
+Contributors: dbinterz
+Tags: bowls, sports, league table, fixtures, google sheets
+Requires at least: 5.0
+Tested up to: 6.5
+Stable tag: 4.3
+License: GPLv2 or later
+
+Mobile-friendly league table and fixtures widget for NIPGL, powered by Google Sheets CSV.
+
+== Description ==
+
+Renders a tabbed widget showing a league table and fixtures/results for each NIPGL division, fetched live from a published Google Sheet. Features include:
+
+* Mobile-responsive with sticky team column
+* Club badge support via WordPress Media Library
+* Promotion and relegation zone highlighting
+* Clinched promotion/relegation shading
+* Server-side caching to speed up page loads
+* All/Results/Upcoming fixture filters
+
+Use the shortcode on any page:
+`[nipgl_division csv="YOUR_CSV_URL" title="Division 1" promote="2" relegate="2"]`
+
+== Installation ==
+
+1. Upload the plugin zip via Plugins > Add New > Upload Plugin
+2. Activate the plugin
+3. Go to Settings > NIPGL Widget to configure club badges and cache settings
+4. Add the shortcode to each division page
+
+== Changelog ==
+
+= 4.3 =
+* Added sponsor logos — primary sponsor above title, additional sponsors rotate randomly below league table
+* Per-division sponsor override via shortcode parameters
+
+= 4.2 =
+* Version number now defined as single constant — only one place to update per release
+
+= 4.1 =
+* Added "Check for Updates Now" button to settings page
+
+= 4.0 =
+* Added GitHub auto-updater
+* Font updated to Saira throughout
+
+= 3.1 =
+* Font updated to Saira
+* Version tracking introduced
+
+= 3.0 =
+* Added promotion/relegation zones with clinched shading
+* Added server-side caching with configurable duration and manual clear
+* Added title shortcode parameter
+* Added club badges via Media Library
+
+= 2.0 =
+* Moved to shortcode-based approach to avoid WordPress script stripping
+* Added CSV proxy via WordPress ajax
+
+= 1.0 =
+* Initial release

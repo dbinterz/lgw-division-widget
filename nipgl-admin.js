@@ -2,7 +2,7 @@
 (function($){
     'use strict';
 
-    // Row template
+    // Row template for badges
     function newRow() {
         return '<tr class="nipgl-badge-row">'
             + '<td><input type="text" name="nipgl_team[]" value="" placeholder="e.g. MALONE" class="regular-text"></td>'
@@ -15,9 +15,28 @@
             + '</tr>';
     }
 
-    // Add row
+    // Row template for sponsors
+    function newSponsorRow() {
+        return '<tr class="nipgl-sponsor-row">'
+            + '<td><input type="text" name="nipgl_sp_name[]" value="" placeholder="e.g. Acme Ltd" class="regular-text"></td>'
+            + '<td>'
+            + '<input type="text" name="nipgl_sp_image[]" value="" placeholder="Image URL" class="regular-text nipgl-image-url" readonly>'
+            + '<button type="button" class="button nipgl-pick-image">Choose Image</button>'
+            + '</td>'
+            + '<td><input type="text" name="nipgl_sp_url[]" value="" placeholder="https://" class="regular-text"></td>'
+            + '<td><img class="nipgl-badge-preview" src="" style="display:none;height:40px;object-fit:contain;max-width:120px;"></td>'
+            + '<td><button type="button" class="button-link-delete nipgl-remove-row">Remove</button></td>'
+            + '</tr>';
+    }
+
+    // Add badge row
     $('#nipgl-add-row').on('click', function(){
         $('#nipgl-badge-table tbody').append(newRow());
+    });
+
+    // Add sponsor row
+    $('#nipgl-add-sponsor').on('click', function(){
+        $('#nipgl-sponsor-table tbody').append(newSponsorRow());
     });
 
     // Remove row
