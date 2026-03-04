@@ -1,10 +1,106 @@
 <?php
 /**
  * Plugin Name: NIPGL Division Widget
- * Description: Renders mobile-friendly league table and fixtures from Google Sheets CSV. Use shortcode [nipgl_division csv="URL" title="Division 1"] on any page.
- * Version: 4.2
+ * Description: Renders mobile-friendly league table and fixtures from Google Sheets CSV. Use shortcode [nipgl_division csv="URL" title="Division 1" promote=0 relegate=0] on any page.
+ * Version: 4.3
  * Author: NIPGL
+ * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
+ * Primary Branch: main
  */
+
+define('NIPGL_VERSION', '4.3');
+
+// ── Auto-updater (checks GitHub releases) ────────────────────────────────────
+add_filter('pre_set_site_transient_update_plugins', 'nipgl_check_for_update');
+function nipgl_check_for_update($transient) {
+    if (empty($transient->checked)) return $transient;
+
+    $plugin_slug = plugin_basename(__FILE__);
+    $current_version = NIPGL_VERSION;
+    $github_user = 'dbinterz';
+    $github_repo = 'nipgl-division-widget';
+
+    $cache_key = 'nipgl_github_update';
+    $release = get_transient($cache_key);
+
+    if ($release === false) {
+        $response = wp_remote_get(
+            "https://api.github.com/repos/{$github_user}/{$github_repo}/releases/latest",
+            array('headers' => array('Accept' => 'application/vnd.github.v3+json', 'User-Agent' => 'WordPress/' . get_bloginfo('version')))
+        );
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+            return $transient;
+        }
+        $release = json_decode(wp_remote_retrieve_body($response));
+        set_transient($cache_key, $release, 6 * HOUR_IN_SECONDS);
+    }
+
+    if (empty($release->tag_name)) return $transient;
+
+    $latest_version = ltrim($release->tag_name, 'v');
+
+    if (version_compare($latest_version, $current_version, '>')) {
+        $transient->response[$plugin_slug] = (object) array(
+            'slug'        => 'nipgl-division-widget',
+            'plugin'      => $plugin_slug,
+            'new_version' => $latest_version,
+            'url'         => "https://github.com/{$github_user}/{$github_repo}",
+            'package'     => $release->zipball_url,
+        );
+    }
+
+    return $transient;
+}
+
+// Show plugin info popup from GitHub release notes
+add_filter('plugins_api', 'nipgl_plugin_info', 10, 3);
+function nipgl_plugin_info($result, $action, $args) {
+    if ($action !== 'plugin_information' || $args->slug !== 'nipgl-division-widget') return $result;
+
+    $github_user = 'dbinterz';
+    $github_repo = 'nipgl-division-widget';
+
+    $response = wp_remote_get(
+        "https://api.github.com/repos/{$github_user}/{$github_repo}/releases/latest",
+        array('headers' => array('Accept' => 'application/vnd.github.v3+json', 'User-Agent' => 'WordPress/' . get_bloginfo('version')))
+    );
+    if (is_wp_error($response)) return $result;
+
+    $release = json_decode(wp_remote_retrieve_body($response));
+    if (empty($release->tag_name)) return $result;
+
+    return (object) array(
+        'name'          => 'NIPGL Division Widget',
+        'slug'          => 'nipgl-division-widget',
+        'version'       => ltrim($release->tag_name, 'v'),
+        'author'        => 'NIPGL',
+        'homepage'      => "https://github.com/{$github_user}/{$github_repo}",
+        'sections'      => array(
+            'description' => 'Mobile-friendly league table and fixtures widget for NIPGL, powered by Google Sheets.',
+            'changelog'   => nl2br(isset($release->body) ? esc_html($release->body) : 'See GitHub releases for changelog.'),
+        ),
+        'download_link' => $release->zipball_url,
+    );
+}
+
+// Check for updates now action
+add_action('admin_post_nipgl_check_updates', 'nipgl_check_updates_now');
+function nipgl_check_updates_now() {
+    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+    check_admin_referer('nipgl_check_updates_nonce');
+    // Clear the cached GitHub release so next check hits the API fresh
+    delete_transient('nipgl_github_update');
+    // Also clear WordPress's own plugin update transient so it re-checks immediately
+    delete_site_transient('update_plugins');
+    wp_redirect(admin_url('options-general.php?page=nipgl-settings&updated=1'));
+    exit;
+}
+add_action('upgrader_process_complete', 'nipgl_clear_update_cache', 10, 2);
+function nipgl_clear_update_cache($upgrader, $options) {
+    if ($options['action'] === 'update' && $options['type'] === 'plugin') {
+        delete_transient('nipgl_github_update');
+    }
+}
 
 // ── 1. CSV Proxy ─────────────────────────────────────────────────────────────
 add_action('wp_ajax_nipgl_csv', 'nipgl_csv_proxy');
@@ -57,8 +153,8 @@ function nipgl_enqueue() {
     if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'nipgl_division')) return;
 
     wp_enqueue_style('nipgl-saira', 'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
-    wp_enqueue_style('nipgl-widget', plugin_dir_url(__FILE__) . 'nipgl-widget.css', array('nipgl-saira'), '3.1');
-    wp_enqueue_script('nipgl-widget', plugin_dir_url(__FILE__) . 'nipgl-widget.js', array(), '3.1', true);
+    wp_enqueue_style('nipgl-widget', plugin_dir_url(__FILE__) . 'nipgl-widget.css', array('nipgl-saira'), NIPGL_VERSION);
+    wp_enqueue_script('nipgl-widget', plugin_dir_url(__FILE__) . 'nipgl-widget.js', array(), NIPGL_VERSION, true);
 
     $badges = get_option('nipgl_badges', array());
     wp_localize_script('nipgl-widget', 'nipglData', array(
@@ -117,8 +213,8 @@ add_action('admin_enqueue_scripts', 'nipgl_admin_enqueue');
 function nipgl_admin_enqueue($hook) {
     if ($hook !== 'settings_page_nipgl-settings') return;
     wp_enqueue_media();
-    wp_enqueue_script('nipgl-admin', plugin_dir_url(__FILE__) . 'nipgl-admin.js', array('jquery'), '3.1', true);
-    wp_enqueue_style('nipgl-admin', plugin_dir_url(__FILE__) . 'nipgl-admin.css', array(), '3.1');
+    wp_enqueue_script('nipgl-admin', plugin_dir_url(__FILE__) . 'nipgl-admin.js', array('jquery'), NIPGL_VERSION, true);
+    wp_enqueue_style('nipgl-admin', plugin_dir_url(__FILE__) . 'nipgl-admin.css', array(), NIPGL_VERSION);
 }
 
 add_action('admin_post_nipgl_save_settings', 'nipgl_save_settings');
@@ -167,6 +263,9 @@ function nipgl_settings_page() {
         <?php endif; ?>
         <?php if (isset($_GET['cleared'])): ?>
             <div class="notice notice-success is-dismissible"><p>Cache cleared — all divisions will fetch fresh data on next load.</p></div>
+        <?php endif; ?>
+        <?php if (isset($_GET['updated'])): ?>
+            <div class="notice notice-success is-dismissible"><p>Update check complete — WordPress will now show any available updates on the <a href="<?php echo admin_url('update-core.php'); ?>">Updates page</a>.</p></div>
         <?php endif; ?>
 
         <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
@@ -237,6 +336,15 @@ function nipgl_settings_page() {
             </table>
 
             <?php submit_button('Save Settings'); ?>
+        </form>
+
+        <hr>
+        <h2>Plugin Updates</h2>
+        <p>Current version: <strong><?php echo NIPGL_VERSION; ?></strong>. Click below to force WordPress to check GitHub for a newer release immediately, rather than waiting up to 6 hours.</p>
+        <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+            <?php wp_nonce_field('nipgl_check_updates_nonce'); ?>
+            <input type="hidden" name="action" value="nipgl_check_updates">
+            <?php submit_button('Check for Updates Now', 'secondary'); ?>
         </form>
 
         <hr>
