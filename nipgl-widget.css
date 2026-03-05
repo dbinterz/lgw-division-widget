@@ -236,12 +236,14 @@ table.lg .nipgl-badge{width:20px;height:20px}
 }
 
 /* ── Modal overlay ───────────────────────────────────────────────────────────── */
-.nipgl-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;align-items:center;justify-content:center;padding:16px}
+/* Explicit top/right/bottom/left instead of inset shorthand for Brave compatibility.  */
+/* flex-start + padding-top instead of center prevents header clipping on non-standard viewports */
+.nipgl-modal-overlay{display:none;position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,.55);z-index:99999;align-items:flex-start;justify-content:center;padding:48px 16px 16px;overflow-y:auto}
 .nipgl-modal-overlay.active{display:flex}
 body.nipgl-modal-open{overflow:hidden}
 
 /* ── Modal box — uses :root vars so always has solid background ──────────────── */
-.nipgl-modal{background:var(--nipgl-bg);border-radius:8px;width:100%;max-width:580px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.35);font-family:'Saira',Arial,sans-serif}
+.nipgl-modal{background:var(--nipgl-bg);border-radius:8px;width:100%;max-width:580px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.35);font-family:'Saira',Arial,sans-serif;margin:0 auto}
 .nipgl-modal-head{display:flex;align-items:center;justify-content:space-between;background:var(--nipgl-navy);color:#fff;padding:12px 16px;border-radius:8px 8px 0 0;gap:10px}
 .nipgl-modal-title{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .nipgl-modal-title h2{margin:0;font-size:16px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -274,7 +276,8 @@ body.nipgl-modal-open{overflow:hidden}
 .lost .modal-result-lbl{background:var(--nipgl-loss);color:#fff}
 
 @media(max-width:480px){
-  .nipgl-modal{max-height:95vh}
+  .nipgl-modal-overlay{padding:32px 8px 8px}
+  .nipgl-modal{max-height:calc(100vh - 48px)}
   .modal-stat{padding:5px 7px;min-width:40px}
   .modal-stat-val{font-size:15px}
 }
