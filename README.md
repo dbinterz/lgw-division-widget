@@ -82,6 +82,16 @@ A section with a `FIXTURES` header row, followed by a column header row containi
 
 ## Changelog
 
+### v5.0
+- Club-level badge configuration — configure a badge once for a club, matches all teams with that prefix
+- Exact team badge still supported, always takes priority over club prefix
+- Badge admin UI updated with Type column (Club prefix / Exact)
+
+### v4.9
+- Fixed modal header and buttons clipped in Brave browser
+- Replaced `inset:0` with explicit positioning for cross-browser compatibility
+- Modal now top-anchored with padding rather than vertically centred, preventing clipping on non-standard viewports
+
 ### v4.8
 - Fixed print speed — removed Google Fonts load from print window, dialog now appears immediately
 - Fixed modal print badge too large — constrained with !important overrides

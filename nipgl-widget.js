@@ -1,9 +1,10 @@
-/* NIPGL Division Widget JS - v4.7 */
+/* NIPGL Division Widget JS - v5.0 */
 (function(){
   'use strict';
 
-  var badges  = (typeof nipglData !== 'undefined' && nipglData.badges)  ? nipglData.badges  : {};
-  var ajaxUrl = (typeof nipglData !== 'undefined') ? nipglData.ajaxUrl : '/wp-admin/admin-ajax.php';
+  var badges     = (typeof nipglData !== 'undefined' && nipglData.badges)     ? nipglData.badges     : {};
+  var clubBadges = (typeof nipglData !== 'undefined' && nipglData.clubBadges) ? nipglData.clubBadges : {};
+  var ajaxUrl    = (typeof nipglData !== 'undefined') ? nipglData.ajaxUrl : '/wp-admin/admin-ajax.php';
 
   var PRINT_ICON = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/></svg>';
 
@@ -32,14 +33,28 @@
   // Apply on load
   applyThemeToRoot(getDarkPref());
 
-  // ── Badge helper ──────────────────────────────────────────────────────────────
+  // ── Badge lookup: exact → case-insensitive exact → club prefix (longest wins) ─
   function badgeImg(team, cls){
     cls = cls||'nipgl-badge';
+    // 1. Exact match
     if(badges[team]) return '<img class="'+cls+'" src="'+badges[team]+'" alt="'+team+'">';
-    var upper=team.toUpperCase();
+    // 2. Case-insensitive exact match
+    var upper = team.toUpperCase();
     for(var key in badges){
-      if(key.toUpperCase()===upper) return '<img class="'+cls+'" src="'+badges[key]+'" alt="'+team+'">';
+      if(key.toUpperCase() === upper) return '<img class="'+cls+'" src="'+badges[key]+'" alt="'+team+'">';
     }
+    // 3. Club prefix match — case-insensitive, word-boundary aware, longest prefix wins
+    var bestKey = '', bestImg = '';
+    for(var club in clubBadges){
+      var clubUpper = club.toUpperCase();
+      if(upper === clubUpper || upper.indexOf(clubUpper) === 0){
+        var rest = team.slice(club.length);
+        if(rest === '' || rest[0] === ' '){
+          if(club.length > bestKey.length){ bestKey = club; bestImg = clubBadges[club]; }
+        }
+      }
+    }
+    if(bestImg) return '<img class="'+cls+'" src="'+bestImg+'" alt="'+team+'">';
     return '';
   }
 

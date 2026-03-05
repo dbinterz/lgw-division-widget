@@ -2,13 +2,13 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Renders mobile-friendly league table and fixtures from Google Sheets CSV. Use shortcode [nipgl_division csv="URL" title="Division 1"] on any page.
- * Version: 4.8
+ * Version: 5.0
  * Author: NIPGL
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * Primary Branch: main
  */
 
-define('NIPGL_VERSION', '4.8');
+define('NIPGL_VERSION', '5.0');
 
 // ── Auto-updater (checks GitHub releases) ────────────────────────────────────
 add_filter('pre_set_site_transient_update_plugins', 'nipgl_check_for_update');
@@ -156,12 +156,14 @@ function nipgl_enqueue() {
     wp_enqueue_style('nipgl-widget', plugin_dir_url(__FILE__) . 'nipgl-widget.css', array('nipgl-saira'), NIPGL_VERSION);
     wp_enqueue_script('nipgl-widget', plugin_dir_url(__FILE__) . 'nipgl-widget.js', array(), NIPGL_VERSION, true);
 
-    $badges   = get_option('nipgl_badges',   array());
-    $sponsors = get_option('nipgl_sponsors', array());
+    $badges       = get_option('nipgl_badges',       array());
+    $club_badges  = get_option('nipgl_club_badges',  array());
+    $sponsors     = get_option('nipgl_sponsors',     array());
     wp_localize_script('nipgl-widget', 'nipglData', array(
-        'ajaxUrl'  => admin_url('admin-ajax.php'),
-        'badges'   => $badges,
-        'sponsors' => $sponsors,
+        'ajaxUrl'     => admin_url('admin-ajax.php'),
+        'badges'      => $badges,
+        'clubBadges'  => $club_badges,
+        'sponsors'    => $sponsors,
     ));
 }
 
@@ -256,17 +258,25 @@ function nipgl_save_settings() {
     if (!current_user_can('manage_options')) wp_die('Unauthorized');
     check_admin_referer('nipgl_settings_nonce');
 
-    $teams  = isset($_POST['nipgl_team'])  ? array_map('sanitize_text_field', $_POST['nipgl_team'])  : array();
-    $images = isset($_POST['nipgl_image']) ? array_map('esc_url_raw', $_POST['nipgl_image']) : array();
+    $teams  = isset($_POST['nipgl_team'])       ? array_map('sanitize_text_field', $_POST['nipgl_team'])       : array();
+    $images = isset($_POST['nipgl_image'])      ? array_map('esc_url_raw',         $_POST['nipgl_image'])      : array();
+    $types  = isset($_POST['nipgl_badge_type']) ? array_map('sanitize_text_field', $_POST['nipgl_badge_type']) : array();
 
-    $badges = array();
+    $badges      = array();
+    $club_badges = array();
     foreach ($teams as $i => $team) {
         $team = trim($team);
         if ($team !== '' && !empty($images[$i])) {
-            $badges[$team] = $images[$i];
+            $type = isset($types[$i]) ? $types[$i] : 'exact';
+            if ($type === 'club') {
+                $club_badges[$team] = $images[$i];
+            } else {
+                $badges[$team] = $images[$i];
+            }
         }
     }
-    update_option('nipgl_badges', $badges);
+    update_option('nipgl_badges',      $badges);
+    update_option('nipgl_club_badges', $club_badges);
 
     // Save sponsors
     $sp_images = isset($_POST['nipgl_sp_image']) ? array_map('esc_url_raw',        $_POST['nipgl_sp_image']) : array();
@@ -356,45 +366,53 @@ function nipgl_settings_page() {
 
             <hr>
             <h2>Club Badges</h2>
-            <p>Enter each club name <strong>exactly as it appears in the Google Sheet</strong>, then pick a badge from the Media Library.</p>
+            <p>Enter a name and choose a badge. Set <strong>Type</strong> to <strong>Club prefix</strong> for clubs with multiple teams — e.g. enter <code>MALONE</code> once and it will match <code>MALONE A</code>, <code>MALONE B</code>, <code>MALONE C</code> etc. Use <strong>Exact</strong> when a team needs its own specific badge. Exact matches always take priority over club prefix matches.</p>
 
             <table class="widefat nipgl-badge-table" id="nipgl-badge-table">
                 <thead>
                     <tr>
-                        <th>Club Name (as in sheet)</th>
+                        <th>Club / Team Name</th>
+                        <th>Type</th>
                         <th>Badge Image</th>
                         <th>Preview</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($badges)): ?>
+                    <?php
+                    $club_badges = get_option('nipgl_club_badges', array());
+                    // Merge for display: exact badges first, then club badges
+                    $all_badge_rows = array();
+                    foreach ($badges as $team => $img) {
+                        $all_badge_rows[] = array('name' => $team, 'image' => $img, 'type' => 'exact');
+                    }
+                    foreach ($club_badges as $team => $img) {
+                        $all_badge_rows[] = array('name' => $team, 'image' => $img, 'type' => 'club');
+                    }
+                    if (empty($all_badge_rows)) {
+                        $all_badge_rows = array(array('name' => '', 'image' => '', 'type' => 'club'));
+                    }
+                    foreach ($all_badge_rows as $row): ?>
                     <tr class="nipgl-badge-row">
-                        <td><input type="text" name="nipgl_team[]" value="" placeholder="e.g. MALONE" class="regular-text"></td>
+                        <td><input type="text" name="nipgl_team[]" value="<?php echo esc_attr($row['name']); ?>" placeholder="e.g. MALONE" class="regular-text"></td>
                         <td>
-                            <input type="text" name="nipgl_image[]" value="" placeholder="Image URL" class="regular-text nipgl-image-url" readonly>
+                            <select name="nipgl_badge_type[]" class="nipgl-badge-type">
+                                <option value="club"  <?php selected($row['type'], 'club');  ?>>Club prefix</option>
+                                <option value="exact" <?php selected($row['type'], 'exact'); ?>>Exact</option>
+                            </select>
+                        </td>
+                        <td>
+                            <input type="text" name="nipgl_image[]" value="<?php echo esc_url($row['image']); ?>" placeholder="Image URL" class="regular-text nipgl-image-url" readonly>
                             <button type="button" class="button nipgl-pick-image">Choose Image</button>
                         </td>
-                        <td><img class="nipgl-badge-preview" src="" style="display:none;width:48px;height:48px;object-fit:contain;"></td>
+                        <td><img class="nipgl-badge-preview" src="<?php echo esc_url($row['image']); ?>" style="width:48px;height:48px;object-fit:contain;<?php echo $row['image'] ? '' : 'display:none;'; ?>"></td>
                         <td><button type="button" class="button-link-delete nipgl-remove-row">Remove</button></td>
                     </tr>
-                    <?php else: ?>
-                        <?php foreach ($badges as $team => $img): ?>
-                        <tr class="nipgl-badge-row">
-                            <td><input type="text" name="nipgl_team[]" value="<?php echo esc_attr($team); ?>" class="regular-text"></td>
-                            <td>
-                                <input type="text" name="nipgl_image[]" value="<?php echo esc_url($img); ?>" placeholder="Image URL" class="regular-text nipgl-image-url" readonly>
-                                <button type="button" class="button nipgl-pick-image">Choose Image</button>
-                            </td>
-                            <td><img class="nipgl-badge-preview" src="<?php echo esc_url($img); ?>" style="width:48px;height:48px;object-fit:contain;<?php echo $img ? '' : 'display:none;'; ?>"></td>
-                            <td><button type="button" class="button-link-delete nipgl-remove-row">Remove</button></td>
-                        </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
 
-            <p><button type="button" class="button" id="nipgl-add-row">+ Add Club</button></p>
+            <p><button type="button" class="button" id="nipgl-add-row">+ Add Badge</button></p>
 
             <hr>
             <h2>Shortcode Usage</h2>

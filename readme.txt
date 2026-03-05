@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 4.8
+Stable tag: 5.0
 License: GPLv2 or later
 
 Mobile-friendly league table and fixtures widget for NIPGL, powered by Google Sheets CSV.
@@ -30,6 +30,17 @@ Use the shortcode on any page:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 5.0 =
+* Club-level badge configuration — set a badge once for a club and it matches all teams with that prefix (e.g. MALONE covers MALONE A, B, C)
+* Exact team badges still supported and always take priority over club prefix matches
+* Longest matching prefix wins when multiple club entries could match
+* Badge admin UI updated with Type column (Club prefix / Exact)
+
+= 4.9 =
+* Fixed modal header and buttons being clipped in Brave browser
+* Replaced inset:0 shorthand with explicit top/right/bottom/left for cross-browser compatibility
+* Switched modal from vertical centering to top-anchored with padding to prevent viewport clipping
 
 = 4.8 =
 * Fixed print speed — removed Google Fonts load, dialog now appears immediately
