@@ -290,3 +290,8 @@ body.nipgl-modal-open{overflow:hidden}
   .nipgl-badge,.nipgl-modal-badge{max-width:32px !important;max-height:32px !important;width:32px !important;height:32px !important}
   .nipgl-sponsor-img{max-height:48px !important;max-width:160px !important}
 }
+
+/* Played fixture rows are clickable for scorecard */
+.fx-row.played[data-home]:hover{background:var(--nipgl-bg-hover);cursor:pointer}
+.fx-row.played[data-home]::after{content:'📋';font-size:11px;position:absolute;right:8px;top:50%;transform:translateY(-50%);opacity:.4}
+.fx-row{position:relative}

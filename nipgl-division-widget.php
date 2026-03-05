@@ -2,13 +2,16 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Renders mobile-friendly league table and fixtures from Google Sheets CSV. Use shortcode [nipgl_division csv="URL" title="Division 1"] on any page.
- * Version: 5.0
+ * Version: 5.1
  * Author: NIPGL
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * Primary Branch: main
  */
 
-define('NIPGL_VERSION', '5.0');
+define('NIPGL_VERSION', '5.1');
+
+// Include scorecard feature
+require_once plugin_dir_path(__FILE__) . 'nipgl-scorecards.php';
 
 // ── Auto-updater (checks GitHub releases) ────────────────────────────────────
 add_filter('pre_set_site_transient_update_plugins', 'nipgl_check_for_update');
@@ -243,6 +246,38 @@ function nipgl_admin_menu() {
         'nipgl-settings',
         'nipgl_settings_page'
     );
+    // Scorecards viewer in admin
+    add_menu_page(
+        'NIPGL Scorecards',
+        'Scorecards',
+        'manage_options',
+        'nipgl-scorecards',
+        'nipgl_scorecards_admin_page',
+        'dashicons-clipboard',
+        30
+    );
+}
+
+function nipgl_scorecards_admin_page() {
+    $posts = get_posts(array('post_type'=>'nipgl_scorecard','posts_per_page'=>50,'post_status'=>'publish','orderby'=>'date','order'=>'DESC'));
+    echo '<div class="wrap"><h1>Submitted Scorecards</h1>';
+    if (empty($posts)) { echo '<p>No scorecards submitted yet.</p></div>'; return; }
+    echo '<table class="widefat"><thead><tr><th>Match</th><th>Division</th><th>Date</th><th>Result</th><th>Submitted</th><th></th></tr></thead><tbody>';
+    foreach ($posts as $p) {
+        $sc = get_post_meta($p->ID, 'nipgl_scorecard_data', true);
+        $result = ($sc && $sc['home_points'] !== null)
+            ? esc_html($sc['home_team']).' '.$sc['home_total'].' ('.$sc['home_points'].'pts) v '.$sc['away_total'].' ('.$sc['away_points'].'pts) '.esc_html($sc['away_team'])
+            : '—';
+        echo '<tr>';
+        echo '<td>'.esc_html($p->post_title).'</td>';
+        echo '<td>'.esc_html($sc['division'] ?? '—').'</td>';
+        echo '<td>'.esc_html($sc['date'] ?? '—').'</td>';
+        echo '<td>'.$result.'</td>';
+        echo '<td>'.get_the_date('d M Y H:i', $p).'</td>';
+        echo '<td><a href="'.get_delete_post_link($p->ID).'" class="button-link-delete" onclick="return confirm(\'Delete this scorecard?\')">Delete</a></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table></div>';
 }
 
 add_action('admin_enqueue_scripts', 'nipgl_admin_enqueue');
@@ -296,6 +331,15 @@ function nipgl_save_settings() {
 
     $cache_mins = isset($_POST['nipgl_cache_mins']) ? max(1, intval($_POST['nipgl_cache_mins'])) : 5;
     update_option('nipgl_cache_mins', $cache_mins);
+
+    // API key and score entry PIN
+    if (isset($_POST['nipgl_anthropic_key'])) {
+        update_option('nipgl_anthropic_key', sanitize_text_field($_POST['nipgl_anthropic_key']));
+    }
+    if (!empty($_POST['nipgl_submit_pin'])) {
+        $pin = sanitize_text_field($_POST['nipgl_submit_pin']);
+        update_option('nipgl_submit_pin', hash('sha256', $pin));
+    }
 
     wp_redirect(admin_url('options-general.php?page=nipgl-settings&saved=1'));
     exit;
@@ -428,7 +472,28 @@ function nipgl_settings_page() {
                 <li><code>sponsor_name</code> — override primary sponsor alt text for this division <em>(optional)</em></li>
             </ul>
 
-        <hr>
+            <hr>
+            <h2>Score Entry</h2>
+            <p>Configure score submission via the <code>[nipgl_submit]</code> shortcode. Add this shortcode to any page to create the score entry form.</p>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="nipgl_submit_pin">Score Entry PIN</label></th>
+                    <td>
+                        <input type="password" id="nipgl_submit_pin" name="nipgl_submit_pin" value="" placeholder="Enter new PIN to change" autocomplete="new-password" style="width:200px">
+                        <p class="description">Leave blank to keep the current PIN. Share this PIN with club secretaries who will submit scorecards.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="nipgl_anthropic_key">Anthropic API Key</label></th>
+                    <td>
+                        <?php $key = get_option('nipgl_anthropic_key',''); ?>
+                        <input type="password" id="nipgl_anthropic_key" name="nipgl_anthropic_key" value="<?php echo esc_attr($key); ?>" placeholder="sk-ant-…" style="width:380px">
+                        <p class="description">Required for AI photo reading. Get a key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>. The key is stored securely in your WordPress database.</p>
+                    </td>
+                </tr>
+            </table>
+
+            <hr>
             <h2>Cache Settings</h2>
             <p>Data is cached on your server to speed up page loads. Visitors see cached data until it expires, then a fresh fetch is made from Google Sheets.</p>
             <table class="form-table">

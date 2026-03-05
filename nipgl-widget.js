@@ -1,4 +1,4 @@
-/* NIPGL Division Widget JS - v5.0 */
+/* NIPGL Division Widget JS - v5.1 */
 (function(){
   'use strict';
 
@@ -446,7 +446,8 @@
       h+='<div class="date-group"><div class="date-hdr">'+g.date+'</div>';
       g.matches.forEach(function(m){
         var pc=m.played?' played':'';
-        h+='<div class="fx-row'+pc+'">'
+        var fxAttrs=m.played?' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'" title="Click to view full scorecard"':'';
+        h+='<div class="fx-row'+pc+'"'+fxAttrs+'>'
           +'<div class="fx-ph">'+(m.played?m.ptsHome:'')+'</div>'
           +'<div class="fx-h"><span class="nipgl-team-link" data-team="'+m.homeTeam+'">'+badgeImg(m.homeTeam)+m.homeTeam+'</span></div>'
           +'<div class="fx-sc"><span class="fx-sb">'+m.shotsHome+'</span><span class="fx-sep">v</span><span class="fx-sb">'+m.shotsAway+'</span></div>'
@@ -565,6 +566,34 @@
           if(team&&allRows) showTeamModal(team,allRows);
         });
       });
+      // Played fixture rows — click to show scorecard
+      widget.querySelectorAll('.fx-row.played[data-home]').forEach(function(row){
+        row.style.cursor='pointer';
+        row.addEventListener('click',function(e){
+          if(e.target.classList.contains('nipgl-team-link')||e.target.closest('.nipgl-team-link')) return;
+          showFixtureModal(
+            row.getAttribute('data-home'),
+            row.getAttribute('data-away'),
+            row.getAttribute('data-date')
+          );
+        });
+      });
+    }
+
+    function showFixtureModal(home, away, date){
+      var titleHtml='<h2>'+home+' v '+away+'</h2>';
+      var bodyHtml='<p class="nipgl-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
+        +'<hr class="nipgl-sc-divider">'
+        +'<div class="nipgl-sc-title">Full Scorecard</div>'
+        +'<div id="nipgl-sc-container"></div>';
+      openModal(titleHtml, bodyHtml);
+      // Load scorecard async after modal opens
+      var container=document.getElementById('nipgl-sc-container');
+      if(container && typeof window.nipglFetchScorecard === 'function'){
+        window.nipglFetchScorecard(home, away, date, container);
+      } else if(container){
+        container.innerHTML='<p class="nipgl-sc-none">Scorecard feature not loaded.</p>';
+      }
     }
 
     function bindFilterBtns(){

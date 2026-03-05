@@ -82,6 +82,15 @@ A section with a `FIXTURES` header row, followed by a column header row containi
 
 ## Changelog
 
+### v5.1
+- Full scorecard submission system — `[nipgl_submit]` shortcode
+- PIN-gated entry (no WordPress login needed)
+- AI photo reading (Anthropic API) pre-fills form from photo
+- Excel upload parsing for NIPGL scorecard template
+- Manual entry form with 4 rinks and player names
+- Played fixtures clickable in modal — shows full rink-by-rink scorecard
+- Scorecards admin page
+
 ### v5.0
 - Club-level badge configuration — configure a badge once for a club, matches all teams with that prefix
 - Exact team badge still supported, always takes priority over club prefix

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 5.0
+Stable tag: 5.1
 License: GPLv2 or later
 
 Mobile-friendly league table and fixtures widget for NIPGL, powered by Google Sheets CSV.
@@ -30,6 +30,17 @@ Use the shortcode on any page:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 5.1 =
+* Scorecard submission feature — new [nipgl_submit] shortcode
+* PIN-gated score entry form (no WordPress login needed)
+* AI photo reading via Anthropic API — upload a photo, form pre-fills automatically
+* Excel upload parsing — reads NIPGL scorecard template directly
+* Manual entry form with 4 rinks, player names, scores, totals
+* Scorecard storage as custom post type
+* Played fixture rows clickable — shows full rink-by-rink scorecard in modal
+* New Scorecards admin page for viewing and deleting submissions
+* Score Entry PIN and Anthropic API key settings
 
 = 5.0 =
 * Club-level badge configuration — set a badge once for a club and it matches all teams with that prefix (e.g. MALONE covers MALONE A, B, C)
