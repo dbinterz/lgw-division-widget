@@ -80,7 +80,72 @@ A section with a `FIXTURES` header row, followed by a column header row containi
 
 ---
 
+## Scorecard Submission
+
+The `[nipgl_submit]` shortcode adds a scorecard entry page for clubs.
+
+### Setup
+
+1. Go to **Settings → NIPGL Widget** and add each club with a PIN under **Club PINs**
+2. Add an Anthropic API key under **API Settings** if you want AI photo parsing
+3. Create a page with `[nipgl_submit]` — clubs visit this page to submit scorecards
+
+### How it works
+
+- Clubs log in with their club name and PIN (no WordPress account needed)
+- Three entry methods: **photo** (AI reads the scorecard image), **Excel** (upload the NIPGL template), or **manual**
+- First submission sets status to **Pending** — awaiting confirmation from the other club
+- Second club can **Confirm** (scores agree → Confirmed ✅) or **Amend** (scores differ → Disputed ⚠️)
+- League admin resolves disputes via **wp-admin → Scorecards**
+- Confirmed scorecards appear when clicking a played fixture row in the league table
+
+### Excel template
+
+The plugin parses the standard NIPGL scorecard Excel template. Cells with unresolved formulas (total shots) are handled automatically by summing rink scores as a fallback.
+
+---
+
 ## Changelog
+
+### v5.9
+- Player tracking system — appearances auto-logged from confirmed/admin-resolved scorecards
+- Players grouped by club, showing which teams they've played for and appearance count
+- Season date range configuration — counts scoped to current season
+- Admin merge tool for duplicate player names (freetext scorecard names)
+- Manual add/rename/delete players
+- Export to Excel — summary sheet plus one sheet per club with full appearance log
+
+### v5.8
+- Admin scorecards page rebuilt — status badges, inline scorecard view, side-by-side dispute comparison
+- Admin can accept Version A or Version B to resolve a disputed result
+- Disputed scorecard shows which club submitted each version
+
+### v5.7
+- Fixed fixture modal not finding submitted scorecards
+- Match key now uses home + away team only — date formats differ between CSV and form input
+
+### v5.6
+- Fixed Excel parser returning empty grid on PHP 8.3 due to PCRE lookahead inconsistency
+- Replaced regex cell matching with `explode('</c>', ...)` approach — robust across all PHP versions
+
+### v5.5
+- Added `nipgl-debug.html` diagnostic tool for testing Excel parser directly in browser
+
+### v5.4
+- Fixed Excel date serial numbers — now displayed as dd/mm/yyyy instead of raw number
+- Fixed mapper not detecting Rink headers in column D (new template layout)
+- Fixed away player names not resolving from shared string table
+
+### v5.3
+- Per-club PIN authentication — each club has its own PIN set in plugin settings
+- Two-party verification — second club can confirm or amend a submitted scorecard
+- Scorecard statuses: Pending / Confirmed / Disputed
+- Pending scorecards shown to the other club on login
+- Session-based club authentication
+
+### v5.2
+- Fixed AI photo parsing — corrected model name causing silent 400 error
+- Improved API error surfacing — actual error message now shown on failure
 
 ### v5.1
 - Full scorecard submission system — `[nipgl_submit]` shortcode

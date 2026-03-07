@@ -2,16 +2,18 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Renders mobile-friendly league table and fixtures from Google Sheets CSV. Use shortcode [nipgl_division csv="URL" title="Division 1"] on any page.
- * Version: 5.3
+ * Version: 5.9
  * Author: NIPGL
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * Primary Branch: main
  */
 
-define('NIPGL_VERSION', '5.3');
+define('NIPGL_PLUGIN_FILE', __FILE__);
+define('NIPGL_VERSION', '5.9');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-scorecards.php';
+require_once plugin_dir_path(__FILE__) . 'nipgl-players.php';
 
 // ── Auto-updater (checks GitHub releases) ────────────────────────────────────
 add_filter('pre_set_site_transient_update_plugins', 'nipgl_check_for_update');
@@ -259,25 +261,139 @@ function nipgl_admin_menu() {
 }
 
 function nipgl_scorecards_admin_page() {
-    $posts = get_posts(array('post_type'=>'nipgl_scorecard','posts_per_page'=>50,'post_status'=>'publish','orderby'=>'date','order'=>'DESC'));
-    echo '<div class="wrap"><h1>Submitted Scorecards</h1>';
-    if (empty($posts)) { echo '<p>No scorecards submitted yet.</p></div>'; return; }
-    echo '<table class="widefat"><thead><tr><th>Match</th><th>Division</th><th>Date</th><th>Result</th><th>Submitted</th><th></th></tr></thead><tbody>';
-    foreach ($posts as $p) {
-        $sc = get_post_meta($p->ID, 'nipgl_scorecard_data', true);
-        $result = ($sc && $sc['home_points'] !== null)
-            ? esc_html($sc['home_team']).' '.$sc['home_total'].' ('.$sc['home_points'].'pts) v '.$sc['away_total'].' ('.$sc['away_points'].'pts) '.esc_html($sc['away_team'])
-            : '—';
-        echo '<tr>';
-        echo '<td>'.esc_html($p->post_title).'</td>';
-        echo '<td>'.esc_html($sc['division'] ?? '—').'</td>';
-        echo '<td>'.esc_html($sc['date'] ?? '—').'</td>';
-        echo '<td>'.$result.'</td>';
-        echo '<td>'.get_the_date('d M Y H:i', $p).'</td>';
-        echo '<td><a href="'.get_delete_post_link($p->ID).'" class="button-link-delete" onclick="return confirm(\'Delete this scorecard?\')">Delete</a></td>';
-        echo '</tr>';
+    $posts = get_posts(array('post_type'=>'nipgl_scorecard','posts_per_page'=>100,'post_status'=>'publish','orderby'=>'date','order'=>'DESC'));
+    $nonce = wp_create_nonce('nipgl_admin_nonce');
+    ?>
+    <div class="wrap">
+    <h1>Submitted Scorecards</h1>
+    <style>
+    .nipgl-sc-status{display:inline-block;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600}
+    .nipgl-sc-status.pending{background:#fff3cd;color:#856404}
+    .nipgl-sc-status.confirmed{background:#d1e7dd;color:#0a3622}
+    .nipgl-sc-status.disputed{background:#f8d7da;color:#842029}
+    .nipgl-admin-sc-wrap{display:none;background:#f6f7f7;border:1px solid #ddd;padding:16px;margin:8px 0}
+    .nipgl-admin-sc-wrap.open{display:block}
+    .nipgl-sc-compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px}
+    .nipgl-sc-version{background:#fff;border:1px solid #ddd;padding:12px;border-radius:4px}
+    .nipgl-sc-version h4{margin:0 0 8px;font-size:13px;color:#1a2e5a}
+    .nipgl-sc-rink-row{font-size:12px;padding:3px 0;border-bottom:1px solid #eee}
+    .nipgl-sc-totals{font-weight:600;margin-top:6px;font-size:13px}
+    .nipgl-resolve-btns{margin-top:10px}
+    .nipgl-resolve-btns .button{margin-right:8px}
+    #nipgl-resolve-msg{padding:8px;margin-top:8px;background:#d1e7dd;color:#0a3622;display:none;border-radius:4px}
+    </style>
+    <script>
+    function nipglToggleSc(id){
+        var el=document.getElementById('sc-'+id);
+        el.classList.toggle('open');
     }
-    echo '</tbody></table></div>';
+    function nipglResolve(postId, version, nonce){
+        if(!confirm('Accept the '+version+' version as the official result?')) return;
+        var data=new FormData();
+        data.append('action','nipgl_admin_resolve');
+        data.append('post_id',postId);
+        data.append('version',version);
+        data.append('nonce',nonce);
+        fetch(ajaxurl,{method:'POST',body:data,credentials:'same-origin'})
+            .then(function(r){return r.json();})
+            .then(function(res){
+                var msg=document.getElementById('nipgl-resolve-msg-'+postId);
+                if(res.success){
+                    msg.style.display='block';
+                    msg.textContent=res.data.message||'Resolved.';
+                    setTimeout(function(){location.reload();},1500);
+                } else {
+                    alert('Error: '+(res.data||'unknown'));
+                }
+            });
+    }
+    </script>
+    <?php if (empty($posts)): ?>
+        <p>No scorecards submitted yet.</p>
+    <?php else: ?>
+    <table class="widefat striped">
+    <thead><tr>
+        <th>Match</th><th>Division</th>
+        <th>Result (home v away)</th>
+        <th>Status</th>
+        <th>Submitted</th>
+        <th>Actions</th>
+    </tr></thead>
+    <tbody>
+    <?php foreach ($posts as $p):
+        $sc       = get_post_meta($p->ID, 'nipgl_scorecard_data',  true);
+        $status   = get_post_meta($p->ID, 'nipgl_sc_status',       true) ?: 'pending';
+        $sub_by   = get_post_meta($p->ID, 'nipgl_submitted_by',    true);
+        $con_by   = get_post_meta($p->ID, 'nipgl_confirmed_by',    true);
+        $away_sc  = get_post_meta($p->ID, 'nipgl_away_scorecard',  true);
+        $result   = ($sc && isset($sc['home_total']))
+            ? $sc['home_total'].' ('.$sc['home_points'].'pts) – '.$sc['away_total'].' ('.$sc['away_points'].'pts)'
+            : '—';
+        $status_labels = array('pending'=>'Pending','confirmed'=>'Confirmed','disputed'=>'Disputed');
+    ?>
+    <tr>
+        <td><strong><?php echo esc_html($p->post_title); ?></strong></td>
+        <td><?php echo esc_html($sc['division'] ?? '—'); ?></td>
+        <td><?php echo esc_html($result); ?></td>
+        <td><span class="nipgl-sc-status <?php echo esc_attr($status); ?>"><?php echo $status_labels[$status] ?? $status; ?></span></td>
+        <td><?php echo get_the_date('d M Y H:i', $p); ?><br><small>by <?php echo esc_html($sub_by ?: '—'); ?></small></td>
+        <td>
+            <button class="button button-small" onclick="nipglToggleSc(<?php echo $p->ID; ?>)">View</button>
+            <a href="<?php echo get_delete_post_link($p->ID); ?>" class="button button-small button-link-delete" onclick="return confirm('Delete this scorecard?')">Delete</a>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="6" style="padding:0">
+        <div class="nipgl-admin-sc-wrap" id="sc-<?php echo $p->ID; ?>">
+
+        <?php if ($status === 'disputed' && $away_sc): ?>
+            <p><strong>⚠️ Disputed result</strong> — <?php echo esc_html($sub_by); ?> submitted first, <?php echo esc_html($con_by); ?> submitted a different result. Choose which version to accept as official:</p>
+            <div class="nipgl-sc-compare">
+                <div class="nipgl-sc-version">
+                    <h4>Version A — submitted by <?php echo esc_html($sub_by); ?></h4>
+                    <?php nipgl_admin_render_sc_summary($sc); ?>
+                </div>
+                <div class="nipgl-sc-version">
+                    <h4>Version B — submitted by <?php echo esc_html($con_by); ?></h4>
+                    <?php nipgl_admin_render_sc_summary($away_sc); ?>
+                </div>
+            </div>
+            <div class="nipgl-resolve-btns">
+                <button class="button button-primary" onclick="nipglResolve(<?php echo $p->ID; ?>,'home','<?php echo $nonce; ?>')">✅ Accept Version A (<?php echo esc_html($sub_by); ?>)</button>
+                <button class="button button-primary" onclick="nipglResolve(<?php echo $p->ID; ?>,'away','<?php echo $nonce; ?>')">✅ Accept Version B (<?php echo esc_html($con_by); ?>)</button>
+            </div>
+            <div id="nipgl-resolve-msg-<?php echo $p->ID; ?>" style="display:none;margin-top:8px;padding:8px;background:#d1e7dd;color:#0a3622;border-radius:4px"></div>
+
+        <?php else: ?>
+            <div class="nipgl-sc-version">
+                <?php nipgl_admin_render_sc_summary($sc); ?>
+                <?php if ($status === 'confirmed'): ?>
+                    <p style="color:#0a3622;font-size:12px">✅ Confirmed by <?php echo esc_html($con_by); ?></p>
+                <?php elseif ($status === 'pending'): ?>
+                    <p style="color:#856404;font-size:12px">⏳ Awaiting confirmation from the other club</p>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
+        </div>
+        </td>
+    </tr>
+    <?php endforeach; ?>
+    </tbody>
+    </table>
+    <?php endif; ?>
+    </div>
+    <?php
+}
+
+function nipgl_admin_render_sc_summary($sc) {
+    if (!$sc) { echo '<p>No data.</p>'; return; }
+    echo '<div class="nipgl-sc-rink-row"><strong>'.esc_html($sc['home_team'] ?? '').' v '.esc_html($sc['away_team'] ?? '').'</strong></div>';
+    foreach (($sc['rinks'] ?? array()) as $rk) {
+        echo '<div class="nipgl-sc-rink-row">Rink '.$rk['rink'].': '.intval($rk['home_score']).' – '.intval($rk['away_score']).'</div>';
+    }
+    echo '<div class="nipgl-sc-totals">Total: '.($sc['home_total'] ?? '?').' – '.($sc['away_total'] ?? '?')
+        .'&nbsp;&nbsp;Points: '.($sc['home_points'] ?? '?').' – '.($sc['away_points'] ?? '?').'</div>';
 }
 
 add_action('admin_enqueue_scripts', 'nipgl_admin_enqueue');

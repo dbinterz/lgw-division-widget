@@ -54,8 +54,9 @@ function nipgl_club_involved($club, $home_team, $away_team) {
 }
 
 // ── Scorecard lookup ──────────────────────────────────────────────────────────
-function nipgl_get_scorecard($home, $away, $date) {
-    $key = sanitize_title($home . '-' . $away . '-' . $date);
+function nipgl_get_scorecard($home, $away, $date = '') {
+    // Key is home+away only — date formats differ between CSV and form input
+    $key = sanitize_title($home . '-' . $away);
     $posts = get_posts(array(
         'post_type'      => 'nipgl_scorecard',
         'posts_per_page' => 1,
@@ -167,6 +168,7 @@ function nipgl_ajax_confirm_scorecard() {
 
     update_post_meta($id, 'nipgl_sc_status',    'confirmed');
     update_post_meta($id, 'nipgl_confirmed_by', $club);
+    nipgl_log_appearances($id);
     wp_send_json_success(array('message' => 'Scorecard confirmed. Thank you!'));
 }
 
@@ -277,10 +279,10 @@ function nipgl_ajax_parse_excel() {
     if (!in_array($ext, array('xlsx','xls'))) wp_send_json_error('Please upload an .xlsx or .xls file');
 
     $data = nipgl_parse_xlsx_basic($file['tmp_name']);
-    if (!$data) wp_send_json_error('Could not read spreadsheet. Please try the manual entry form.');
+    if (!$data) wp_send_json_error('Could not read spreadsheet. Please check the file is a valid .xlsx and try again.');
 
     $parsed = nipgl_map_xlsx_to_scorecard($data);
-    if (!$parsed) wp_send_json_error('Could not map spreadsheet to scorecard format.');
+    if (!$parsed) wp_send_json_error('Could not map spreadsheet to scorecard format. Please check the file uses the standard NIPGL scorecard template.');
     wp_send_json_success($parsed);
 }
 
@@ -288,30 +290,55 @@ function nipgl_parse_xlsx_basic($filepath) {
     if (!class_exists('ZipArchive')) return false;
     $zip = new ZipArchive();
     if ($zip->open($filepath) !== true) return false;
+
     $strings = array();
     $ss = $zip->getFromName('xl/sharedStrings.xml');
     if ($ss) {
         preg_match_all('/<t[^>]*>(.*?)<\/t>/s', $ss, $m);
         $strings = array_map('html_entity_decode', $m[1]);
     }
+
+    // Find the first sheet — try sheet1.xml, then scan for any sheet
     $sheet_xml = $zip->getFromName('xl/worksheets/sheet1.xml');
+    if ($sheet_xml === false) {
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = $zip->getNameIndex($i);
+            if (strpos($name, 'xl/worksheets/sheet') !== false && substr($name, -4) === '.xml') {
+                $sheet_xml = $zip->getFromName($name);
+                if ($sheet_xml !== false) break;
+            }
+        }
+    }
     $zip->close();
     if (!$sheet_xml) return false;
-    preg_match_all('/<row[^>]*>(.*?)<\/row>/s', $sheet_xml, $rows);
+
+    // Parse cells by splitting on </c> — avoids PCRE inconsistencies across PHP versions.
+    // Each chunk contains at most one real cell. Self-closing empty cells have no <v> tag and are skipped.
+    $grid  = array();
+    $parts = explode('</c>', $sheet_xml);
+    foreach ($parts as $part) {
+        $c_pos = strrpos($part, '<c ');
+        if ($c_pos === false) continue;
+        $cell = substr($part, $c_pos);
+        if (!preg_match('/\br="([A-Z]+)(\d+)"/', $cell, $ref)) continue;
+        $col     = nipgl_col_to_idx($ref[1]);
+        $row_num = intval($ref[2]);
+        $type    = '';
+        if (preg_match('/\bt="([^"]*)"/', $cell, $tm)) $type = $tm[1];
+        if (!preg_match('/<v>(.*?)<\/v>/s', $cell, $vm)) continue;
+        $val      = $vm[1];
+        $resolved = ($type === 's') ? ($strings[intval($val)] ?? '') : $val;
+        $grid[$row_num][$col] = $resolved;
+    }
+
+    if (empty($grid)) return false;
+    ksort($grid);
     $data = array();
-    foreach ($rows[1] as $row_xml) {
-        preg_match_all('/<c r="([A-Z]+)(\d+)"[^>]*(?:t="([^"]*)")?[^>]*>.*?<v>(.*?)<\/v>.*?<\/c>/s', $row_xml, $cells, PREG_SET_ORDER);
-        $row = array();
-        foreach ($cells as $c) {
-            $col = nipgl_col_to_idx($c[1]);
-            $row[$col] = ($c[3] === 's') ? ($strings[intval($c[4])] ?? '') : $c[4];
-        }
-        if (!empty($row)) {
-            $max = max(array_keys($row));
-            $out = array();
-            for ($i = 0; $i <= $max; $i++) $out[] = $row[$i] ?? '';
-            $data[] = $out;
-        }
+    foreach ($grid as $row_num => $row) {
+        $max = max(array_keys($row));
+        $out = array();
+        for ($i = 0; $i <= $max; $i++) $out[] = $row[$i] ?? '';
+        $data[] = $out;
     }
     return $data;
 }
@@ -326,38 +353,115 @@ function nipgl_map_xlsx_to_scorecard($data) {
     if (empty($data)) return null;
     $sc = array('division'=>'','venue'=>'','date'=>'','home_team'=>'','away_team'=>'',
                 'rinks'=>array(),'home_total'=>null,'away_total'=>null,'home_points'=>null,'away_points'=>null);
+
     foreach ($data as $i => $row) {
-        $r0 = trim($row[0] ?? ''); $r1 = trim($row[1] ?? '');
+        $r0 = trim($row[0] ?? '');
+        $r1 = trim($row[1] ?? '');
+
+        // Division
         if ($r0 === 'Division/Cup' || $r0 === 'Division') $sc['division'] = $r1;
-        if ($r0 === 'Played at') { $sc['venue'] = $r1; $sc['date'] = trim($row[5] ?? $row[4] ?? ''); }
-        if ($r0 === 'Home Team') continue;
-        if (!empty($r0) && isset($row[3]) && trim($row[3]) === 'v') {
-            $sc['home_team'] = $r0; $sc['away_team'] = trim($row[4] ?? '');
+
+        // Venue and date — date may be an Excel serial number
+        if ($r0 === 'Played at') {
+            $sc['venue'] = $r1;
+            $raw_date = trim($row[5] ?? $row[4] ?? '');
+            // Convert Excel date serial to readable string if numeric
+            if (is_numeric($raw_date) && floatval($raw_date) > 40000) {
+                $unix = ($raw_date - 25569) * 86400;
+                $sc['date'] = date('d/m/Y', intval($unix));
+            } else {
+                $sc['date'] = $raw_date;
+            }
         }
-        if (preg_match('/^Rink\s*(\d)/i', $r0, $m)) {
-            $rn   = intval($m[1]);
-            $rink = array('rink'=>$rn,'home_players'=>array(),'away_players'=>array(),'home_score'=>null,'away_score'=>null);
+
+        // Skip header rows
+        if ($r0 === 'Home Team') continue;
+
+        // Team names — support both layouts:
+        // Layout A: col A = home, col D(3) = 'v', col E(4) = away
+        // Layout B: col A = home, col D(3) = 'v', col E(4) = away  (same)
+        if (!empty($r0) && isset($row[3]) && trim($row[3]) === 'v' && !empty($row[4])) {
+            $sc['home_team'] = $r0;
+            $sc['away_team'] = trim($row[4]);
+        }
+
+        // Rink header — may be in col A(0) or col D(3) depending on template version
+        // Check both positions
+        $rink_col = -1;
+        $rink_num = 0;
+        for ($col = 0; $col <= min(3, count($row)-1); $col++) {
+            if (preg_match('/^Rink\s*(\d)/i', trim($row[$col] ?? ''), $rm)) {
+                $rink_col = $col;
+                $rink_num = intval($rm[1]);
+                break;
+            }
+        }
+
+        if ($rink_num > 0) {
+            $rink = array('rink'=>$rink_num,'home_players'=>array(),'away_players'=>array(),'home_score'=>null,'away_score'=>null);
+            // Read next 4 player rows
             for ($p = $i+1; $p <= $i+4 && $p < count($data); $p++) {
                 $pr = $data[$p];
-                if (preg_match('/^Rink/i', $pr[0] ?? '')) break;
-                $hp = trim($pr[0] ?? ''); $ap = trim($pr[3] ?? $pr[4] ?? '');
-                if ($hp) $rink['home_players'][] = $hp;
-                if ($ap) $rink['away_players'][] = $ap;
-                if (!empty($pr[2]) && is_numeric($pr[2])) $rink['home_score'] = floatval($pr[2]);
-                if (!empty($pr[6]) && is_numeric($pr[6])) $rink['away_score'] = floatval($pr[6]);
+                // Stop if we hit another Rink header
+                $is_rink_row = false;
+                for ($c2 = 0; $c2 <= min(3, count($pr)-1); $c2++) {
+                    if (preg_match('/^Rink\s*\d/i', trim($pr[$c2] ?? ''))) { $is_rink_row = true; break; }
+                }
+                if ($is_rink_row) break;
+
+                // Home player always in col A(0)
+                $hp = trim($pr[0] ?? '');
+                if ($hp && !preg_match('/^(Total|Points|Signed)/i', $hp)) $rink['home_players'][] = $hp;
+
+                // Away player in col D(3) — the standard position in both template versions
+                $ap = trim($pr[3] ?? '');
+                if ($ap && trim($ap) !== 'v' && !preg_match('/^(Total|Points|Signed|Rink)/i', $ap)) $rink['away_players'][] = $ap;
+
+                // Home score in col C(2)
+                if (isset($pr[2]) && is_numeric($pr[2])) $rink['home_score'] = floatval($pr[2]);
+                // Away score in col G(6) — fall back to col E(4) for compact templates  
+                if (isset($pr[6]) && is_numeric($pr[6]))      $rink['away_score'] = floatval($pr[6]);
+                elseif (isset($pr[4]) && is_numeric($pr[4]) && !isset($pr[6])) $rink['away_score'] = floatval($pr[4]);
             }
             $sc['rinks'][] = $rink;
         }
-        if (stripos($r1, 'Total Shots') !== false || stripos($r0, 'Total Shots') !== false) {
+
+        // Totals — 'Total Shots' can be in col A or col B
+        if (stripos($r0, 'Total Shots') !== false || stripos($r1, 'Total Shots') !== false) {
             $sc['home_total'] = is_numeric($row[2]??'') ? floatval($row[2]) : null;
-            $sc['away_total'] = is_numeric($row[6]??$row[5]??'') ? floatval($row[6]??$row[5]) : null;
+            // Away total in col F(5) or G(6)
+            if (is_numeric($row[6]??''))      $sc['away_total'] = floatval($row[6]);
+            elseif (is_numeric($row[5]??''))  $sc['away_total'] = floatval($row[5]);
         }
-        if ($r1 === 'Points' || $r0 === 'Points') {
+
+        // Points — same layout as totals
+        if ($r0 === 'Points' || $r1 === 'Points') {
             $sc['home_points'] = is_numeric($row[2]??'') ? floatval($row[2]) : null;
-            $sc['away_points'] = is_numeric($row[6]??$row[5]??'') ? floatval($row[6]??$row[5]) : null;
+            if (is_numeric($row[6]??''))      $sc['away_points'] = floatval($row[6]);
+            elseif (is_numeric($row[5]??''))  $sc['away_points'] = floatval($row[5]);
         }
     }
+
     if (empty($sc['rinks'])) return null;
+
+    // Fallback: if totals are null (e.g. unresolved formula), sum from rink scores
+    if ($sc['home_total'] === null) {
+        $sum = 0; $ok = true;
+        foreach ($sc['rinks'] as $rk) {
+            if ($rk['home_score'] === null) { $ok = false; break; }
+            $sum += $rk['home_score'];
+        }
+        if ($ok) $sc['home_total'] = $sum;
+    }
+    if ($sc['away_total'] === null) {
+        $sum = 0; $ok = true;
+        foreach ($sc['rinks'] as $rk) {
+            if ($rk['away_score'] === null) { $ok = false; break; }
+            $sum += $rk['away_score'];
+        }
+        if ($ok) $sc['away_total'] = $sum;
+    }
+
     return $sc;
 }
 
@@ -400,7 +504,7 @@ function nipgl_ajax_save_scorecard() {
     if (!nipgl_club_involved($club, $sc['home_team'], $sc['away_team']))
         wp_send_json_error('You can only submit scorecards for matches involving ' . $club);
 
-    $match_key = sanitize_title($sc['home_team'] . '-' . $sc['away_team'] . '-' . $sc['date']);
+    $match_key = sanitize_title($sc['home_team'] . '-' . $sc['away_team']);
     $existing  = nipgl_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date']);
 
     if ($existing) {
@@ -422,6 +526,7 @@ function nipgl_ajax_save_scorecard() {
                 // Scores agree — confirm
                 update_post_meta($existing->ID, 'nipgl_sc_status',    'confirmed');
                 update_post_meta($existing->ID, 'nipgl_confirmed_by', $club);
+                nipgl_log_appearances($existing->ID);
                 wp_send_json_success(array('message' => 'Scores match — scorecard confirmed! ✅', 'status' => 'confirmed'));
             } else {
                 // Scores differ — store away version, mark disputed
@@ -668,4 +773,167 @@ function nipgl_enqueue_scorecard() {
         'nonce'    => wp_create_nonce('nipgl_submit_nonce'),
         'authClub' => nipgl_get_auth_club(),
     ));
+}
+
+// ── DEBUG: Excel parser diagnostic (admin only, remove after testing) ─────────
+add_action('wp_ajax_nipgl_debug_excel', 'nipgl_ajax_debug_excel');
+function nipgl_ajax_debug_excel() {
+    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+
+    $out = array();
+    $out[] = '=== NIPGL Excel Parser Debug ===';
+    $out[] = 'PHP version: ' . PHP_VERSION;
+    $out[] = 'ZipArchive available: ' . (class_exists('ZipArchive') ? 'YES' : 'NO');
+
+    if (empty($_FILES['excel']['tmp_name'])) {
+        $out[] = 'ERROR: No file uploaded';
+        wp_send_json(array('log' => implode("\n", $out)));
+    }
+
+    $file = $_FILES['excel'];
+    $out[] = 'File name: '    . $file['name'];
+    $out[] = 'File size: '    . $file['size'] . ' bytes';
+    $out[] = 'MIME type: '    . $file['type'];
+    $out[] = 'Upload error: ' . $file['error'] . ' (0 = no error)';
+    $out[] = 'Tmp path: '     . $file['tmp_name'];
+    $out[] = 'Tmp exists: '   . (file_exists($file['tmp_name']) ? 'YES' : 'NO');
+
+    if (!class_exists('ZipArchive')) {
+        $out[] = 'BLOCKED: ZipArchive not available — install php-zip';
+        wp_send_json(array('log' => implode("\n", $out)));
+    }
+
+    $zip = new ZipArchive();
+    $zip_result = $zip->open($file['tmp_name']);
+    $out[] = 'ZipArchive open result: ' . var_export($zip_result, true) . ' (true = success)';
+
+    if ($zip_result !== true) {
+        $out[] = 'BLOCKED: Cannot open as zip file';
+        wp_send_json(array('log' => implode("\n", $out)));
+    }
+
+    $names = array();
+    for ($i = 0; $i < $zip->numFiles; $i++) $names[] = $zip->getNameIndex($i);
+    $out[] = 'Zip contents: ' . implode(', ', $names);
+
+    $has_sheet  = in_array('xl/worksheets/sheet1.xml', $names);
+    $has_strings = in_array('xl/sharedStrings.xml', $names);
+    $out[] = 'Has sheet1.xml: '       . ($has_sheet   ? 'YES' : 'NO');
+    $out[] = 'Has sharedStrings.xml: '. ($has_strings ? 'YES' : 'NO');
+
+    // Read shared strings
+    $strings = array();
+    if ($has_strings) {
+        $ss = $zip->getFromName('xl/sharedStrings.xml');
+        preg_match_all('/<t[^>]*>(.*?)<\/t>/s', $ss, $m);
+        $strings = array_map('html_entity_decode', $m[1]);
+        $out[] = 'Shared strings count: ' . count($strings);
+        $out[] = 'First 10 strings: ' . implode(', ', array_slice($strings, 0, 10));
+    }
+
+    if (!$has_sheet) {
+        $out[] = 'BLOCKED: sheet1.xml not found — file may use a different sheet name';
+        // Try to find the actual sheet
+        foreach ($names as $n) {
+            if (strpos($n, 'xl/worksheets/') !== false) $out[] = 'Found sheet: ' . $n;
+        }
+        $zip->close();
+        wp_send_json(array('log' => implode("\n", $out)));
+    }
+
+    $sheet_xml = $zip->getFromName('xl/worksheets/sheet1.xml');
+    $zip->close();
+    $out[] = 'Sheet XML length: ' . strlen($sheet_xml) . ' bytes';
+
+    // Test cell regex
+    $cell_count = preg_match_all('/<c ((?:(?!\/>)[^>])*)>(.*?)<\/c>/s', $sheet_xml, $cell_matches, PREG_SET_ORDER);
+    $out[] = 'Cell elements matched: ' . $cell_count;
+
+    // Parse grid
+    $grid = array();
+    foreach ($cell_matches as $cm) {
+        $tag = $cm[1]; $inner = $cm[2];
+        if (!preg_match('/\br="([A-Z]+)(\d+)"/', $tag, $ref)) continue;
+        $col     = nipgl_col_to_idx($ref[1]);
+        $row_num = intval($ref[2]);
+        $type    = '';
+        if (preg_match('/\bt="([^"]*)"/', $tag, $tm)) $type = $tm[1];
+        if (!preg_match('/<v>(.*?)<\/v>/s', $inner, $vm)) continue;
+        $val = $vm[1];
+        $resolved = ($type === 's') ? ($strings[intval($val)] ?? '??') : $val;
+        $grid[$row_num][$col] = $resolved;
+    }
+
+    $out[] = 'Rows parsed: ' . count($grid);
+    $out[] = '';
+    $out[] = '=== Decoded rows ===';
+    ksort($grid);
+    foreach ($grid as $rn => $row) {
+        $max = max(array_keys($row));
+        $cells = array();
+        for ($i = 0; $i <= $max; $i++) $cells[] = $row[$i] ?? '';
+        $out[] = 'Row ' . $rn . ': ' . json_encode($cells, JSON_UNESCAPED_UNICODE);
+    }
+
+    // Try mapper
+    $out[] = '';
+    $out[] = '=== Mapper result ===';
+    $data = array();
+    foreach ($grid as $rn => $row) {
+        $max = max(array_keys($row));
+        $r = array();
+        for ($i = 0; $i <= $max; $i++) $r[] = $row[$i] ?? '';
+        $data[] = $r;
+    }
+    $sc = nipgl_map_xlsx_to_scorecard($data);
+    if (!$sc) {
+        $out[] = 'MAPPER RETURNED NULL — no Rink rows detected';
+        // Show what row[0] values were seen
+        foreach ($data as $row) {
+            if (!empty($row[0])) $out[] = '  col A: ' . json_encode($row[0]);
+        }
+    } else {
+        $out[] = 'Home: ' . $sc['home_team'];
+        $out[] = 'Away: ' . $sc['away_team'];
+        $out[] = 'Rinks found: ' . count($sc['rinks']);
+        foreach ($sc['rinks'] as $rk) {
+            $out[] = '  Rink ' . $rk['rink'] . ': home=' . implode(',', $rk['home_players'])
+                   . ' score=' . $rk['home_score'] . '-' . $rk['away_score']
+                   . ' away=' . implode(',', $rk['away_players']);
+        }
+        $out[] = 'Totals: ' . $sc['home_total'] . ' – ' . $sc['away_total'];
+        $out[] = 'Points: ' . $sc['home_points'] . ' – ' . $sc['away_points'];
+    }
+
+    wp_send_json(array('log' => implode("\n", $out)));
+}
+
+// ── AJAX: Admin resolve disputed scorecard ────────────────────────────────────
+add_action('wp_ajax_nipgl_admin_resolve', 'nipgl_ajax_admin_resolve');
+function nipgl_ajax_admin_resolve() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    check_ajax_referer('nipgl_admin_nonce', 'nonce');
+
+    $post_id = intval($_POST['post_id'] ?? 0);
+    $version = sanitize_text_field($_POST['version'] ?? '');
+    if (!$post_id || !in_array($version, array('home','away'))) wp_send_json_error('Invalid request');
+
+    $post = get_post($post_id);
+    if (!$post || $post->post_type !== 'nipgl_scorecard') wp_send_json_error('Scorecard not found');
+
+    if ($version === 'away') {
+        // Promote the away version to the canonical scorecard
+        $away_sc = get_post_meta($post_id, 'nipgl_away_scorecard', true);
+        if (!$away_sc) wp_send_json_error('No away version found');
+        update_post_meta($post_id, 'nipgl_scorecard_data', $away_sc);
+    }
+
+    // Either way, clear the dispute and mark confirmed
+    update_post_meta($post_id, 'nipgl_sc_status',       'confirmed');
+    update_post_meta($post_id, 'nipgl_away_scorecard',  '');
+    update_post_meta($post_id, 'nipgl_confirmed_by',    'admin');
+    nipgl_log_appearances($post_id);
+
+    $label = $version === 'away' ? 'Version B' : 'Version A';
+    wp_send_json_success(array('message' => $label . ' accepted — scorecard confirmed. ✅'));
 }
