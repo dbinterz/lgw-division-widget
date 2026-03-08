@@ -107,6 +107,38 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
+### v5.13.5
+- Fix: OAuth scope changed from `drive.file` to `drive` — required to access folders shared with the service account
+- Clean up diagnostic test output
+
+### v5.13.1
+- Drive settings: Service Account key can now be uploaded directly through WordPress admin — no SFTP needed
+- Key is validated (must be a valid service_account JSON) before saving
+- Service account email displayed after upload for confirmation
+- Key stored in protected `wp-content/uploads/nipgl-private/` with `.htaccess` blocking web access
+- Key path persists across settings saves via hidden field
+
+### v5.13.0
+- Google Drive integration — confirmed scorecards automatically saved as PDF to Google Drive
+- Original photo (where uploaded) saved alongside PDF
+- Files saved into both home and away club folders
+- Folder structure: Year / Division / Club
+- Subfolders created automatically
+- Admin edits produce versioned files (e.g. `-v2.pdf`) rather than overwriting
+- Drive activity logged per scorecard, visible in admin scorecards History panel
+- Settings: service account key path (loaded from server file), root folder ID, test connection button
+- OAuth2 JWT auth — pure PHP, no Composer dependency
+- New files: `nipgl-drive.php`, `nipgl-pdf.php`
+
+### v5.12.0
+- Admin scorecard edit — any field editable by admin: teams, date, venue, division, competition, per-rink player names, scores, totals and points
+- Scorecards amended by admin show an "Amended" badge in the scorecards list
+- Player appearances automatically re-logged after any admin edit
+- Audit trail — every submit, confirm, resolve and admin edit is logged with timestamp, username, and a field-level before/after diff
+- Audit history accessible via new 📋 History button on each scorecard row
+- View/Edit/History panels replace the old single toggle — each button opens its own panel, clicking again collapses it
+- New file: `nipgl-sc-admin.php`
+
 ### v5.11.1
 - Fixed: season date filter was comparing against `played_at` (log time) instead of `match_date` (actual match date), causing all players to vanish when a season range was set
 - Season filter now uses `STR_TO_DATE` to correctly parse dd/mm/yyyy match dates for comparison

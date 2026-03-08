@@ -2,18 +2,20 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club PIN authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, and sponsor branding.
- * Version: 5.11.1
+ * Version: 5.13.6
  * Author: NIPGL
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * Primary Branch: main
  */
 
 define('NIPGL_PLUGIN_FILE', __FILE__);
-define('NIPGL_VERSION', '5.11.1');
+define('NIPGL_VERSION', '5.13.6');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-scorecards.php';
 require_once plugin_dir_path(__FILE__) . 'nipgl-players.php';
+require_once plugin_dir_path(__FILE__) . 'nipgl-sc-admin.php';
+require_once plugin_dir_path(__FILE__) . 'nipgl-drive.php';
 
 // ── Auto-updater (checks GitHub releases) ────────────────────────────────────
 add_filter('pre_set_site_transient_update_plugins', 'nipgl_check_for_update');
@@ -317,12 +319,34 @@ function nipgl_scorecards_admin_page() {
     .nipgl-resolve-btns{margin-top:10px}
     .nipgl-resolve-btns .button{margin-right:8px}
     #nipgl-resolve-msg{padding:8px;margin-top:8px;background:#d1e7dd;color:#0a3622;display:none;border-radius:4px}
+    /* Edit form */
+    .nipgl-edit-form{background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:16px;margin-top:12px}
+    .nipgl-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+    .nipgl-edit-row{display:flex;flex-direction:column;gap:4px}
+    .nipgl-edit-row label{font-weight:600;font-size:12px;color:#555}
+    .nipgl-edit-rinks-table td{padding:6px 8px;vertical-align:middle}
+    .nipgl-edit-rinks-table input.large-text{width:100%}
+    .nipgl-edit-msg.success{color:#0a3622;background:#d1e7dd;padding:6px 10px;border-radius:3px}
+    .nipgl-edit-msg.error{color:#842029;background:#f8d7da;padding:6px 10px;border-radius:3px}
+    /* Audit log */
+    .nipgl-audit-log{border:1px solid #ddd;border-radius:4px;overflow:hidden;margin-top:4px}
+    .nipgl-audit-entry{padding:10px 12px;border-bottom:1px solid #eee;font-size:12px}
+    .nipgl-audit-entry:last-child{border-bottom:none}
+    .nipgl-audit-header{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+    .nipgl-audit-icon{font-size:14px}
+    .nipgl-audit-action{font-weight:700;padding:1px 6px;border-radius:3px;font-size:11px;text-transform:uppercase}
+    .nipgl-audit-action-edited{background:#fff3cd;color:#856404}
+    .nipgl-audit-action-confirmed{background:#d1e7dd;color:#0a3622}
+    .nipgl-audit-action-resolved{background:#cfe2ff;color:#084298}
+    .nipgl-audit-action-submitted{background:#f0f0f0;color:#333}
+    .nipgl-audit-user{font-weight:600;color:#1a2e5a}
+    .nipgl-audit-ts{color:#888;margin-left:auto}
+    .nipgl-audit-note{color:#444;line-height:1.4}
+    .nipgl-audit-changes{margin:4px 0 0 18px;padding:0;color:#666}
+    .nipgl-audit-changes li{margin-bottom:2px}
+    .nipgl-sc-amended{font-size:10px;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle}
     </style>
     <script>
-    function nipglToggleSc(id){
-        var el=document.getElementById('sc-'+id);
-        el.classList.toggle('open');
-    }
     function nipglResolve(postId, version, nonce){
         if(!confirm('Accept the '+version+' version as the official result?')) return;
         var data=new FormData();
@@ -343,6 +367,69 @@ function nipgl_scorecards_admin_page() {
                 }
             });
     }
+    function nipglShowPanel(postId, panel) {
+        // Toggle sub-panels within the sc wrap: 'view', 'edit', 'history'
+        var wrap = document.getElementById('sc-'+postId);
+        if (!wrap) return;
+        var panels = wrap.querySelectorAll('.nipgl-sc-subpanel');
+        var isOpen = wrap.classList.contains('open');
+        var current = wrap.dataset.panel || '';
+        if (isOpen && current === panel) {
+            // clicking same panel again closes
+            wrap.classList.remove('open');
+            wrap.dataset.panel = '';
+            return;
+        }
+        wrap.classList.add('open');
+        wrap.dataset.panel = panel;
+        panels.forEach(function(p){ p.style.display = p.dataset.panel === panel ? '' : 'none'; });
+    }
+    document.addEventListener('DOMContentLoaded', function(){
+        document.querySelectorAll('.nipgl-save-edit').forEach(function(btn){
+            btn.addEventListener('click', function(){
+                var postId  = btn.dataset.postid;
+                var nonce   = btn.dataset.nonce;
+                var wrap    = document.getElementById('sc-'+postId);
+                var form    = wrap ? wrap.querySelector('.nipgl-edit-form') : null;
+                var msgEl   = form  ? form.querySelector('.nipgl-edit-msg') : null;
+                if (!form) return;
+                var data = new FormData();
+                data.append('action','nipgl_admin_edit_scorecard');
+                data.append('post_id', postId);
+                data.append('nonce', nonce);
+                // Scalar fields
+                ['home_team','away_team','match_date','venue','division','competition',
+                 'home_total','away_total','home_points','away_points'].forEach(function(f){
+                    var el = form.querySelector('[name="'+f+'"]');
+                    if (el) data.append(f, el.value);
+                });
+                // Rink arrays
+                form.querySelectorAll('[name="rink_num[]"]').forEach(function(el,i){
+                    data.append('rink_num[]', el.value);
+                });
+                form.querySelectorAll('[name="rink_home_score[]"]').forEach(function(el){ data.append('rink_home_score[]', el.value); });
+                form.querySelectorAll('[name="rink_away_score[]"]').forEach(function(el){ data.append('rink_away_score[]', el.value); });
+                form.querySelectorAll('[name="rink_home_players[]"]').forEach(function(el){ data.append('rink_home_players[]', el.value); });
+                form.querySelectorAll('[name="rink_away_players[]"]').forEach(function(el){ data.append('rink_away_players[]', el.value); });
+
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+                fetch(ajaxurl,{method:'POST',body:data,credentials:'same-origin'})
+                    .then(function(r){return r.json();})
+                    .then(function(res){
+                        btn.disabled = false;
+                        btn.textContent = '💾 Save Changes';
+                        if (msgEl) {
+                            msgEl.style.display = '';
+                            msgEl.className = 'nipgl-edit-msg ' + (res.success ? 'success' : 'error');
+                            msgEl.textContent = res.success ? (res.data.message||'Saved.') : ('Error: '+(res.data||'unknown'));
+                            setTimeout(function(){ location.reload(); }, 1800);
+                        }
+                    })
+                    .catch(function(){ btn.disabled=false; btn.textContent='💾 Save Changes'; alert('Request failed'); });
+            });
+        });
+    });
     </script>
     <?php if (empty($posts)): ?>
         <p>No scorecards submitted yet.</p>
@@ -368,13 +455,20 @@ function nipgl_scorecards_admin_page() {
         $status_labels = array('pending'=>'Pending','confirmed'=>'Confirmed','disputed'=>'Disputed');
     ?>
     <tr>
-        <td><strong><?php echo esc_html($p->post_title); ?></strong></td>
+        <td>
+            <strong><?php echo esc_html($p->post_title); ?></strong>
+            <?php if (get_post_meta($p->ID, 'nipgl_admin_edited', true)): ?>
+                <span class="nipgl-sc-amended" title="Amended by admin">Amended</span>
+            <?php endif; ?>
+        </td>
         <td><?php echo esc_html($sc['division'] ?? '—'); ?></td>
         <td><?php echo esc_html($result); ?></td>
         <td><span class="nipgl-sc-status <?php echo esc_attr($status); ?>"><?php echo $status_labels[$status] ?? $status; ?></span></td>
         <td><?php echo get_the_date('d M Y H:i', $p); ?><br><small>by <?php echo esc_html($sub_by ?: '—'); ?></small></td>
-        <td>
-            <button class="button button-small" onclick="nipglToggleSc(<?php echo $p->ID; ?>)">View</button>
+        <td style="white-space:nowrap">
+            <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'view')">View</button>
+            <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'edit')">✏️ Edit</button>
+            <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'history')">📋 History</button>
             <a href="<?php echo get_delete_post_link($p->ID); ?>" class="button button-small button-link-delete" onclick="return confirm('Delete this scorecard?')">Delete</a>
         </td>
     </tr>
@@ -382,6 +476,8 @@ function nipgl_scorecards_admin_page() {
         <td colspan="6" style="padding:0">
         <div class="nipgl-admin-sc-wrap" id="sc-<?php echo $p->ID; ?>">
 
+        <?php // ── View sub-panel ── ?>
+        <div class="nipgl-sc-subpanel" data-panel="view">
         <?php if ($status === 'disputed' && $away_sc): ?>
             <p><strong>⚠️ Disputed result</strong> — <?php echo esc_html($sub_by); ?> submitted first, <?php echo esc_html($con_by); ?> submitted a different result. Choose which version to accept as official:</p>
             <div class="nipgl-sc-compare">
@@ -399,7 +495,6 @@ function nipgl_scorecards_admin_page() {
                 <button class="button button-primary" onclick="nipglResolve(<?php echo $p->ID; ?>,'away','<?php echo $nonce; ?>')">✅ Accept Version B (<?php echo esc_html($con_by); ?>)</button>
             </div>
             <div id="nipgl-resolve-msg-<?php echo $p->ID; ?>" style="display:none;margin-top:8px;padding:8px;background:#d1e7dd;color:#0a3622;border-radius:4px"></div>
-
         <?php else: ?>
             <div class="nipgl-sc-version">
                 <?php nipgl_admin_render_sc_summary($sc); ?>
@@ -410,6 +505,20 @@ function nipgl_scorecards_admin_page() {
                 <?php endif; ?>
             </div>
         <?php endif; ?>
+        </div>
+
+        <?php // ── Edit sub-panel ── ?>
+        <div class="nipgl-sc-subpanel" data-panel="edit" style="display:none">
+            <?php nipgl_render_admin_edit_form($p->ID, $sc); ?>
+        </div>
+
+        <?php // ── History sub-panel ── ?>
+        <div class="nipgl-sc-subpanel" data-panel="history" style="display:none">
+            <h4 style="margin:0 0 10px;color:#1a2e5a">📋 Audit History</h4>
+            <?php nipgl_render_audit_log($p->ID); ?>
+            <h4 style="margin:14px 0 6px;color:#1a2e5a">☁️ Google Drive Log</h4>
+            <?php nipgl_render_drive_log($p->ID); ?>
+        </div>
 
         </div>
         </td>
@@ -508,6 +617,9 @@ function nipgl_save_settings() {
         );
     }
     update_option('nipgl_clubs', $clubs);
+
+    // Drive settings
+    nipgl_drive_save_settings();
 
     wp_redirect(admin_url('options-general.php?page=nipgl-settings&saved=1'));
     exit;
@@ -691,6 +803,8 @@ function nipgl_settings_page() {
                     </td>
                 </tr>
             </table>
+
+            <?php nipgl_drive_settings_section(); ?>
 
             <?php submit_button('Save Settings'); ?>
         </form>

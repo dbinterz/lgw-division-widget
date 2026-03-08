@@ -169,6 +169,8 @@ function nipgl_ajax_confirm_scorecard() {
     update_post_meta($id, 'nipgl_sc_status',    'confirmed');
     update_post_meta($id, 'nipgl_confirmed_by', $club);
     nipgl_log_appearances($id);
+    nipgl_audit_log($id, 'confirmed', 'Confirmed by ' . $club);
+    do_action('nipgl_scorecard_confirmed', $id);
     wp_send_json_success(array('message' => 'Scorecard confirmed. Thank you!'));
 }
 
@@ -190,6 +192,17 @@ function nipgl_ajax_parse_photo() {
 
     $image_data = base64_encode(file_get_contents($file['tmp_name']));
     $media_type = $file['type'];
+
+    // Save original photo to uploads dir so it can be sent to Drive on confirmation
+    $upload_dir  = wp_upload_dir();
+    $photo_dir   = trailingslashit($upload_dir['basedir']) . 'nipgl-scorecards/';
+    if (!file_exists($photo_dir)) wp_mkdir_p($photo_dir);
+    $photo_ext   = pathinfo($file['name'], PATHINFO_EXTENSION) ?: 'jpg';
+    $photo_fname = 'sc-photo-' . nipgl_get_auth_club() . '-' . time() . '.' . $photo_ext;
+    $photo_path  = $photo_dir . $photo_fname;
+    move_uploaded_file($file['tmp_name'], $photo_path);
+    // Store temporarily — will be attached to post in save_scorecard
+    set_transient('nipgl_photo_' . nipgl_get_auth_club(), $photo_path, HOUR_IN_SECONDS);
 
     $prompt = 'This is a bowls match scorecard. Extract all data and return ONLY valid JSON (no markdown, no explanation) in exactly this structure:
 {
@@ -527,6 +540,8 @@ function nipgl_ajax_save_scorecard() {
                 update_post_meta($existing->ID, 'nipgl_sc_status',    'confirmed');
                 update_post_meta($existing->ID, 'nipgl_confirmed_by', $club);
                 nipgl_log_appearances($existing->ID);
+                nipgl_audit_log($existing->ID, 'confirmed', 'Confirmed by ' . $club . ' — scores matched');
+                do_action('nipgl_scorecard_confirmed', $existing->ID);
                 wp_send_json_success(array('message' => 'Scores match — scorecard confirmed! ✅', 'status' => 'confirmed'));
             } else {
                 // Scores differ — store away version, mark disputed
@@ -549,6 +564,13 @@ function nipgl_ajax_save_scorecard() {
         update_post_meta($post_id, 'nipgl_scorecard_data',$sc);
         update_post_meta($post_id, 'nipgl_sc_status',     'pending');
         update_post_meta($post_id, 'nipgl_submitted_by',  $club);
+        nipgl_audit_log($post_id, 'submitted', 'Submitted by ' . $club);
+        // Attach photo if one was parsed this session
+        $photo_path = get_transient('nipgl_photo_' . $club);
+        if ($photo_path) {
+            update_post_meta($post_id, 'nipgl_photo_path', $photo_path);
+            delete_transient('nipgl_photo_' . $club);
+        }
         wp_send_json_success(array('message' => 'Scorecard submitted. The other club will be notified to confirm.', 'status' => 'pending', 'id' => $post_id));
     }
 }
@@ -936,10 +958,13 @@ function nipgl_ajax_admin_resolve() {
     }
 
     // Either way, clear the dispute and mark confirmed
+    $sub_by = get_post_meta($post_id, 'nipgl_submitted_by', true);
+    $con_by = get_post_meta($post_id, 'nipgl_confirmed_by', true);
     update_post_meta($post_id, 'nipgl_sc_status',       'confirmed');
     update_post_meta($post_id, 'nipgl_away_scorecard',  '');
     update_post_meta($post_id, 'nipgl_confirmed_by',    'admin');
     nipgl_log_appearances($post_id);
+    nipgl_audit_on_resolve($post_id, $version, $sub_by, $con_by);
 
     $label = $version === 'away' ? 'Version B' : 'Version A';
     wp_send_json_success(array('message' => $label . ' accepted — scorecard confirmed. ✅'));
