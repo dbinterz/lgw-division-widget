@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 5.18.2
+Stable tag: 6.0.10
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -55,7 +55,14 @@ All parameters:
 Scorecard submission form:
 `[nipgl_submit]`
 
-== Installation ==
+Cup bracket:
+`[nipgl_cup id="senior-cup-2025" title="Senior Cup 2025"]`
+
+Parameters:
+* `id` — required. The cup ID set in NIPGL → Cups admin page
+* `title` — optional override for the cup title displayed in the widget header
+
+
 
 1. Upload the plugin zip via Plugins > Add New > Upload Plugin
 2. Activate the plugin
@@ -64,7 +71,50 @@ Scorecard submission form:
 
 == Changelog ==
 
-= 5.18.2 =
+= 6.0.10 =
+* Winner row: lighter green background (#e6f4e6) with dark green text (#1a5c1a)
+* Loser row: light red background (#fdf0f0) with dark red text (#8b1a1a)
+* Score popover team names hardcoded to #1a1a1a for reliable contrast regardless of page theme
+
+= 6.0.9 =
+* Fixed score input contrast — explicit white background and dark text on score popover inputs
+* Draw numbers hidden when a score is present to avoid overlap with the score value
+* Cup scorecard support — [nipgl_submit cup="cup-id"] pre-fills the division with the cup name and shows a match selector from the drawn bracket
+
+= 6.0.8 =
+* Fixed undefined variable $drawn warning on line 104 — $drawn was used in the shortcode header before being defined
+
+= 6.0.7 =
+* Fixed blank vs TBD match in 17-team draw — round names had erroneous array_reverse causing an extra skeleton round
+* Round names now correct for prelim-format cups: Preliminary Round, Round of 16, Quarter Final, Semi-Final, Final
+* Edit button removed from public cup page
+* Cup widget now sets explicit light-mode CSS variables for standalone use
+* Score entry: admins can click any match card to enter scores via a popover; winner is automatically advanced to the next round on save
+
+= 6.0.6 =
+* "Perform Draw" button is now hidden on the public page once the draw has been completed — both server-side (PHP) and immediately in the browser after the draw animation finishes
+
+= 6.0.5 =
+* Draw animation now includes the full Round 2 draw for prelim-format cups — after the prelim matches are revealed, a section header separates them and all Round 2 pairings (including "Prelim Winner" placeholders) are drawn live in sequence
+
+= 6.0.4 =
+* Fixed byes logic — prelim round now contains only the overflow matches (n minus half), with remaining teams going straight to the main round; 17 teams gives 1 prelim then 8 main-round matches
+
+= 6.0.3 =
+* Fixed "headers already sent" warning when saving cup — POST handler and draw reset/delete actions moved to admin_init hook so redirects fire before any page output
+
+= 6.0.2 =
+* Draw now enforces club home-conflict rule — teams from the same club cannot both be the home team in Round 1 on the same date; home/away assignment is adjusted automatically after the random draw, with a same-club match (the one unavoidable exception) left in drawn order
+
+= 6.0.1 =
+* Cup bracket widget — new [nipgl_cup] shortcode renders a single-elimination knockout bracket with mobile-friendly round tabs and team badges
+* Live animated draw — admin triggers the draw from wp-admin or the public page; visitors watching at the time see an animated team-reveal sequence in real time via polling
+* Cup management — NIPGL → Cups admin page to create and configure cups: name, entries, round names, dates, optional Google Sheets CSV URL for result sync
+* Results from Google Sheets — cup results can be synced from a published CSV matching the existing bracket spreadsheet format
+* Draw reset — admin can clear and redo the draw at any time before results are recorded
+* Dark mode and theme CSS variable support inherited from division widget
+
+= 5.18.3 =
 * Import Passphrases tool — upload the club passphrases xlsx directly from wp-admin (NIPGL → Import Passphrases) to set all club passphrases in one go. Tool removes itself from the menu when dismissed.
 
 = 5.18.1 =

@@ -1,18 +1,19 @@
 <?php
 /**
  * Plugin Name: NIPGL Division Widget
- * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club PIN authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, and sponsor branding.
- * Version: 5.18.2
+ * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
+ * Version: 6.0.10
  * Author: NIPGL
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * Primary Branch: main
  */
 
 define('NIPGL_PLUGIN_FILE', __FILE__);
-define('NIPGL_VERSION', '5.18.2');
+define('NIPGL_VERSION', '6.0.10');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-scorecards.php';
+require_once plugin_dir_path(__FILE__) . 'nipgl-cup.php';
 require_once plugin_dir_path(__FILE__) . 'nipgl-players.php';
 require_once plugin_dir_path(__FILE__) . 'nipgl-sc-admin.php';
 require_once plugin_dir_path(__FILE__) . 'nipgl-drive.php';
@@ -332,6 +333,10 @@ function nipgl_admin_menu() {
         'nipgl-players',
         'nipgl_players_admin_page'
     );
+    // Cups submenu — function defined in nipgl-cup.php, called here so parent exists
+    if (function_exists('nipgl_cups_register_submenu')) {
+        nipgl_cups_register_submenu();
+    }
 }
 
 function nipgl_scorecards_admin_page() {
@@ -603,7 +608,12 @@ function nipgl_admin_render_sc_summary($sc) {
 
 add_action('admin_enqueue_scripts', 'nipgl_admin_enqueue');
 function nipgl_admin_enqueue($hook) {
-    if ($hook !== 'settings_page_nipgl-settings') return;
+    $nipgl_hooks = array(
+        'settings_page_nipgl-settings',
+        'nipgl_page_nipgl-cups',           // Cups submenu under NIPGL top-level
+        'toplevel_page_nipgl-scorecards',  // Safety: top-level itself
+    );
+    if (!in_array($hook, $nipgl_hooks, true)) return;
     wp_enqueue_media();
     wp_enqueue_script('nipgl-admin', plugin_dir_url(__FILE__) . 'nipgl-admin.js', array('jquery'), NIPGL_VERSION, true);
     wp_enqueue_style('nipgl-admin', plugin_dir_url(__FILE__) . 'nipgl-admin.css', array(), NIPGL_VERSION);

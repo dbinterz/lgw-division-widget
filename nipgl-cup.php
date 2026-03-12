@@ -1,0 +1,873 @@
+<?php
+/**
+ * NIPGL Cup Bracket Feature - v6.0.10
+ * Single-elimination knockout bracket widget with live animated draw.
+ */
+
+// ── Enqueue cup assets ─────────────────────────────────────────────────────────
+add_action('wp_enqueue_scripts', 'nipgl_cup_enqueue');
+function nipgl_cup_enqueue() {
+    global $post;
+    if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'nipgl_cup')) return;
+    wp_enqueue_style('nipgl-saira',  'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
+    wp_enqueue_style('nipgl-widget', plugin_dir_url(NIPGL_PLUGIN_FILE) . 'nipgl-widget.css', array('nipgl-saira'), NIPGL_VERSION);
+    wp_enqueue_style('nipgl-cup',    plugin_dir_url(NIPGL_PLUGIN_FILE) . 'nipgl-cup.css',    array('nipgl-widget'), NIPGL_VERSION);
+    wp_enqueue_script('nipgl-cup',   plugin_dir_url(NIPGL_PLUGIN_FILE) . 'nipgl-cup.js',     array(), NIPGL_VERSION, true);
+    // Reuse nipglData (badges, clubBadges, ajaxUrl) if already localised by main widget
+    if (!wp_script_is('nipgl-widget', 'enqueued')) {
+        $badges      = get_option('nipgl_badges',      array());
+        $club_badges = get_option('nipgl_club_badges', array());
+        $sponsors    = get_option('nipgl_sponsors',    array());
+        wp_localize_script('nipgl-cup', 'nipglData', array(
+            'ajaxUrl'    => admin_url('admin-ajax.php'),
+            'badges'     => $badges,
+            'clubBadges' => $club_badges,
+            'sponsors'   => $sponsors,
+        ));
+    }
+    // Always localise cup-specific data (score entry, admin flag)
+    wp_localize_script('nipgl-cup', 'nipglCupData', array(
+        'isAdmin'    => current_user_can('manage_options') ? 1 : 0,
+        'scoreNonce' => wp_create_nonce('nipgl_cup_score'),
+    ));
+}
+
+// ── AJAX: Save cup match score ─────────────────────────────────────────────────
+add_action('wp_ajax_nipgl_cup_save_score', 'nipgl_ajax_cup_save_score');
+function nipgl_ajax_cup_save_score() {
+    check_ajax_referer('nipgl_cup_score', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+
+    $cup_id    = sanitize_key($_POST['cup_id']    ?? '');
+    $round_idx = intval($_POST['round_idx']       ?? -1);
+    $match_idx = intval($_POST['match_idx']       ?? -1);
+    $home_score = $_POST['home_score'] !== '' ? intval($_POST['home_score']) : null;
+    $away_score = $_POST['away_score'] !== '' ? intval($_POST['away_score']) : null;
+
+    if (!$cup_id || $round_idx < 0 || $match_idx < 0) wp_send_json_error('Invalid parameters');
+
+    $cup = get_option('nipgl_cup_' . $cup_id, array());
+    if (empty($cup)) wp_send_json_error('Cup not found');
+
+    $bracket = &$cup['bracket'];
+    if (!isset($bracket['matches'][$round_idx][$match_idx])) wp_send_json_error('Match not found');
+
+    $match = &$bracket['matches'][$round_idx][$match_idx];
+    $match['home_score'] = $home_score;
+    $match['away_score'] = $away_score;
+
+    // Advance winner to next round if both scores set
+    if ($home_score !== null && $away_score !== null && $home_score !== $away_score) {
+        $winner = $home_score > $away_score ? $match['home'] : $match['away'];
+        $next_round = $round_idx + 1;
+        $next_match = intval(floor($match_idx / 2));
+        $next_slot  = $match_idx % 2 === 0 ? 'home' : 'away';
+        if (isset($bracket['matches'][$next_round][$next_match])) {
+            $bracket['matches'][$next_round][$next_match][$next_slot]           = $winner;
+            $bracket['matches'][$next_round][$next_match][$next_slot . '_score'] = null;
+        }
+    }
+
+    update_option('nipgl_cup_' . $cup_id, $cup);
+    wp_send_json_success(array('bracket' => $bracket));
+}
+
+
+// ── Shortcode: [nipgl_cup id="senior-cup-2025" title="Senior Cup 2025"] ────────
+add_shortcode('nipgl_cup', 'nipgl_cup_shortcode');
+function nipgl_cup_shortcode($atts) {
+    $atts = shortcode_atts(array(
+        'id'    => '',
+        'title' => '',
+    ), $atts);
+
+    $cup_id = sanitize_key($atts['id']);
+    if (!$cup_id) return '<p>No cup ID provided.</p>';
+
+    $cup      = get_option('nipgl_cup_' . $cup_id, array());
+    $title    = !empty($atts['title']) ? $atts['title'] : ($cup['title'] ?? 'Cup');
+    $bracket  = $cup['bracket'] ?? null;
+    $version  = $cup['draw_version'] ?? 0;
+    $drawn    = $version > 0;
+    $is_admin = current_user_can('manage_options');
+
+    $bracket_json = $bracket ? wp_json_encode($bracket) : '';
+    $nonce        = wp_create_nonce('nipgl_cup_nonce');
+
+    ob_start();
+    ?>
+    <div class="nipgl-cup-wrap" data-cup-id="<?php echo esc_attr($cup_id); ?>"
+         data-draw-version="<?php echo esc_attr($version); ?>"
+         data-bracket="<?php echo esc_attr($bracket_json); ?>">
+
+      <div class="nipgl-cup-header">
+        <span class="nipgl-cup-title">🏆 <?php echo esc_html($title); ?></span>
+        <?php if ($is_admin && !$drawn): ?>
+        <div class="nipgl-cup-header-actions">
+          <button class="nipgl-cup-btn nipgl-cup-btn-ghost nipgl-cup-admin-draw-btn"
+                  data-nonce="<?php echo esc_attr($nonce); ?>">
+            🎲 Perform Draw
+          </button>
+        </div>
+        <?php endif; ?>
+      </div>
+
+      <div class="nipgl-cup-tabs"><div class="nipgl-cup-tabs-inner"></div></div>
+
+      <div class="nipgl-cup-bracket-outer">
+        <?php if (!$bracket): ?>
+          <div class="nipgl-cup-empty">
+            <div class="nipgl-cup-empty-icon">🎲</div>
+            <?php if ($is_admin): ?>
+              <p>No draw has been performed yet. Click <strong>Perform Draw</strong> above to randomise the bracket.</p>
+            <?php else: ?>
+              <p>The draw has not yet taken place. Check back soon!</p>
+            <?php endif; ?>
+          </div>
+        <?php endif; ?>
+        <div class="nipgl-cup-bracket"></div>
+      </div>
+
+      <div class="nipgl-cup-status">
+        <span class="nipgl-cup-status-dot<?php echo (!$bracket && $version == 0) ? ' live' : ''; ?>"></span>
+        <span class="nipgl-cup-status-text">
+          <?php if (!$bracket): ?>
+            Waiting for draw…
+          <?php else: ?>
+            <?php echo esc_html(count($cup['entries'] ?? array())); ?> teams entered
+            &nbsp;·&nbsp; Round 1: <?php echo esc_html($cup['dates'][0] ?? 'TBC'); ?>
+          <?php endif; ?>
+        </span>
+      </div>
+
+    </div>
+    <?php
+    return ob_get_clean();
+}
+
+// ── AJAX: Poll for draw state changes (visitors) ──────────────────────────────
+add_action('wp_ajax_nipgl_cup_poll',        'nipgl_ajax_cup_poll');
+add_action('wp_ajax_nopriv_nipgl_cup_poll', 'nipgl_ajax_cup_poll');
+function nipgl_ajax_cup_poll() {
+    $cup_id       = sanitize_key($_POST['cup_id'] ?? '');
+    $client_ver   = intval($_POST['version'] ?? 0);
+    if (!$cup_id) wp_send_json_error('Missing cup_id');
+
+    $cup     = get_option('nipgl_cup_' . $cup_id, array());
+    $version = intval($cup['draw_version'] ?? 0);
+
+    if ($version === $client_ver) {
+        wp_send_json_success(array('version' => $version, 'changed' => false));
+    }
+
+    wp_send_json_success(array(
+        'version' => $version,
+        'changed' => true,
+        'bracket' => $cup['bracket'] ?? null,
+        'pairs'   => $cup['draw_pairs'] ?? array(),
+    ));
+}
+
+// ── AJAX: Perform draw (admin only) ───────────────────────────────────────────
+add_action('wp_ajax_nipgl_cup_perform_draw', 'nipgl_ajax_cup_perform_draw');
+function nipgl_ajax_cup_perform_draw() {
+    check_ajax_referer('nipgl_cup_nonce', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+
+    $cup_id = sanitize_key($_POST['cup_id'] ?? '');
+    if (!$cup_id) wp_send_json_error('Missing cup_id');
+
+    $cup = get_option('nipgl_cup_' . $cup_id, array());
+    if (empty($cup['entries'])) wp_send_json_error('No entries configured for this cup.');
+
+    $result = nipgl_cup_perform_draw($cup_id, $cup);
+    if (is_wp_error($result)) {
+        wp_send_json_error($result->get_error_message());
+    }
+
+    $cup_updated = get_option('nipgl_cup_' . $cup_id, array());
+    wp_send_json_success(array(
+        'bracket' => $cup_updated['bracket'],
+        'pairs'   => $cup_updated['draw_pairs'],
+    ));
+}
+
+// ── Draw logic ─────────────────────────────────────────────────────────────────
+/**
+ * Randomly seeds a single-elimination bracket from the entry list.
+ * Handles odd numbers of entries by giving byes to top seeds (or randomly).
+ *
+ * @param string $cup_id
+ * @param array  $cup  Full cup option array
+ * @return true|WP_Error
+ */
+function nipgl_cup_perform_draw($cup_id, $cup) {
+    $entries = array_values(array_filter(array_map('trim', $cup['entries'] ?? array())));
+    if (count($entries) < 2) return new WP_Error('too_few', 'At least 2 entries required.');
+
+    shuffle($entries);
+
+    $n     = count($entries);
+    $dates = $cup['dates'] ?? array();
+
+    // ── Bracket geometry ──────────────────────────────────────────────────────
+    // bracket_size = next power of 2 >= n
+    // half         = the "main" round size (bracket_size / 2)
+    // prelim_count = n - half  →  teams that must play off before the main round
+    //
+    // 17 teams: bracket=32, half=16, prelims=1  →  1 prelim, 8 main-round matches
+    // 20 teams: bracket=32, half=16, prelims=4  →  4 prelims, 8 main-round matches
+    // 16 teams: bracket=16, half=8,  prelims=8  →  8 matches straight (no byes)
+    $bracket_size = 1;
+    while ($bracket_size < $n) $bracket_size *= 2;
+    $half         = $bracket_size / 2;
+    $prelim_count = $n - $half;   // number of prelim matches
+
+    // Assign draw numbers
+    $numbered = array();
+    foreach ($entries as $i => $name) {
+        $numbered[] = array('name' => $name, 'draw_num' => $i + 1);
+    }
+
+    // First (prelim_count * 2) teams play in Round 1; rest get a bye to Round 2
+    $prelim_teams = array_slice($numbered, 0, $prelim_count * 2);
+    $bye_teams    = array_slice($numbered, $prelim_count * 2);
+
+    // ── Round 1: prelim matches ───────────────────────────────────────────────
+    $round1_matches = array();
+    $pairs_for_anim = array();
+    $home_clubs_r1  = array();
+
+    for ($i = 0; $i < count($prelim_teams); $i += 2) {
+        $a = $prelim_teams[$i];
+        $b = $prelim_teams[$i + 1];
+
+        // Home-conflict: swap if club_a already has a home team this round
+        $ca = nipgl_cup_club_prefix($a['name']);
+        $cb = nipgl_cup_club_prefix($b['name']);
+        if (isset($home_clubs_r1[$ca]) && !isset($home_clubs_r1[$cb]) && $ca !== $cb) {
+            list($a, $b) = array($b, $a);
+            $ca = nipgl_cup_club_prefix($a['name']);
+        }
+        $home_clubs_r1[$ca] = true;
+
+        $round1_matches[] = array(
+            'home'          => $a['name'],
+            'away'          => $b['name'],
+            'home_score'    => null,
+            'away_score'    => null,
+            'draw_num_home' => $a['draw_num'],
+            'draw_num_away' => $b['draw_num'],
+            'bye'           => false,
+        );
+        $pairs_for_anim[] = array('home' => $a['name'], 'away' => $b['name'], 'bye' => false);
+    }
+
+    // ── Round 2: interleave prelim winner slots with bye teams ────────────────
+    // Spread prelim winner placeholders evenly so they're not all bunched together.
+    // e.g. 17 teams: 1 winner slot, 15 bye teams → winner goes at position 0.
+    // e.g. 20 teams: 4 winner slots, 12 bye teams → every 4th slot is a winner.
+    $r2_slots   = array_fill(0, $half, null); // null = prelim winner (TBD)
+    $bye_cursor = 0;
+
+    if ($prelim_count > 0) {
+        $step = $half / $prelim_count;
+        $winner_positions = array();
+        for ($w = 0; $w < $prelim_count; $w++) {
+            $winner_positions[] = (int) round($w * $step);
+        }
+        for ($s = 0; $s < $half; $s++) {
+            if (!in_array($s, $winner_positions)) {
+                $r2_slots[$s] = $bye_teams[$bye_cursor++];
+            }
+        }
+    } else {
+        // Perfect power of 2 — no prelims, all bye teams fill R2
+        for ($s = 0; $s < $half; $s++) {
+            $r2_slots[$s] = $bye_teams[$bye_cursor++];
+        }
+    }
+
+    // Pair R2 slots into matches; apply home-conflict for known bye-team pairs
+    $round2_matches = array();
+    $home_clubs_r2  = array();
+
+    for ($i = 0; $i < $half; $i += 2) {
+        $a = $r2_slots[$i];
+        $b = $r2_slots[$i + 1];
+
+        if ($a && $b) {
+            $ca = nipgl_cup_club_prefix($a['name']);
+            $cb = nipgl_cup_club_prefix($b['name']);
+            if (isset($home_clubs_r2[$ca]) && !isset($home_clubs_r2[$cb]) && $ca !== $cb) {
+                list($a, $b) = array($b, $a);
+                $ca = nipgl_cup_club_prefix($a['name']);
+            }
+            $home_clubs_r2[$ca] = true;
+        }
+
+        $round2_matches[] = array(
+            'home'          => $a ? $a['name'] : null,
+            'away'          => $b ? $b['name'] : null,
+            'home_score'    => null,
+            'away_score'    => null,
+            'draw_num_home' => $a ? $a['draw_num'] : null,
+            'draw_num_away' => $b ? $b['draw_num'] : null,
+            'bye'           => false,
+        );
+    }
+
+    // ── Build Round 2 animation pairs ─────────────────────────────────────────
+    // Include all R2 pairings in the draw animation so viewers see the full draw.
+    // Matches where one slot is still TBD (prelim winner) are included — the
+    // animation shows "Winner of prelim" as a placeholder.
+    // Only add the R2 section if there are actually R2 matches to show drawn
+    // (i.e. at least one match has both teams known, or it's the only round).
+    $r2_has_drawn = false;
+    foreach ($round2_matches as $rm) {
+        if ($rm['home'] || $rm['away']) { $r2_has_drawn = true; break; }
+    }
+
+    if ($r2_has_drawn) {
+        // Section header to separate prelim draw from main-round draw
+        if ($prelim_count > 0) {
+            $stored_rounds = $cup['rounds'] ?? array();
+            $r2_label = $stored_rounds[1] ?? 'Round 1 Draw';
+            $pairs_for_anim[] = array('type' => 'header', 'label' => $r2_label);
+        }
+        foreach ($round2_matches as $rm) {
+            $pairs_for_anim[] = array(
+                'home' => $rm['home'] ?? 'Prelim Winner',
+                'away' => $rm['away'] ?? 'Prelim Winner',
+                'bye'  => false,
+            );
+        }
+    }
+
+    // ── Round names ───────────────────────────────────────────────────────────
+    $stored_rounds = $cup['rounds'] ?? array();
+
+    if ($prelim_count > 0) {
+        // Rounds: Prelim round + all rounds of the half-sized main bracket
+        $main_rounds = nipgl_cup_default_rounds($half);
+        $total       = 1 + count($main_rounds);
+
+        if (!empty($stored_rounds) && count($stored_rounds) === $total) {
+            $rounds = $stored_rounds;
+        } else {
+            $rounds = array_merge(array('Preliminary Round'), $main_rounds);
+        }
+    } else {
+        $total = intval(log($bracket_size, 2));
+        if (!empty($stored_rounds) && count($stored_rounds) === $total) {
+            $rounds = $stored_rounds;
+        } else {
+            $rounds = nipgl_cup_default_rounds($n);
+        }
+    }
+
+    // ── Assemble all rounds ───────────────────────────────────────────────────
+    $all_matches = $prelim_count > 0
+        ? array($round1_matches, $round2_matches)
+        : array($round2_matches);
+
+    // Skeleton for QF, SF, Final, …
+    $prev_count = count($round2_matches);
+    $start_r    = $prelim_count > 0 ? 2 : 1;
+    for ($r = $start_r; $r < count($rounds); $r++) {
+        $prev_count = intval(ceil($prev_count / 2));
+        $rm = array();
+        for ($m = 0; $m < $prev_count; $m++) {
+            $rm[] = array(
+                'home' => null, 'away' => null,
+                'home_score' => null, 'away_score' => null,
+                'draw_num_home' => null, 'draw_num_away' => null,
+                'bye' => false,
+            );
+        }
+        $all_matches[] = $rm;
+    }
+
+    $cup['bracket'] = array(
+        'title'   => $cup['title'] ?? 'Cup',
+        'rounds'  => $rounds,
+        'dates'   => $dates,
+        'matches' => $all_matches,
+    );
+    $cup['draw_pairs']   = $pairs_for_anim;
+    $cup['draw_version'] = intval($cup['draw_version'] ?? 0) + 1;
+    update_option('nipgl_cup_' . $cup_id, $cup);
+
+    return true;
+}
+
+/**
+ * Guess sensible round names for N entries.
+ */
+/**
+ * Extract the club prefix from a team name for home-conflict detection.
+ * "Belmont A" → "belmont", "Forth River B" → "forth river",
+ * "Ards" → "ards" (single-team clubs treated as their own prefix).
+ *
+ * Strips a trailing single letter (or roman numeral up to III) team suffix.
+ * Falls back to the full lowercased name if no suffix detected.
+ */
+function nipgl_cup_club_prefix($team_name) {
+    $name = trim($team_name);
+    // Strip trailing team suffix: " A", " B", " C", " 1", " 2", " I", " II", " III"
+    $stripped = preg_replace('/\s+([A-C]|[1-3]|II?I?)$/i', '', $name);
+    return strtolower(trim($stripped ?: $name));
+}
+
+function nipgl_cup_default_rounds($n) {
+    $bracket_size = 1;
+    while ($bracket_size < $n) $bracket_size *= 2;
+    $rounds_needed = intval(log($bracket_size, 2));
+
+    // Named from the end backwards: Final, Semi-Final, QF, etc.
+    $named = array('Final', 'Semi-Final', 'Quarter Final', 'Round of 16', 'Round of 32', 'Round of 64');
+    $names = array();
+    for ($i = 0; $i < $rounds_needed; $i++) {
+        $from_end = $rounds_needed - 1 - $i;
+        $names[]  = $named[$from_end] ?? ('Round ' . ($i + 1));
+    }
+    // Names are already built in chronological order (R1 → Final) — do NOT reverse
+    return $names;
+}
+
+// ── AJAX: Update bracket results from Google Sheets CSV ───────────────────────
+// (Optional: admin can paste a CSV URL in cup settings and results are merged in)
+add_action('wp_ajax_nipgl_cup_sync_results', 'nipgl_ajax_cup_sync_results');
+function nipgl_ajax_cup_sync_results() {
+    check_ajax_referer('nipgl_cup_nonce', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+
+    $cup_id = sanitize_key($_POST['cup_id'] ?? '');
+    $cup    = get_option('nipgl_cup_' . $cup_id, array());
+    $csv    = $cup['csv_url'] ?? '';
+
+    if (!$csv) wp_send_json_error('No CSV URL configured for this cup.');
+
+    $result = nipgl_cup_merge_csv_results($cup_id, $cup, $csv);
+    if (is_wp_error($result)) wp_send_json_error($result->get_error_message());
+
+    wp_send_json_success(array('bracket' => get_option('nipgl_cup_' . $cup_id)['bracket']));
+}
+
+/**
+ * Parse NIPGL cup bracket CSV (same column layout as the spreadsheet):
+ * Col A = draw number, Col B = R1, Col C = R2, Col D = QF, Col E = SF, Col F = Final
+ * Each team name in a column = that team reached that round.
+ * We map this back onto the stored bracket.
+ */
+function nipgl_cup_merge_csv_results($cup_id, &$cup, $csv_url) {
+    $response = wp_remote_get(
+        admin_url('admin-ajax.php') . '?action=nipgl_csv&url=' . urlencode($csv_url),
+        array('timeout' => 15)
+    );
+    // Actually: use the proxy for consistency
+    $response = wp_remote_get($csv_url, array('timeout' => 15, 'user-agent' => 'Mozilla/5.0'));
+    if (is_wp_error($response)) return $response;
+    $body = wp_remote_retrieve_body($response);
+    if (!$body) return new WP_Error('empty', 'Empty CSV response.');
+
+    $rows = array_map('str_getcsv', explode("\n", trim($body)));
+    // Find round headers row (contains ROUND 1, ROUND 2 etc)
+    $round_row = -1;
+    foreach ($rows as $ri => $row) {
+        foreach ($row as $cell) {
+            if (stripos(trim($cell), 'ROUND') !== false || stripos(trim($cell), 'FINAL') !== false || stripos(trim($cell), 'SEMI') !== false) {
+                $round_row = $ri;
+                break 2;
+            }
+        }
+    }
+
+    if (!isset($cup['bracket'])) return new WP_Error('no_bracket', 'No bracket drawn yet.');
+
+    // Build a map: draw_num => team_name (from stored bracket)
+    $draw_map = array();
+    foreach (($cup['bracket']['matches'][0] ?? array()) as $match) {
+        if ($match['draw_num_home'] && $match['home']) $draw_map[$match['draw_num_home']] = $match['home'];
+        if ($match['draw_num_away'] && $match['away']) $draw_map[$match['draw_num_away']] = $match['away'];
+    }
+
+    // Map each data row: col A = draw num, subsequent cols = teams at each round
+    // Advancing team in col X = winner of that round
+    // We infer scores: if team A is in R2 col, they won R1 match. Score stored as 'W'/'L' markers
+    // For now we mark round advancement and let future score entry flesh out scores
+    $num_rounds = count($cup['bracket']['rounds'] ?? array());
+    foreach ($rows as $ri => $row) {
+        if ($ri <= $round_row) continue;
+        $draw_num = isset($row[0]) ? intval($row[0]) : 0;
+        if (!$draw_num) continue;
+        // For each round col (B=1, C=2, D=3, E=4, F=5 = indices 1..5)
+        for ($col = 1; $col <= $num_rounds && $col < count($row); $col++) {
+            $team = isset($row[$col]) ? trim($row[$col]) : '';
+            if (!$team) continue;
+            $round_idx = $col - 1;
+            if (!isset($cup['bracket']['matches'][$round_idx])) continue;
+            // Find the match in this round that this team belongs to
+            nipgl_cup_mark_winner($cup['bracket']['matches'], $round_idx, $draw_num, $team);
+        }
+    }
+
+    update_option('nipgl_cup_' . $cup_id, $cup);
+    return true;
+}
+
+/**
+ * Mark the winner of a match in round $round_idx for team identified by draw number.
+ * The draw number traces back to round 1 to find which match slot this team is in.
+ */
+function nipgl_cup_mark_winner(&$all_matches, $round_idx, $draw_num, $team) {
+    if ($round_idx === 0) {
+        foreach ($all_matches[0] as &$m) {
+            if ($m['draw_num_home'] == $draw_num) { $m['home'] = $team; return; }
+            if ($m['draw_num_away'] == $draw_num) { $m['away'] = $team; return; }
+        }
+        return;
+    }
+    // For later rounds: find the match where home or away = this team
+    foreach ($all_matches[$round_idx] as &$m) {
+        if (nipgl_cup_normalise($m['home']) === nipgl_cup_normalise($team) ||
+            nipgl_cup_normalise($m['away']) === nipgl_cup_normalise($team)) {
+            return; // already set
+        }
+        // Fill in the next available slot
+        if (!$m['home']) { $m['home'] = $team; return; }
+        if (!$m['away']) { $m['away'] = $team; return; }
+    }
+}
+
+function nipgl_cup_normalise($name) {
+    return strtolower(trim(preg_replace('/\s+/', ' ', $name ?? '')));
+}
+
+// ── Handle cup save and draw-reset on admin_init (before any output) ──────────
+add_action('admin_init', 'nipgl_cup_handle_admin_actions');
+function nipgl_cup_handle_admin_actions() {
+    if (!current_user_can('manage_options')) return;
+
+    // ── Save cup form ─────────────────────────────────────────────────────────
+    if (isset($_POST['nipgl_cup_save_nonce']) &&
+        wp_verify_nonce($_POST['nipgl_cup_save_nonce'], 'nipgl_cup_save')) {
+
+        $cup_id  = sanitize_key($_POST['cup_id_original'] ?? ''); // original ID (empty = new)
+        $new_id  = sanitize_key($_POST['cup_id']          ?? '');
+        if (!$new_id) {
+            // Let the page re-render with an error — add a query arg and bail
+            wp_redirect(admin_url('admin.php?page=nipgl-cups&action=edit&edit=' . urlencode($cup_id) . '&cup_error=missing_id'));
+            exit;
+        }
+
+        $existing = get_option('nipgl_cup_' . ($cup_id ?: $new_id), array());
+
+        $entries_raw = sanitize_textarea_field($_POST['nipgl_cup_entries'] ?? '');
+        $entries     = array_values(array_filter(array_map('trim', explode("\n", $entries_raw))));
+
+        $rounds_raw  = sanitize_textarea_field($_POST['nipgl_cup_rounds'] ?? '');
+        $rounds      = array_values(array_filter(array_map('trim', explode("\n", $rounds_raw))));
+        if (empty($rounds)) $rounds = nipgl_cup_default_rounds(count($entries));
+
+        $dates_raw   = sanitize_textarea_field($_POST['nipgl_cup_dates'] ?? '');
+        $dates       = array_values(array_filter(array_map('trim', explode("\n", $dates_raw))));
+
+        $cup_data = array_merge($existing, array(
+            'title'   => sanitize_text_field($_POST['nipgl_cup_title'] ?? ''),
+            'entries' => $entries,
+            'rounds'  => $rounds,
+            'dates'   => $dates,
+            'csv_url' => esc_url_raw($_POST['nipgl_cup_csv'] ?? ''),
+        ));
+
+        // If ID changed, delete old key
+        if ($cup_id && $cup_id !== $new_id) {
+            delete_option('nipgl_cup_' . $cup_id);
+        }
+        update_option('nipgl_cup_' . $new_id, $cup_data);
+        wp_redirect(admin_url('admin.php?page=nipgl-cups&edit=' . $new_id . '&saved=1'));
+        exit;
+    }
+
+    // ── Reset draw ────────────────────────────────────────────────────────────
+    if (isset($_GET['reset_draw']) && isset($_GET['edit'])) {
+        $cup_id = sanitize_key($_GET['edit']);
+        if (wp_verify_nonce($_GET['_wpnonce'] ?? '', 'nipgl_cup_reset_' . $cup_id)) {
+            $cup = get_option('nipgl_cup_' . $cup_id, array());
+            $cup['bracket']      = null;
+            $cup['draw_pairs']   = array();
+            $cup['draw_version'] = 0;
+            update_option('nipgl_cup_' . $cup_id, $cup);
+            wp_redirect(admin_url('admin.php?page=nipgl-cups&edit=' . $cup_id . '&saved=1'));
+            exit;
+        }
+    }
+
+    // ── Delete cup ────────────────────────────────────────────────────────────
+    if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
+        $del_id = sanitize_key($_GET['id']);
+        if (wp_verify_nonce($_GET['_wpnonce'] ?? '', 'nipgl_cup_delete_' . $del_id)) {
+            delete_option('nipgl_cup_' . $del_id);
+            wp_redirect(admin_url('admin.php?page=nipgl-cups&deleted=1'));
+            exit;
+        }
+    }
+}
+
+
+function nipgl_cups_register_submenu() {
+    add_submenu_page(
+        'nipgl-scorecards',
+        'Cups',
+        'Cups',
+        'manage_options',
+        'nipgl-cups',
+        'nipgl_cups_admin_page'
+    );
+}
+
+function nipgl_cups_admin_page() {
+    $action = $_GET['action'] ?? '';
+    $cup_id = sanitize_key($_GET['edit'] ?? '');
+
+    if ($cup_id && ($action === 'edit' || isset($_GET['edit']))) {
+        nipgl_cup_edit_page($cup_id);
+        return;
+    }
+    if (isset($_GET['action']) && $_GET['action'] === 'new') {
+        nipgl_cup_edit_page('');
+        return;
+    }
+    nipgl_cups_list_page();
+}
+
+function nipgl_cups_list_page() {
+    // Find all nipgl_cup_* options
+    global $wpdb;
+    $rows = $wpdb->get_results(
+        "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'nipgl_cup_%' ORDER BY option_name"
+    );
+    $cups = array();
+    foreach ($rows as $row) {
+        $id = substr($row->option_name, strlen('nipgl_cup_'));
+        $val = maybe_unserialize($row->option_value);
+        if (is_array($val) && isset($val['title'])) {
+            $cups[$id] = $val;
+        }
+    }
+    ?>
+    <div class="wrap">
+    <h1 style="display:flex;align-items:center;gap:16px">Cup Management
+      <a href="<?php echo admin_url('admin.php?page=nipgl-cups&action=new'); ?>" class="button button-primary">+ New Cup</a>
+    </h1>
+
+    <?php if (isset($_GET['saved'])): ?>
+      <div class="notice notice-success is-dismissible"><p>Cup saved.</p></div>
+    <?php endif; ?>
+    <?php if (isset($_GET['deleted'])): ?>
+      <div class="notice notice-success is-dismissible"><p>Cup deleted.</p></div>
+    <?php endif; ?>
+
+    <?php if (empty($cups)): ?>
+      <p>No cups configured yet. <a href="<?php echo admin_url('admin.php?page=nipgl-cups&action=new'); ?>">Create your first cup →</a></p>
+    <?php else: ?>
+    <table class="widefat striped" style="max-width:800px">
+      <thead><tr><th>Cup</th><th>Entries</th><th>Draw</th><th>Shortcode</th><th></th></tr></thead>
+      <tbody>
+      <?php foreach ($cups as $id => $cup): ?>
+      <tr>
+        <td><strong><?php echo esc_html($cup['title'] ?? $id); ?></strong></td>
+        <td><?php echo count($cup['entries'] ?? array()); ?></td>
+        <td><?php echo ($cup['draw_version'] ?? 0) > 0 ? '✅ Drawn' : '⏳ Not drawn'; ?></td>
+        <td><code>[nipgl_cup id="<?php echo esc_html($id); ?>"]</code></td>
+        <td style="white-space:nowrap">
+          <a href="<?php echo admin_url('admin.php?page=nipgl-cups&edit=' . urlencode($id)); ?>" class="button button-small">Edit</a>
+          <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=nipgl-cups&action=delete&id=' . urlencode($id)), 'nipgl_cup_delete_' . $id); ?>"
+             class="button button-small button-link-delete"
+             onclick="return confirm('Delete this cup and all its data?')">Delete</a>
+        </td>
+      </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?php endif; ?>
+    </div>
+    <?php
+}
+
+function nipgl_cup_edit_page($cup_id) {
+    $cup    = $cup_id ? get_option('nipgl_cup_' . $cup_id, array()) : array();
+    $is_new = !$cup_id;
+    $nonce  = wp_create_nonce('nipgl_cup_nonce');
+
+    // Show error if ID was missing on save attempt
+    $cup_error = $_GET['cup_error'] ?? '';
+
+    $entries_str = implode("\n", $cup['entries'] ?? array());
+    $rounds_str  = implode("\n", $cup['rounds']  ?? array());
+    $dates_str   = implode("\n", $cup['dates']   ?? array());
+    $drawn       = ($cup['draw_version'] ?? 0) > 0;
+    ?>
+    <div class="wrap">
+    <h1><?php echo $is_new ? 'New Cup' : 'Edit Cup: ' . esc_html($cup['title'] ?? $cup_id); ?></h1>
+    <p><a href="<?php echo admin_url('admin.php?page=nipgl-cups'); ?>">← Back to cups</a></p>
+
+    <?php if (isset($_GET['saved'])): ?>
+      <div class="notice notice-success is-dismissible"><p>Cup saved.</p></div>
+    <?php endif; ?>
+    <?php if ($cup_error === 'missing_id'): ?>
+      <div class="notice notice-error"><p>Cup ID is required.</p></div>
+    <?php endif; ?>
+
+    <form method="post">
+      <?php wp_nonce_field('nipgl_cup_save', 'nipgl_cup_save_nonce'); ?>
+      <!-- Pass the original ID so the save handler knows if the ID changed -->
+      <input type="hidden" name="cup_id_original" value="<?php echo esc_attr($cup_id); ?>">
+
+      <table class="form-table" style="max-width:760px">
+        <tr>
+          <th><label for="nipgl_cup_title">Cup Name</label></th>
+          <td><input type="text" id="nipgl_cup_title" name="nipgl_cup_title"
+                     value="<?php echo esc_attr($cup['title'] ?? ''); ?>"
+                     placeholder="e.g. NIPGBL Senior Cup 2025" class="regular-text" style="width:360px"></td>
+        </tr>
+        <tr>
+          <th><label for="nipgl_cup_id_field">Cup ID</label></th>
+          <td>
+            <input type="text" id="nipgl_cup_id_field" name="cup_id"
+                   value="<?php echo esc_attr($cup_id); ?>"
+                   placeholder="e.g. senior-cup-2025" class="regular-text"
+                   <?php echo $drawn ? 'readonly' : ''; ?>>
+            <p class="description">Used in the shortcode: <code>[nipgl_cup id="…"]</code>. Lowercase letters, numbers, hyphens only.<?php echo $drawn ? ' Cannot change after draw.' : ''; ?></p>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="nipgl_cup_entries">Entered Teams</label></th>
+          <td>
+            <textarea id="nipgl_cup_entries" name="nipgl_cup_entries" rows="14"
+                      style="width:360px;font-family:monospace;font-size:13px"
+                      placeholder="One team per line&#10;Ards&#10;Ballymena A&#10;Belmont A&#10;…"><?php echo esc_textarea($entries_str); ?></textarea>
+            <p class="description">One team per line. The draw will randomly seed these into the bracket. Currently: <strong><?php echo count($cup['entries'] ?? array()); ?></strong> entries.</p>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="nipgl_cup_rounds">Round Names</label></th>
+          <td>
+            <textarea id="nipgl_cup_rounds" name="nipgl_cup_rounds" rows="6"
+                      style="width:360px;font-family:monospace;font-size:13px"
+                      placeholder="One round name per line&#10;Round 1&#10;Quarter Final&#10;Semi-Final&#10;Final"><?php echo esc_textarea($rounds_str); ?></textarea>
+            <p class="description">One per line, in order from first round to final. Leave blank to auto-generate based on entry count.</p>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="nipgl_cup_dates">Round Dates</label></th>
+          <td>
+            <textarea id="nipgl_cup_dates" name="nipgl_cup_dates" rows="6"
+                      style="width:360px;font-family:monospace;font-size:13px"
+                      placeholder="One date per line (optional)&#10;01/05/2025&#10;05/06/2025&#10;…"><?php echo esc_textarea($dates_str); ?></textarea>
+            <p class="description">Optional. One date per line aligned with the round names above.</p>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="nipgl_cup_csv">Results CSV URL</label></th>
+          <td>
+            <input type="text" id="nipgl_cup_csv" name="nipgl_cup_csv"
+                   value="<?php echo esc_attr($cup['csv_url'] ?? ''); ?>"
+                   placeholder="https://docs.google.com/spreadsheets/…/pub?output=csv"
+                   class="regular-text" style="width:480px">
+            <p class="description">Optional. Published Google Sheets CSV of the bracket. If provided, results can be synced from the sheet.</p>
+          </td>
+        </tr>
+      </table>
+
+      <?php submit_button($is_new ? 'Create Cup' : 'Save Cup'); ?>
+    </form>
+
+    <?php if (!$is_new): ?>
+    <hr>
+    <h2>Draw</h2>
+    <?php if ($drawn): ?>
+      <p>✅ Draw performed (version <?php echo intval($cup['draw_version']); ?>). The bracket has been published.</p>
+      <p>
+        <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=nipgl-cups&edit=' . $cup_id . '&reset_draw=1'), 'nipgl_cup_reset_' . $cup_id); ?>"
+           class="button button-secondary"
+           onclick="return confirm('Reset the draw? This will clear the bracket and allow a fresh draw. Existing results will be lost.')">
+          🔄 Reset Draw &amp; Redo
+        </a>
+      </p>
+    <?php else: ?>
+      <p>No draw performed yet. Use the <strong>🎲 Perform Draw</strong> button on the public page, or perform it here:</p>
+      <button class="button button-primary nipgl-cup-admin-draw-btn-inline"
+              data-cup-id="<?php echo esc_attr($cup_id); ?>"
+              data-nonce="<?php echo esc_attr($nonce); ?>">
+        🎲 Perform Draw Now
+      </button>
+      <p id="nipgl-draw-inline-msg" style="margin-top:8px;color:#0a3622;display:none"></p>
+      <script>
+      document.querySelector('.nipgl-cup-admin-draw-btn-inline').addEventListener('click', function() {
+        var btn = this;
+        if (!confirm('Perform the draw now? This will randomise the bracket and publish it live.')) return;
+        btn.disabled = true; btn.textContent = '⏳ Drawing…';
+        var fd = new FormData();
+        fd.append('action','nipgl_cup_perform_draw');
+        fd.append('cup_id', btn.dataset.cupId);
+        fd.append('nonce',  btn.dataset.nonce);
+        fetch(ajaxurl, {method:'POST',body:fd,credentials:'same-origin'})
+          .then(function(r){return r.json();})
+          .then(function(res){
+            btn.disabled = false; btn.textContent = '🎲 Perform Draw Now';
+            var msg = document.getElementById('nipgl-draw-inline-msg');
+            if (res.success) {
+              msg.style.display = '';
+              msg.textContent   = '✅ Draw complete! ' + (res.data.pairs||[]).length + ' matches drawn. Reload the public page to see the bracket.';
+              setTimeout(function(){ location.reload(); }, 2000);
+            } else {
+              msg.style.display = ''; msg.style.color = '#c0202a';
+              msg.textContent = 'Error: ' + (res.data || 'Unknown');
+            }
+          });
+      });
+      </script>
+    <?php endif; ?>
+
+    <?php if (!empty($cup['csv_url'])): ?>
+    <hr>
+    <h2>Sync Results from Sheet</h2>
+    <p>Pull team advancement data from the Google Sheet to update the bracket display.</p>
+    <button class="button button-secondary" id="nipgl-cup-sync-btn"
+            data-cup-id="<?php echo esc_attr($cup_id); ?>"
+            data-nonce="<?php echo esc_attr($nonce); ?>">
+      🔄 Sync Results Now
+    </button>
+    <span id="nipgl-sync-msg" style="margin-left:12px;font-size:13px;color:#0a3622;display:none"></span>
+    <script>
+    document.getElementById('nipgl-cup-sync-btn').addEventListener('click', function() {
+      var btn = this;
+      btn.disabled = true; btn.textContent = '⏳ Syncing…';
+      var fd = new FormData();
+      fd.append('action', 'nipgl_cup_sync_results');
+      fd.append('cup_id', btn.dataset.cupId);
+      fd.append('nonce',  btn.dataset.nonce);
+      fetch(ajaxurl, {method:'POST',body:fd,credentials:'same-origin'})
+        .then(function(r){return r.json();})
+        .then(function(res){
+          btn.disabled = false; btn.textContent = '🔄 Sync Results Now';
+          var msg = document.getElementById('nipgl-sync-msg');
+          msg.style.display = '';
+          msg.textContent = res.success ? '✅ Results synced.' : '❌ ' + (res.data||'Error');
+          msg.style.color = res.success ? '#0a3622' : '#c0202a';
+        });
+    });
+    </script>
+    <?php endif; ?>
+
+    <hr>
+    <h2>Shortcode</h2>
+    <p>Add this shortcode to any page to display the cup bracket:</p>
+    <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block">[nipgl_cup id="<?php echo esc_html($cup_id); ?>" title="<?php echo esc_attr($cup['title'] ?? ''); ?>"]</pre>
+
+    <?php endif; ?>
+    </div>
+    <?php
+}

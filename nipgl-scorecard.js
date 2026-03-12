@@ -633,6 +633,44 @@
     });
   }
 
+  // Wire up cup match selector — pre-fill home/away and skip division team fetch
+  var cupMatchSel = qs('#sc-cup-match');
+  if (cupMatchSel) {
+    cupMatchSel.addEventListener('change', function () {
+      var val = cupMatchSel.value;
+      if (!val) return;
+      try {
+        var m = JSON.parse(val);
+        var homeEl = qs('#sc-home-team');
+        var awayEl = qs('#sc-away-team');
+        if (homeEl) { homeEl.value = m.home || ''; }
+        if (awayEl) { awayEl.value = m.away || ''; }
+        // Disable validation against division teams — cup matches are pre-known
+        divisionTeams    = null;
+        divisionFixtures = null;
+        // Clear any validation hints
+        var hints = document.querySelectorAll('#sc-home-team-hint, #sc-away-team-hint, #sc-fixture-pairing-hint');
+        hints.forEach(function (h) { h.textContent = ''; });
+      } catch (e) {}
+    });
+    // If auth club is set, pre-select the first match involving their club
+    if (authClub) {
+      var opts = cupMatchSel.options;
+      for (var oi = 1; oi < opts.length; oi++) {
+        try {
+          var m2 = JSON.parse(opts[oi].value);
+          var clubU = authClub.toUpperCase();
+          if ((m2.home || '').toUpperCase().indexOf(clubU.split(' ')[0]) === 0 ||
+              (m2.away || '').toUpperCase().indexOf(clubU.split(' ')[0]) === 0) {
+            cupMatchSel.selectedIndex = oi;
+            cupMatchSel.dispatchEvent(new Event('change'));
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
   // ── Collect form ──────────────────────────────────────────────────────────────
   function collectForm() {
     var sc = {

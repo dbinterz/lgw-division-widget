@@ -108,7 +108,67 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
-### v5.18.2
+### v6.0.10
+
+- Winner row: lighter green background with dark green text for better readability
+- Loser row: light red background with dark red text
+- Score popover team name colour hardcoded to `#1a1a1a` so it renders correctly on any page theme
+
+### v6.0.9
+
+- Fixed score input contrast — hardcoded white background and dark text so inputs are readable regardless of theme
+- Draw numbers hidden when a score is present — avoids overlap between score value and draw number badge
+- **Cup scorecard**: `[nipgl_submit cup="cup-id"]` now supported — division is pre-filled and locked, a match selector lists all drawn bracket fixtures, selecting a match auto-populates home/away team fields; full hole-by-hole scorecard submission works as normal
+
+### v6.0.8
+
+- Fixed undefined `$drawn` variable warning — was referenced in shortcode header output before being assigned
+
+### v6.0.7
+
+- Fixed 17-team draw showing a blank vs TBD match — `nipgl_cup_default_rounds()` had an erroneous `array_reverse` causing round names to be in wrong order, producing an extra skeleton round
+- Round names now correct for prelim-format cups: Preliminary Round → Round of 16 → Quarter Final → Semi-Final → Final
+- Edit button removed from public cup page
+- Cup widget explicitly defines light-mode CSS variables for standalone use
+- **Score entry**: admins can click any match card on the bracket to enter scores via a popover; winner is automatically advanced to the next round on save
+
+### v6.0.6
+
+- "Perform Draw" button hidden once draw is complete — suppressed server-side for subsequent page loads and removed from the DOM immediately after the draw animation closes
+
+### v6.0.5
+
+- Draw animation now covers all drawn rounds — after prelim matches are revealed, a labelled section break introduces the Round 2 draw; pairings involving a prelim winner show as "Prelim Winner" placeholder until that result is known
+
+### v6.0.4
+
+- Fixed byes logic — bracket now uses a proper prelim round containing only the overflow matches. 17 teams → 1 prelim match, winner joins 15 bye teams in Round 2 (8 matches). 20 teams → 4 prelims, 12 byes, 8 main-round matches. Prelim winners are spread evenly across the main-round bracket.
+
+### v6.0.3
+
+- Fixed "headers already sent" warning when saving a cup — POST save handler, draw reset, and delete actions all moved to `admin_init` so redirects run before any HTML output
+
+### v6.0.2
+
+- Draw enforces club home-conflict rule — teams from the same club (e.g. Belmont A and Belmont B) cannot both be the home team in Round 1 on the same date; home/away positions are swapped as needed after the random pairing. The unavoidable exception is when two same-club teams are drawn against each other — drawn order is kept since no swap resolves it.
+
+### v6.0.1
+
+- Fixed Cups admin page returning 404 — Cups submenu now registered inside `nipgl_admin_menu()` alongside Players/Scorecards submenus, guaranteeing the parent menu exists before the submenu is added
+- Fixed admin JS/CSS not loading on Cups pages — `admin_enqueue_scripts` hook now covers `nipgl_page_nipgl-cups`
+
+### v6.0.0
+
+- **Cup bracket widget** — new `[nipgl_cup id="…"]` shortcode renders a full single-elimination knockout bracket with club badges, scores, winner highlighting, and champion display
+- **Mobile-friendly** — round tabs on small screens; horizontal scroll bracket on desktop
+- **Live animated draw** — admin triggers the draw; any visitor on the page at that moment sees an animated team-reveal sequence pulled live via polling (no page reload needed)
+- **Cup management admin** — **NIPGL → Cups** page to create cups, enter the team list, set round names and dates, and link a Google Sheets CSV for result sync
+- **Google Sheets result sync** — pulls team advancement from the published bracket sheet and updates the stored bracket automatically
+- **Draw reset** — admin can clear and redo the draw before any results are recorded
+- **Dark mode + theme colours** — inherits all CSS variables from the division widget; fully compatible with per-shortcode theme overrides
+- New files: `nipgl-cup.php`, `nipgl-cup.js`, `nipgl-cup.css`
+
+### v5.18.3
 
 - Import Passphrases admin tool — upload `nipgl-club-passphrases.xlsx` directly from **NIPGL → 🔑 Import Passphrases** in wp-admin to set all club passphrases in one go
 - Tool hides itself from the menu once dismissed, keeping the admin tidy

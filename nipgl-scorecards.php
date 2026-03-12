@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Scorecard Feature - v5.18.2
+ * NIPGL Scorecard Feature - v6.0.10
  * Per-club passphrase auth, two-party submission, confirm/amend/dispute flow.
  */
 
@@ -662,19 +662,20 @@ function nipgl_ajax_get_scorecard() {
 // ── Shortcode: submission form ────────────────────────────────────────────────
 add_shortcode('nipgl_submit', 'nipgl_submit_shortcode');
 function nipgl_submit_shortcode($atts) {
-    $atts = shortcode_atts(array('csv' => ''), $atts);
+    $atts = shortcode_atts(array('csv' => '', 'cup' => ''), $atts);
     ob_start();
-    nipgl_render_submit_form($atts['csv']);
+    nipgl_render_submit_form($atts['csv'], $atts['cup']);
     return ob_get_clean();
 }
 
-function nipgl_render_submit_form() {
+function nipgl_render_submit_form($csv_url = '', $cup_id = '') {
     $clubs     = nipgl_get_clubs();
     $auth_club = nipgl_get_auth_club();
     $has_clubs = !empty($clubs);
     ?>
     <div class="nipgl-submit-wrap" id="nipgl-submit-wrap"
-         data-auth-club="<?php echo esc_attr($auth_club); ?>">
+         data-auth-club="<?php echo esc_attr($auth_club); ?>"
+         data-cup-id="<?php echo esc_attr($cup_id); ?>">
 
       <!-- Passphrase / club login gate -->
       <div id="nipgl-pin-gate" <?php echo $auth_club ? 'style="display:none"' : ''; ?>>
@@ -766,8 +767,34 @@ function nipgl_render_submit_form() {
         <div class="nipgl-submit-card" id="nipgl-scorecard-form">
           <h3>Scorecard Details</h3>
           <div class="nipgl-form-row">
-            <label>Division</label>
-            <input type="text" id="sc-division" placeholder="e.g. Division 1">
+            <label>Division / Cup</label>
+            <?php if ($cup_id): ?>
+              <?php $cup_data = get_option('nipgl_cup_' . $cup_id, array()); ?>
+              <input type="text" id="sc-division"
+                     value="<?php echo esc_attr($cup_data['title'] ?? $cup_id); ?>"
+                     readonly style="background:#f5f5f5;cursor:default">
+              <?php if (!empty($cup_data['bracket']['matches'])): ?>
+              <div class="nipgl-form-row" style="margin-top:8px">
+                <label>Match</label>
+                <select id="sc-cup-match" style="width:100%;padding:9px 12px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px;font-family:inherit">
+                  <option value="">— Select cup match —</option>
+                  <?php
+                  foreach ($cup_data['bracket']['matches'] as $ri => $round_matches) {
+                      $round_name = $cup_data['bracket']['rounds'][$ri] ?? ('Round ' . ($ri + 1));
+                      foreach ($round_matches as $mi => $m) {
+                          if (empty($m['home']) || empty($m['away'])) continue;
+                          $label = esc_attr($m['home'] . ' v ' . $m['away'] . ' (' . $round_name . ')');
+                          $val   = esc_attr(json_encode(array('home' => $m['home'], 'away' => $m['away'], 'round' => $round_name)));
+                          echo '<option value="' . $val . '">' . esc_html($m['home'] . ' v ' . $m['away'] . ' (' . $round_name . ')') . '</option>';
+                      }
+                  }
+                  ?>
+                </select>
+              </div>
+              <?php endif; ?>
+            <?php else: ?>
+              <input type="text" id="sc-division" placeholder="e.g. Division 1">
+            <?php endif; ?>
           </div>
           <div class="nipgl-form-row nipgl-form-row-2">
             <div><label>Venue / Played at</label><input type="text" id="sc-venue" placeholder="e.g. Ards"></div>
