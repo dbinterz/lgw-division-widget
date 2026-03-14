@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Cup Bracket Feature - v6.1.4
+ * NIPGL Cup Bracket Feature - v6.1.6
  * Single-elimination knockout bracket widget with live animated draw.
  */
 
@@ -27,10 +27,12 @@ function nipgl_cup_enqueue() {
     }
     // Always localise cup-specific data (score entry, admin flag)
     wp_localize_script('nipgl-cup', 'nipglCupData', array(
+        'ajaxUrl'            => admin_url('admin-ajax.php'),
         'isAdmin'            => current_user_can('manage_options') ? 1 : 0,
         'scoreNonce'         => wp_create_nonce('nipgl_cup_score'),
         'drawPassphraseSet'  => get_option('nipgl_draw_passphrase', '') !== '' ? 1 : 0,
         'cupNonce'           => wp_create_nonce('nipgl_cup_nonce'),
+        'drawSpeed'          => (float) get_option('nipgl_draw_speed', 1.0),
     ));
 }
 
@@ -210,6 +212,11 @@ function nipgl_ajax_cup_perform_draw() {
 
     $cup = get_option('nipgl_cup_' . $cup_id, array());
     if (empty($cup['entries'])) wp_send_json_error('No entries configured for this cup.');
+
+    // Prevent double-draw if another authenticated user triggered it first
+    if (!empty($cup['draw_version']) && (int) $cup['draw_version'] > 0) {
+        wp_send_json_error('The draw has already been performed.');
+    }
 
     $result = nipgl_cup_perform_draw($cup_id, $cup);
     if (is_wp_error($result)) {
@@ -650,6 +657,9 @@ function nipgl_cup_handle_admin_actions() {
         wp_verify_nonce($_POST['nipgl_draw_passphrase_nonce'], 'nipgl_draw_passphrase_save')) {
         $raw = strtolower(trim(sanitize_text_field($_POST['nipgl_draw_passphrase'] ?? '')));
         update_option('nipgl_draw_passphrase', $raw !== '' ? hash('sha256', $raw) : '');
+        $valid_speeds = array('0.5', '0.75', '1.0', '1.5', '2.0');
+        $speed = $_POST['nipgl_draw_speed'] ?? '1.0';
+        update_option('nipgl_draw_speed', in_array($speed, $valid_speeds) ? $speed : '1.0');
         wp_redirect(admin_url('admin.php?page=nipgl-cups&passphrase_saved=1'));
         exit;
     }
@@ -729,6 +739,27 @@ function nipgl_cups_list_page() {
               <span style="color:#999;margin-left:8px">Not set</span>
             <?php endif; ?>
             <p class="description">Three-word format recommended: <code>word.word.word</code>. Stored as a SHA-256 hash. Leave blank to clear.</p>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><label for="nipgl_draw_speed">Draw Animation Speed</label></th>
+          <td>
+            <select id="nipgl_draw_speed" name="nipgl_draw_speed" style="width:200px">
+              <?php
+              $current_speed = (float) get_option('nipgl_draw_speed', 1.0);
+              $speeds = array(
+                  '0.5' => 'Fast (0.5×)',
+                  '0.75' => 'Fairly fast (0.75×)',
+                  '1.0' => 'Normal (1×) — default',
+                  '1.5' => 'Slow (1.5×)',
+                  '2.0' => 'Very slow (2×)',
+              );
+              foreach ($speeds as $val => $label):
+              ?>
+              <option value="<?php echo $val; ?>" <?php selected((string)$current_speed, $val); ?>><?php echo $label; ?></option>
+              <?php endforeach; ?>
+            </select>
+            <p class="description">Controls the cadence of the live draw animation. Normal = 2.6s per match.</p>
           </td>
         </tr>
       </table>

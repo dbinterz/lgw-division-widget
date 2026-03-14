@@ -1,8 +1,12 @@
-/* NIPGL Cup Bracket JS - v6.0.0 */
+/* NIPGL Cup Bracket JS - v6.1.6 */
 (function () {
   'use strict';
 
-  var ajaxUrl    = (typeof nipglData !== 'undefined') ? nipglData.ajaxUrl    : '/wp-admin/admin-ajax.php';
+  var ajaxUrl    = (typeof nipglData     !== 'undefined' && nipglData.ajaxUrl)
+                 ? nipglData.ajaxUrl
+                 : (typeof nipglCupData  !== 'undefined' && nipglCupData.ajaxUrl)
+                 ? nipglCupData.ajaxUrl
+                 : '/wp-admin/admin-ajax.php';
   var badges     = (typeof nipglData !== 'undefined') ? nipglData.badges     : {};
   var clubBadges = (typeof nipglData !== 'undefined') ? nipglData.clubBadges : {};
 
@@ -44,9 +48,17 @@
     fd.append('action', action);
     for (var k in data) fd.append(k, data[k]);
     fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
-      .then(cb)
-      .catch(function (e) { cb({ success: false, data: e.message }); });
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        try {
+          cb(JSON.parse(text));
+        } catch (e) {
+          // Non-JSON response — surface the raw text for easier debugging
+          cb({ success: false, data: 'Server returned unexpected response. Please try again.' });
+          if (typeof console !== 'undefined') console.error('NIPGL cup AJAX non-JSON response:', text);
+        }
+      })
+      .catch(function (e) { cb({ success: false, data: 'Network error: ' + e.message }); });
   }
 
   // ── Bracket rendering ─────────────────────────────────────────────────────────
@@ -236,10 +248,12 @@
     var skipped  = false;
 
     // Timings (ms)
-    var T_HOME  = 700;   // delay before showing home team
-    var T_AWAY  = 1200;  // delay before showing away team
-    var T_CHIP  = 1800;  // delay before adding chip
-    var T_NEXT  = 2600;  // delay before advancing to next pair
+    // Cadence: speed multiplier from cup settings (0.5 = fast, 1.0 = normal, 2.0 = slow)
+    var speed   = (typeof nipglCupData !== 'undefined' && nipglCupData.drawSpeed) ? parseFloat(nipglCupData.drawSpeed) : 1.0;
+    var T_HOME  = Math.round(700  * speed);  // delay before showing home team
+    var T_AWAY  = Math.round(1200 * speed);  // delay before showing away team
+    var T_CHIP  = Math.round(1800 * speed);  // delay before adding chip
+    var T_NEXT  = Math.round(2600 * speed);  // delay before advancing to next pair
 
     function addChip(pair) {
       var chip = document.createElement('div');
@@ -286,13 +300,17 @@
 
       matchIdx++;
       labelEl.textContent = 'Match ' + matchIdx;
-      homeEl.textContent = pair.home;
-      awayEl.textContent = pair.bye ? 'BYE' : (pair.away || 'TBD');
+
+      // Clear previous content first so next team names don't show before animation
       homeEl.classList.remove('show');
       awayEl.classList.remove('show');
+      homeEl.textContent = '';
+      awayEl.textContent = '';
 
       if (skipped) {
         // Instant reveal — no animation
+        homeEl.textContent = pair.home;
+        awayEl.textContent = pair.bye ? 'BYE' : (pair.away || 'TBD');
         homeEl.classList.add('show');
         awayEl.classList.add('show');
         addChip(pair);
@@ -301,8 +319,14 @@
         return;
       }
 
-      timer = setTimeout(function () { homeEl.classList.add('show'); }, T_HOME);
-      timer = setTimeout(function () { awayEl.classList.add('show'); }, T_AWAY);
+      timer = setTimeout(function () {
+        homeEl.textContent = pair.home;
+        homeEl.classList.add('show');
+      }, T_HOME);
+      timer = setTimeout(function () {
+        awayEl.textContent = pair.bye ? 'BYE' : (pair.away || 'TBD');
+        awayEl.classList.add('show');
+      }, T_AWAY);
       timer = setTimeout(function () {
         addChip(pair);
         progressEl.textContent = matchIdx + ' / ' + matchCount + ' drawn';

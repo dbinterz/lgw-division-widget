@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 6.1.4
+Stable tag: 6.1.6
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,14 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 6.1.6 =
+* Fixed "unexpected token" error on mobile after passphrase entry — ajaxUrl now always sourced from nipglCupData; post() helper parses response as text first so non-JSON server responses produce a readable error
+
+= 6.1.5 =
+* Fixed draw animation showing next match teams before the reveal — text is now set inside the timeout, not before it
+* Draw animation speed configurable in NIPGL > Cups (0.5× fast to 2× slow); default 1× = 2.6s per match
+* Server-side guard against double-draw from concurrent authenticated users
 
 = 6.1.4 =
 * Draw animation is now fully automatic — teams reveal on a timed sequence; Skip to End fast-forwards all remaining matches instantly

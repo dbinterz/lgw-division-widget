@@ -108,6 +108,16 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
+### v6.1.6
+
+- Fixed "unexpected token" error on mobile after passphrase entry — `ajaxUrl` now always taken from `nipglCupData` (always present) rather than `nipglData` (only present when division widget is also on the page); AJAX response parsed as text first so non-JSON responses give a readable error message
+
+### v6.1.5
+
+- Fixed team names pre-loading before draw animation — text now set inside the reveal timeout
+- Draw speed configurable under NIPGL → Cups: Fast (0.5×) through Very Slow (2×)
+- Server-side double-draw guard — concurrent authenticated users cannot accidentally re-draw an already-drawn cup
+
 ### v6.1.4
 
 - Draw animation is fully automatic — home/away teams reveal on a timer; "Skip to End" button fast-forwards all remaining matches instantly
