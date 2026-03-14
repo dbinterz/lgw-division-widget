@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 6.1.6
+Stable tag: 6.3.0
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,54 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 6.3.0 =
+* Fixed empty print/PDF — replaced body > * visibility approach with visibility:hidden on all + visibility:visible on cup wrap, which works at any nesting depth; all rounds forced visible before print dialog opens
+
+= 6.2.9 =
+* Print Draw button appears in the bracket header after the draw is complete — prints a clean draw sheet hiding UI chrome
+* Clicking a completed match card shows the submitted scorecard in a modal (rink-by-rink with scores, players, winner highlighted, confirmation status)
+* Cup scorecards already feed into player appearance records automatically via the existing [nipgl_submit cup="..."] confirmation flow — no extra config needed
+
+= 6.2.8 =
+* Fixed draw stuck at "N-1 / N drawn" — round header entries in pairs_for_anim were included in the total count but never triggered an advance_cursor call; cursor never reached total so complete was never set; headers now advance the cursor on the draw master side (and on skip-to-end)
+
+= 6.2.7 =
+* Fixed viewer draw completion — server now returns a dedicated "complete" flag with the bracket whenever the draw is fully done; viewer polls on this flag rather than inferring from in_progress+bracket which had a race condition
+* Viewer overlay now shows running total (X / Y drawn) and estimated time remaining, matching the draw master screen
+
+= 6.2.6 =
+* Fixed viewer draw not completing — waitForAnim interval could wait forever if the animating flag was still true when the poll returned the final bracket; now times out after 6s and force-clears the animating state
+
+= 6.2.5 =
+* Fixed initCupWidget not defined error — function was accidentally removed during the Python-based rewrite of startDrawPoll in 6.2.3; restored
+
+= 6.2.4 =
+* Fixed login button broken by 6.2.3 — drawMasterActive variable was declared after initAdminDraw causing a ReferenceError that broke the entire script; moved declaration to module scope alongside drawToken
+
+= 6.2.3 =
+* Fixed draw master seeing two overlays — viewer poll overlay suppressed when draw master animation is active on same page
+* Fixed viewer overlay missing "View Bracket" close button
+* Polling uses exponential backoff: 1s during active draw, backing off to 2s/4s/8s when idle — reduces mobile network requests
+
+= 6.2.2 =
+* Draw overlay now shows "✅ The draw is complete!" with a "View Bracket" button when the draw finishes — applies to draw master, skip-to-end, and live viewers
+
+= 6.2.1 =
+= 6.2.1 =
+* Fixed draw animation replaying on page refresh after draw is complete — polling is now suppressed if a complete bracket is already present on page load; draw_in_progress is also auto-cleared server-side when cursor reaches the total pair count
+
+= 6.2.0 =
+* Live draw is now fully synchronised for all viewers — the draw master's animation drives a server-side cursor that advances match by match; viewers poll at 1s intervals and see each team revealed in lockstep; viewers who join mid-draw pick up from the current position immediately
+
+= 6.1.9 =
+* Removed passphrase hint text and format placeholder from the scorecard login form on division pages — input now shows generic "Enter passphrase" placeholder only
+
+= 6.1.8 =
+* Removed passphrase format hint and placeholder from the public draw login modal — no information about the passphrase format is shown to users
+
+= 6.1.7 =
+* Fixed "unexpected response" on mobile passphrase entry — check_ajax_referer replaced with wp_verify_nonce in the draw auth and perform draw handlers so nonce failures return proper JSON errors instead of plain -1; stale nonces (from page caching) now show a "session expired, please refresh" message
 
 = 6.1.6 =
 * Fixed "unexpected token" error on mobile after passphrase entry — ajaxUrl now always sourced from nipglCupData; post() helper parses response as text first so non-JSON server responses produce a readable error

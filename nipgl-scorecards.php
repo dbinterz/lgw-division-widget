@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Scorecard Feature - v6.1.6
+ * NIPGL Scorecard Feature - v6.3.0
  * Per-club passphrase auth, two-party submission, confirm/amend/dispute flow.
  */
 
@@ -695,10 +695,9 @@ function nipgl_render_submit_form($csv_url = '', $cup_id = '') {
               </select>
             </div>
             <div class="nipgl-pin-row">
-              <input type="text" id="nipgl-pin-input" placeholder="e.g. filled.count.ripen" maxlength="60" autocomplete="off" autocapitalize="none" spellcheck="false">
+              <input type="text" id="nipgl-pin-input" placeholder="Enter passphrase" maxlength="60" autocomplete="off" autocapitalize="none" spellcheck="false">
               <button class="nipgl-btn nipgl-btn-primary" id="nipgl-pin-submit">Login</button>
             </div>
-            <p class="nipgl-passphrase-hint">Enter the three-word passphrase for your club (format: <code>word.word.word</code>)</p>
             <p id="nipgl-pin-error" class="nipgl-notice nipgl-notice-error" style="display:none"></p>
           <?php endif; ?>
         </div>

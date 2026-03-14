@@ -162,12 +162,20 @@
         var card = matchEl.firstElementChild;
         card.dataset.round = ri;
         card.dataset.match = mi;
-        // Admin score entry: click any non-bye, non-TBD match
         var isAdmin = typeof nipglCupData !== 'undefined' && nipglCupData.isAdmin == 1;
+        var hasResult = match.home_score !== null && match.home_score !== undefined &&
+                        match.away_score !== null && match.away_score !== undefined;
         if (isAdmin && !match.bye && (match.home || match.away)) {
+          // Admin: click opens score entry
           card.classList.add('nipgl-cup-editable');
           card.addEventListener('click', function () {
             openScoreEntry(wrap, card, match, ri, mi);
+          });
+        } else if (hasResult && match.home && match.away) {
+          // Anyone: click opens scorecard viewer if result is set
+          card.classList.add('nipgl-cup-has-scorecard');
+          card.addEventListener('click', function () {
+            openScorecardViewer(card, match);
           });
         }
         slotsEl.appendChild(card);
@@ -214,7 +222,7 @@
   }
 
   // ── Live draw animation ───────────────────────────────────────────────────────
-  function runDrawAnimation(pairs, onComplete) {
+  function runDrawAnimation(pairs, onComplete, wrap) {
     // pairs = [ {home, away, bye}, ... ] with optional {type:'header', label:'...'} entries
     var matchCount = pairs.filter(function (p) { return p.type !== 'header'; }).length;
 
@@ -272,7 +280,15 @@
         showPair(idx);
         idx++;
       } else {
-        skipBtn.textContent = 'Close';
+        // All pairs revealed — show completion state
+        var subtitleEl = qs('.nipgl-cup-draw-subtitle', overlay);
+        var revealEl   = qs('.nipgl-cup-draw-reveal',   overlay);
+        if (subtitleEl) subtitleEl.textContent = '✅ The draw is complete!';
+        if (revealEl)   revealEl.style.display = 'none';
+        labelEl.textContent = '';
+        homeEl.classList.remove('show'); homeEl.textContent = '';
+        awayEl.classList.remove('show'); awayEl.textContent = '';
+        skipBtn.textContent = 'View Bracket';
         skipBtn.onclick = function () {
           document.body.removeChild(overlay);
           if (onComplete) onComplete();
@@ -293,7 +309,12 @@
         homeEl.textContent = '';
         awayEl.textContent = '';
         labelEl.textContent = pair.label;
-        // Brief pause on header then auto-advance
+        // Advance server cursor for header entry so total stays in sync
+        var cupIdH = wrap ? wrap.dataset.cupId : '';
+        var nonceH = (typeof nipglCupData !== 'undefined') ? nipglCupData.cupNonce : '';
+        if (cupIdH && nonceH) {
+          post('nipgl_cup_advance_cursor', { cup_id: cupIdH, nonce: nonceH, draw_token: drawToken || '' }, function () {});
+        }
         timer = setTimeout(advance, skipped ? 0 : 600);
         return;
       }
@@ -330,6 +351,15 @@
       timer = setTimeout(function () {
         addChip(pair);
         progressEl.textContent = matchIdx + ' / ' + matchCount + ' drawn';
+        // Advance server cursor so polling viewers receive this pair
+        var cupId = document.querySelector('.nipgl-cup-wrap') ?
+          document.querySelector('.nipgl-cup-wrap').dataset.cupId : '';
+        var nonce = (typeof nipglCupData !== 'undefined') ? nipglCupData.cupNonce : '';
+        if (cupId && nonce) {
+          post('nipgl_cup_advance_cursor', {
+            cup_id: cupId, nonce: nonce, draw_token: drawToken || ''
+          }, function () {}); // fire and forget
+        }
       }, T_CHIP);
       timer = setTimeout(advance, T_NEXT);
     }
@@ -348,16 +378,26 @@
           divider.className = 'nipgl-cup-draw-round-header';
           divider.textContent = pair.label;
           pairsEl.appendChild(divider);
+          // Advance cursor for header too
+          var cupIdS = wrap ? wrap.dataset.cupId : '';
+          var nonceS = (typeof nipglCupData !== 'undefined') ? nipglCupData.cupNonce : '';
+          if (cupIdS && nonceS) {
+            post('nipgl_cup_advance_cursor', { cup_id: cupIdS, nonce: nonceS, draw_token: drawToken || '' }, function () {});
+          }
           continue;
         }
         matchIdx++;
         addChip(pair);
       }
       progressEl.textContent = matchCount + ' / ' + matchCount + ' drawn';
-      labelEl.textContent = '✅ Draw Complete';
+      var subtitleEl2 = qs('.nipgl-cup-draw-subtitle', overlay);
+      var revealEl2   = qs('.nipgl-cup-draw-reveal',   overlay);
+      if (subtitleEl2) subtitleEl2.textContent = '✅ The draw is complete!';
+      if (revealEl2)   revealEl2.style.display = 'none';
+      labelEl.textContent = '';
       homeEl.classList.remove('show'); homeEl.textContent = '';
       awayEl.classList.remove('show'); awayEl.textContent = '';
-      skipBtn.textContent = 'Close';
+      skipBtn.textContent = 'View Bracket';
       skipBtn.onclick = function () {
         document.body.removeChild(overlay);
         if (onComplete) onComplete();
@@ -368,17 +408,105 @@
     advance();
   }
 
+  // ── Cup match scorecard viewer ────────────────────────────────────────────────
+  function openScorecardViewer(card, match) {
+    var existing = qs('.nipgl-cup-sc-modal');
+    if (existing) existing.parentNode.removeChild(existing);
+
+    var nonce  = (typeof nipglCupData !== 'undefined') ? nipglCupData.cupNonce : '';
+    var modal  = document.createElement('div');
+    modal.className = 'nipgl-cup-sc-modal';
+    modal.innerHTML =
+      '<div class="nipgl-cup-sc-modal-box">' +
+        '<div class="nipgl-cup-sc-modal-header">' +
+          '<span class="nipgl-cup-sc-modal-title">' + escHtml(match.home) + ' v ' + escHtml(match.away) + '</span>' +
+          '<button class="nipgl-cup-sc-modal-close" aria-label="Close">&times;</button>' +
+        '</div>' +
+        '<div class="nipgl-cup-sc-modal-body"><p class="nipgl-cup-sc-loading">Loading scorecard…</p></div>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    qs('.nipgl-cup-sc-modal-close', modal).addEventListener('click', function () {
+      modal.parentNode.removeChild(modal);
+    });
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) modal.parentNode.removeChild(modal);
+    });
+
+    post('nipgl_cup_get_scorecard', { home: match.home, away: match.away, nonce: nonce }, function (res) {
+      var body = qs('.nipgl-cup-sc-modal-body', modal);
+      if (!res.success) {
+        body.innerHTML = '<p class="nipgl-cup-sc-none">No scorecard has been submitted for this match yet.</p>';
+        return;
+      }
+      var sc = res.data.sc;
+      var conf = res.data.confirmed_by ? '✅ Confirmed by ' + escHtml(res.data.confirmed_by) : '⏳ Awaiting confirmation';
+      var html = '<div class="nipgl-cup-sc-summary">' +
+        '<div class="nipgl-cup-sc-meta">' +
+          (sc.venue ? '<span>' + escHtml(sc.venue) + '</span>' : '') +
+          (sc.date  ? '<span>' + escHtml(sc.date)  + '</span>' : '') +
+        '</div>' +
+        '<div class="nipgl-cup-sc-conf">' + conf + '</div>' +
+        '<table class="nipgl-cup-sc-table">' +
+          '<thead><tr><th>Rink</th><th colspan="2">Home</th><th>Score</th><th colspan="2">Away</th><th>Score</th></tr></thead>' +
+          '<tbody>';
+      (sc.rinks || []).forEach(function (rk) {
+        var hs = rk.home_score !== null && rk.home_score !== undefined ? rk.home_score : '-';
+        var as = rk.away_score !== null && rk.away_score !== undefined ? rk.away_score : '-';
+        var homeWin = hs !== '-' && as !== '-' && parseFloat(hs) > parseFloat(as);
+        var awayWin = hs !== '-' && as !== '-' && parseFloat(as) > parseFloat(hs);
+        html += '<tr>' +
+          '<td class="nipgl-cup-sc-rink">Rink ' + escHtml(String(rk.rink)) + '</td>' +
+          '<td class="nipgl-cup-sc-players">' + escHtml((rk.home_players || []).join(', ')) + '</td>' +
+          '<td class="nipgl-cup-sc-score ' + (homeWin ? 'win' : '') + '">' + escHtml(String(hs)) + '</td>' +
+          '<td class="nipgl-cup-sc-vs">v</td>' +
+          '<td class="nipgl-cup-sc-score ' + (awayWin ? 'win' : '') + '">' + escHtml(String(as)) + '</td>' +
+          '<td class="nipgl-cup-sc-players">' + escHtml((rk.away_players || []).join(', ')) + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody>' +
+        '<tfoot><tr>' +
+          '<td colspan="2" class="nipgl-cup-sc-total-lbl">Total</td>' +
+          '<td class="nipgl-cup-sc-score ' + (parseFloat(sc.home_total) > parseFloat(sc.away_total) ? 'win' : '') + '">' + escHtml(String(sc.home_total ?? '-')) + '</td>' +
+          '<td></td>' +
+          '<td class="nipgl-cup-sc-score ' + (parseFloat(sc.away_total) > parseFloat(sc.home_total) ? 'win' : '') + '">' + escHtml(String(sc.away_total ?? '-')) + '</td>' +
+          '<td class="nipgl-cup-sc-total-lbl">Total</td>' +
+        '</tr></tfoot>' +
+        '</table></div>';
+      body.innerHTML = html;
+    });
+  }
+
   // ── Hide draw/login buttons once draw is complete ─────────────────────────────
   function hideDrawButtons(wrap) {
     var actionsEl = qs('.nipgl-cup-header-actions', wrap);
     if (actionsEl) actionsEl.parentNode.removeChild(actionsEl);
+    // Add print button
+    var headerEl = qs('.nipgl-cup-header', wrap);
+    if (headerEl && !qs('.nipgl-cup-post-draw-actions', wrap)) {
+      var printDiv = document.createElement('div');
+      printDiv.className = 'nipgl-cup-header-actions nipgl-cup-post-draw-actions';
+      printDiv.innerHTML = '<button class="nipgl-cup-btn nipgl-cup-btn-ghost nipgl-cup-print-btn">\uD83D\uDDA8 Print Draw</button>';
+      qs('.nipgl-cup-print-btn', printDiv).addEventListener('click', function () {
+        // Ensure all rounds visible (not hidden by mobile tabs) before printing
+        var rounds = qsa('.nipgl-cup-round', wrap);
+        rounds.forEach(function (r) { r.style.display = 'flex'; });
+        window.print();
+        // Restore after print dialog closes
+        setTimeout(function () {
+          rounds.forEach(function (r) { r.style.display = ''; });
+        }, 1000);
+      });
+      headerEl.appendChild(printDiv);
+    }
     // Also hide the "no draw yet" empty state
     var emptyEl = qs('.nipgl-cup-empty', wrap);
     if (emptyEl) emptyEl.style.display = 'none';
   }
 
   // ── Draw passphrase login modal ───────────────────────────────────────────────
-  var drawToken = null; // stored in memory for session duration
+  var drawToken        = null; // stored in memory for session duration
+  var drawMasterActive = false; // true while draw master animation is running
 
   function openDrawLoginModal(wrap, onSuccess) {
     var existing = qs('.nipgl-cup-draw-login-modal');
@@ -391,8 +519,7 @@
     modal.innerHTML =
       '<div class="nipgl-cup-draw-login-box">' +
         '<div class="nipgl-cup-draw-login-title">🔑 Draw Authentication</div>' +
-        '<p class="nipgl-cup-draw-login-hint">Enter the draw passphrase to unlock the cup draw.</p>' +
-        '<input class="nipgl-cup-draw-login-input" type="text" placeholder="word.word.word" ' +
+        '<input class="nipgl-cup-draw-login-input" type="text" placeholder="Enter passphrase" ' +
                'autocomplete="off" autocapitalize="none" spellcheck="false">' +
         '<div class="nipgl-cup-draw-login-actions">' +
           '<button class="nipgl-cup-draw-login-submit">Unlock Draw</button>' +
@@ -460,11 +587,13 @@
         }
         var bracket = res.data.bracket;
         var pairs   = res.data.pairs;
+        drawMasterActive = true;
         runDrawAnimation(pairs, function () {
+          drawMasterActive = false;
           renderBracket(wrap, bracket);
           updateStatus(wrap, 'Draw complete — bracket published.');
           hideDrawButtons(wrap);
-        });
+        }, wrap);
       });
     }
 
@@ -586,33 +715,195 @@
   function startDrawPoll(wrap, lastVersion) {
     var cupId = wrap.dataset.cupId;
     if (!cupId) return;
-    var pollInterval = setInterval(function () {
-      post('nipgl_cup_poll', { cup_id: cupId, version: lastVersion }, function (res) {
-        if (!res.success) return;
-        if (res.data.version !== lastVersion) {
-          clearInterval(pollInterval);
-          lastVersion = res.data.version;
-          var bracket = res.data.bracket;
-          var pairs   = res.data.pairs || [];
-          if (pairs.length) {
-            runDrawAnimation(pairs, function () {
-              renderBracket(wrap, bracket);
-              updateStatus(wrap, 'Draw complete.');
-              hideDrawButtons(wrap);
-            });
-          } else {
+
+    var cursor      = 0;
+    var animating   = false;
+    var overlay     = null;
+    var pairsQueue  = [];
+    var pollTimeout;
+    var pollDelay   = 1000;  // starts at 1s, backs off when idle
+    var idleCount   = 0;
+
+    function scheduleNextPoll() {
+      clearTimeout(pollTimeout);
+      pollTimeout = setTimeout(doPoll, pollDelay);
+    }
+
+    function revealNextPair() {
+      if (animating || pairsQueue.length === 0) return;
+      // Suppress viewer overlay if draw master animation is running on this page
+      if (drawMasterActive) { pairsQueue = []; return; }
+      animating = true;
+      var pair = pairsQueue.shift();
+
+      // Create overlay if not open yet
+      if (!overlay || !document.body.contains(overlay)) {
+        overlay = document.createElement('div');
+        overlay.className = 'nipgl-cup-draw-overlay';
+        overlay.innerHTML = [
+          '<div class="nipgl-cup-draw-title">🏆 Cup Draw</div>',
+          '<div class="nipgl-cup-draw-subtitle">The draw is being made…</div>',
+          '<div class="nipgl-cup-draw-reveal" id="nipgl-draw-reveal-v">',
+            '<div class="nipgl-cup-draw-slot-label" id="nipgl-draw-slot-label-v">Match</div>',
+            '<div class="nipgl-cup-draw-team" id="nipgl-draw-home-v"></div>',
+            '<div class="nipgl-cup-draw-vs">vs</div>',
+            '<div class="nipgl-cup-draw-team" id="nipgl-draw-away-v"></div>',
+          '</div>',
+          '<div class="nipgl-cup-draw-progress" id="nipgl-draw-progress-v">Waiting for draw to begin…</div>',
+          '<div class="nipgl-cup-draw-eta" id="nipgl-draw-eta-v"></div>',
+          '<div class="nipgl-cup-draw-pairs" id="nipgl-draw-pairs-v"></div>',
+        ].join('');
+        document.body.appendChild(overlay);
+      }
+
+      var labelEl = qs('#nipgl-draw-slot-label-v', overlay);
+      var homeEl  = qs('#nipgl-draw-home-v',       overlay);
+      var awayEl  = qs('#nipgl-draw-away-v',       overlay);
+      var pairsEl = qs('#nipgl-draw-pairs-v',      overlay);
+
+      var speed  = (typeof nipglCupData !== 'undefined' && nipglCupData.drawSpeed)
+                 ? parseFloat(nipglCupData.drawSpeed) : 1.0;
+      var T_HOME = Math.round(700  * speed);
+      var T_AWAY = Math.round(1200 * speed);
+      var T_CHIP = Math.round(1800 * speed);
+      var T_DONE = Math.round(2400 * speed);
+
+      if (pair.type === 'header') {
+        var divider = document.createElement('div');
+        divider.className = 'nipgl-cup-draw-round-header';
+        divider.textContent = pair.label;
+        pairsEl.appendChild(divider);
+        homeEl.classList.remove('show'); homeEl.textContent = '';
+        awayEl.classList.remove('show'); awayEl.textContent = '';
+        if (labelEl) labelEl.textContent = pair.label;
+        setTimeout(function () { animating = false; revealNextPair(); }, 600);
+        return;
+      }
+
+      if (labelEl) labelEl.textContent = 'Match';
+      homeEl.classList.remove('show'); homeEl.textContent = '';
+      awayEl.classList.remove('show'); awayEl.textContent = '';
+
+      setTimeout(function () { homeEl.textContent = pair.home; homeEl.classList.add('show'); }, T_HOME);
+      setTimeout(function () {
+        awayEl.textContent = pair.bye ? 'BYE' : (pair.away || 'TBD');
+        awayEl.classList.add('show');
+      }, T_AWAY);
+      setTimeout(function () {
+        var chip = document.createElement('div');
+        chip.className = 'nipgl-cup-draw-pair-chip' + (pair.bye ? ' nipgl-cup-draw-bye-chip' : '');
+        chip.innerHTML = escHtml(pair.home)
+          + '<span class="vs-sep">' + (pair.bye ? 'BYE' : 'v') + '</span>'
+          + (pair.bye ? '' : escHtml(pair.away || 'TBD'));
+        pairsEl.appendChild(chip);
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () { chip.classList.add('show'); });
+        });
+      }, T_CHIP);
+      setTimeout(function () {
+        animating = false;
+        if (pairsQueue.length > 0) revealNextPair();
+      }, T_DONE);
+    }
+
+    function showViewerComplete(bracket) {
+      if (drawMasterActive) {
+        if (bracket) { renderBracket(wrap, bracket); hideDrawButtons(wrap); }
+        return;
+      }
+      if (overlay && document.body.contains(overlay)) {
+        var subtitleEl = qs('.nipgl-cup-draw-subtitle', overlay);
+        var revealEl   = qs('#nipgl-draw-reveal-v',     overlay);
+        if (subtitleEl) subtitleEl.textContent = '\u2705 The draw is complete!';
+        if (revealEl)   revealEl.style.display = 'none';
+        // Remove any existing button first
+        var existing = qs('.nipgl-cup-draw-skip-btn', overlay);
+        if (existing) existing.parentNode.removeChild(existing);
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'nipgl-cup-draw-skip-btn';
+        closeBtn.textContent = 'View Bracket';
+        closeBtn.addEventListener('click', function () {
+          if (overlay && document.body.contains(overlay)) {
+            document.body.removeChild(overlay);
+            overlay = null;
+          }
+          if (bracket) {
             renderBracket(wrap, bracket);
-            updateStatus(wrap, 'Bracket updated.');
+            updateStatus(wrap, 'Draw complete.');
             hideDrawButtons(wrap);
           }
+        });
+        overlay.appendChild(closeBtn);
+      } else {
+        if (bracket) {
+          renderBracket(wrap, bracket);
+          updateStatus(wrap, 'Draw complete.');
+          hideDrawButtons(wrap);
         }
+      }
+    }
+
+    function updateProgress(cur, tot) {
+      if (!overlay || !document.body.contains(overlay)) return;
+      var prog = qs('#nipgl-draw-progress-v', overlay);
+      var eta  = qs('#nipgl-draw-eta-v',      overlay);
+      if (prog && tot > 0) prog.textContent = cur + ' / ' + tot + ' drawn';
+      if (eta && tot > 0 && cur < tot) {
+        var spd = (typeof nipglCupData !== 'undefined' && nipglCupData.drawSpeed)
+                ? parseFloat(nipglCupData.drawSpeed) : 1.0;
+        var secs = Math.round(((tot - cur) * 2600 * spd) / 1000);
+        eta.textContent = secs > 0 ? ('~' + secs + 's remaining') : '';
+      } else if (eta) { eta.textContent = ''; }
+    }
+
+    function doPoll() {
+      post('nipgl_cup_poll', { cup_id: cupId, version: lastVersion, cursor: cursor }, function (res) {
+        if (!res.success) { scheduleNextPoll(); return; }
+        var data = res.data;
+        var gotNew = data.pairs && data.pairs.length > 0;
+
+        if (gotNew) {
+          pollDelay = 1000; idleCount = 0;
+          data.pairs.forEach(function (p) { pairsQueue.push(p); });
+          cursor = data.cursor;
+          updateProgress(cursor, data.total);
+          revealNextPair();
+        } else {
+          idleCount++;
+          pollDelay = data.in_progress ? 1000 : Math.min(8000, 1000 * Math.pow(2, idleCount));
+        }
+
+        if (data.version !== lastVersion && data.version > 0) {
+          lastVersion = data.version; cursor = data.cursor || 0;
+          idleCount = 0; pollDelay = 1000;
+        }
+
+        if (data.complete && data.bracket) {
+          clearTimeout(pollTimeout);
+          var bracketToShow = data.bracket;
+          var waitCount = 0;
+          var waitForAnim = setInterval(function () {
+            waitCount++;
+            if ((!animating && pairsQueue.length === 0) || waitCount > 40) {
+              clearInterval(waitForAnim);
+              animating = false;
+              pairsQueue = [];
+              showViewerComplete(bracketToShow);
+            }
+          }, 200);
+          return;
+        }
+
+        scheduleNextPoll();
       });
-    }, 4000);
+    }
+
+    scheduleNextPoll();
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────────
   function initCupWidget(wrap) {
-    var cupId   = wrap.dataset.cupId;
+    var cupId = wrap.dataset.cupId;
     if (!cupId) return;
 
     var bracketData = null;
@@ -621,7 +912,8 @@
       if (raw) bracketData = JSON.parse(raw);
     } catch (e) {}
 
-    var drawVersion = wrap.dataset.drawVersion || '0';
+    var drawVersion    = wrap.dataset.drawVersion    || '0';
+    var drawInProgress = wrap.dataset.drawInProgress === '1';
 
     if (bracketData && bracketData.rounds && bracketData.rounds.length) {
       renderBracket(wrap, bracketData);
@@ -630,12 +922,26 @@
       if (emptyEl) emptyEl.style.display = '';
     }
 
-    // If draw hasn't happened yet, start polling
-    if (drawVersion === '0') {
+    // Poll only if no complete bracket present on page load
+    var shouldPoll = drawVersion === '0' || (drawInProgress && !bracketData);
+    if (shouldPoll) {
       startDrawPoll(wrap, drawVersion);
     }
 
     initAdminDraw(wrap);
+
+    // Wire up server-rendered print button if present
+    var printBtn = qs('.nipgl-cup-print-btn', wrap);
+    if (printBtn) {
+      printBtn.addEventListener('click', function () {
+        var rounds = qsa('.nipgl-cup-round', wrap);
+        rounds.forEach(function (r) { r.style.display = 'flex'; });
+        window.print();
+        setTimeout(function () {
+          rounds.forEach(function (r) { r.style.display = ''; });
+        }, 1000);
+      });
+    }
   }
 
   // Boot all cup widgets on page

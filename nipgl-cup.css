@@ -385,11 +385,6 @@
   color: #1a2e5a;
   margin-bottom: 8px;
 }
-.nipgl-cup-draw-login-hint {
-  font-size: 13px;
-  color: #555;
-  margin: 0 0 14px;
-}
 .nipgl-cup-draw-login-input {
   width: 100%;
   padding: 9px 12px;
@@ -518,6 +513,13 @@
   font-size: 12px;
   color: rgba(255,255,255,.5);
   text-align: center;
+}
+.nipgl-cup-draw-eta {
+  font-size: 11px;
+  color: rgba(255,255,255,.35);
+  text-align: center;
+  margin-top: -8px;
+  min-height: 16px;
 }
 .nipgl-cup-draw-skip-btn {
   padding: 12px 32px;
@@ -675,6 +677,147 @@
   color: #c0202a;
   margin-top: 5px;
   min-height: 14px;
+}
+
+/* ── Match scorecard viewer ──────────────────────────────────────────────────── */
+.nipgl-cup-has-scorecard {
+  cursor: pointer;
+}
+.nipgl-cup-has-scorecard:hover {
+  box-shadow: 0 0 0 2px var(--nipgl-navy, #1a2e5a);
+}
+.nipgl-cup-sc-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,15,30,.7);
+  z-index: 99990;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Saira', Arial, sans-serif;
+  padding: 16px;
+}
+.nipgl-cup-sc-modal-box {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.25);
+  max-width: 700px;
+  width: 100%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.nipgl-cup-sc-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: #c0202a;
+  color: #fff;
+  flex-shrink: 0;
+}
+.nipgl-cup-sc-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.nipgl-cup-sc-modal-close {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: .8;
+}
+.nipgl-cup-sc-modal-close:hover { opacity: 1; }
+.nipgl-cup-sc-modal-body {
+  overflow-y: auto;
+  padding: 16px 18px;
+}
+.nipgl-cup-sc-loading, .nipgl-cup-sc-none {
+  color: #666;
+  font-size: 14px;
+  text-align: center;
+  padding: 24px 0;
+}
+.nipgl-cup-sc-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #555;
+  margin-bottom: 6px;
+}
+.nipgl-cup-sc-conf {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #1a2e5a;
+}
+.nipgl-cup-sc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.nipgl-cup-sc-table th {
+  background: #1a2e5a;
+  color: #fff;
+  padding: 6px 8px;
+  font-weight: 700;
+  text-align: left;
+}
+.nipgl-cup-sc-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #e8eaf0;
+  vertical-align: middle;
+}
+.nipgl-cup-sc-table tfoot td {
+  background: #f0f2f8;
+  font-weight: 700;
+  border-top: 2px solid #1a2e5a;
+  border-bottom: none;
+}
+.nipgl-cup-sc-rink {
+  color: #999;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.nipgl-cup-sc-players { color: #1a1a1a; }
+.nipgl-cup-sc-score {
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  width: 40px;
+}
+.nipgl-cup-sc-score.win { color: #1a5c1a; }
+.nipgl-cup-sc-vs { text-align: center; color: #999; font-size: 11px; }
+.nipgl-cup-sc-total-lbl { color: #666; font-size: 11px; }
+
+/* ── Print styles ─────────────────────────────────────────────────────────────── */
+@media print {
+  /* Hide everything, then selectively show only the cup bracket */
+  body * { visibility: hidden; }
+  .nipgl-cup-wrap,
+  .nipgl-cup-wrap * { visibility: visible; }
+  .nipgl-cup-wrap {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    box-shadow: none !important;
+  }
+  .nipgl-cup-header-actions { display: none !important; }
+  .nipgl-cup-tabs { display: none !important; }
+  .nipgl-cup-round { display: flex !important; }
+  .nipgl-cup-round.mobile-active,
+  .nipgl-cup-round:not(.mobile-active) { display: flex !important; }
+  .nipgl-cup-bracket-outer { overflow: visible !important; padding: 8px !important; }
+  .nipgl-cup-bracket { flex-wrap: wrap !important; min-width: 0 !important; }
+  .nipgl-cup-match { break-inside: avoid; }
+  .nipgl-cup-draw-overlay,
+  .nipgl-cup-sc-modal,
+  .nipgl-cup-score-popover { display: none !important; }
 }
 
 /* ── Mobile: tab-based round view ────────────────────────────────────────────── */

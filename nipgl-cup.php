@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Cup Bracket Feature - v6.1.6
+ * NIPGL Cup Bracket Feature - v6.3.0
  * Single-elimination knockout bracket widget with live animated draw.
  */
 
@@ -40,7 +40,11 @@ function nipgl_cup_enqueue() {
 add_action('wp_ajax_nopriv_nipgl_cup_draw_auth', 'nipgl_ajax_cup_draw_auth');
 add_action('wp_ajax_nipgl_cup_draw_auth',        'nipgl_ajax_cup_draw_auth');
 function nipgl_ajax_cup_draw_auth() {
-    check_ajax_referer('nipgl_cup_nonce', 'nonce');
+    // wp_verify_nonce instead of check_ajax_referer so nonce failures return JSON not plain -1
+    $nonce = sanitize_text_field($_POST['nonce'] ?? '');
+    if (!wp_verify_nonce($nonce, 'nipgl_cup_nonce')) {
+        wp_send_json_error('Session expired — please refresh the page and try again.');
+    }
     $raw    = strtolower(trim(sanitize_text_field($_POST['passphrase'] ?? '')));
     $stored = get_option('nipgl_draw_passphrase', '');
     if ($stored === '') wp_send_json_error('No draw passphrase configured.');
@@ -102,8 +106,40 @@ function nipgl_ajax_cup_save_score() {
     wp_send_json_success(array('bracket' => $bracket));
 }
 
+// ── AJAX: Get scorecard for a cup match ───────────────────────────────────────
+add_action('wp_ajax_nipgl_cup_get_scorecard',        'nipgl_ajax_cup_get_scorecard');
+add_action('wp_ajax_nopriv_nipgl_cup_get_scorecard', 'nipgl_ajax_cup_get_scorecard');
+function nipgl_ajax_cup_get_scorecard() {
+    $home = sanitize_text_field($_POST['home'] ?? '');
+    $away = sanitize_text_field($_POST['away'] ?? '');
+    if (!$home || !$away) wp_send_json_error('Missing teams');
 
-// ── Shortcode: [nipgl_cup id="senior-cup-2025" title="Senior Cup 2025"] ────────
+    $post = nipgl_get_scorecard($home, $away);
+    if (!$post) wp_send_json_error('No scorecard found');
+
+    $sc      = get_post_meta($post->ID, 'nipgl_scorecard_data', true);
+    $conf_by = get_post_meta($post->ID, 'nipgl_confirmed_by',   true);
+    if (!$sc)  wp_send_json_error('No scorecard data');
+
+    wp_send_json_success(array(
+        'id'           => $post->ID,
+        'confirmed_by' => $conf_by,
+        'sc'           => array(
+            'division'    => $sc['division']    ?? '',
+            'venue'       => $sc['venue']       ?? '',
+            'date'        => $sc['date']        ?? '',
+            'home_team'   => $sc['home_team']   ?? '',
+            'away_team'   => $sc['away_team']   ?? '',
+            'home_total'  => $sc['home_total']  ?? null,
+            'away_total'  => $sc['away_total']  ?? null,
+            'home_points' => $sc['home_points'] ?? null,
+            'away_points' => $sc['away_points'] ?? null,
+            'rinks'       => $sc['rinks']       ?? array(),
+        ),
+    ));
+}
+
+
 add_shortcode('nipgl_cup', 'nipgl_cup_shortcode');
 function nipgl_cup_shortcode($atts) {
     $atts = shortcode_atts(array(
@@ -128,6 +164,7 @@ function nipgl_cup_shortcode($atts) {
     ?>
     <div class="nipgl-cup-wrap" data-cup-id="<?php echo esc_attr($cup_id); ?>"
          data-draw-version="<?php echo esc_attr($version); ?>"
+         data-draw-in-progress="<?php echo (!empty($cup['draw_in_progress']) && empty($cup['bracket'])) ? '1' : '0'; ?>"
          data-bracket="<?php echo esc_attr($bracket_json); ?>">
 
       <div class="nipgl-cup-header">
@@ -139,6 +176,12 @@ function nipgl_cup_shortcode($atts) {
         <div class="nipgl-cup-header-actions">
           <button class="nipgl-cup-btn nipgl-cup-btn-ghost nipgl-cup-draw-login-btn">
             🔑 Login to Draw
+          </button>
+        </div>
+        <?php elseif ($drawn): ?>
+        <div class="nipgl-cup-header-actions nipgl-cup-post-draw-actions">
+          <button class="nipgl-cup-btn nipgl-cup-btn-ghost nipgl-cup-print-btn">
+            🖨 Print Draw
           </button>
         </div>
         <?php endif; ?>
@@ -181,30 +224,105 @@ function nipgl_cup_shortcode($atts) {
 add_action('wp_ajax_nipgl_cup_poll',        'nipgl_ajax_cup_poll');
 add_action('wp_ajax_nopriv_nipgl_cup_poll', 'nipgl_ajax_cup_poll');
 function nipgl_ajax_cup_poll() {
-    $cup_id       = sanitize_key($_POST['cup_id'] ?? '');
-    $client_ver   = intval($_POST['version'] ?? 0);
+    $cup_id     = sanitize_key($_POST['cup_id'] ?? '');
+    $client_ver = intval($_POST['version']      ?? 0);
+    $client_cur = intval($_POST['cursor']       ?? -1); // -1 = not yet in cursor mode
     if (!$cup_id) wp_send_json_error('Missing cup_id');
 
     $cup     = get_option('nipgl_cup_' . $cup_id, array());
-    $version = intval($cup['draw_version'] ?? 0);
+    $version = intval($cup['draw_version']    ?? 0);
+    $cursor  = intval($cup['pairs_cursor']    ?? 0);
+    $in_prog = !empty($cup['draw_in_progress']);
+    $all_pairs = $cup['draw_pairs'] ?? array();
+    $total   = count($all_pairs);
 
-    if ($version === $client_ver) {
-        wp_send_json_success(array('version' => $version, 'changed' => false));
+    // Auto-clear draw_in_progress if cursor has reached the end
+    // (handles case where draw master disconnected before final advance)
+    if ($in_prog && $cursor >= $total && $total > 0) {
+        $cup['draw_in_progress'] = false;
+        $in_prog = false;
+        update_option('nipgl_cup_' . $cup_id, $cup);
     }
 
+    // Legacy version-change poll (no cursor mode yet)
+    if ($client_cur < 0) {
+        if ($version === $client_ver) {
+            wp_send_json_success(array(
+                'version'     => $version,
+                'changed'     => false,
+                'in_progress' => $in_prog,
+                'cursor'      => $cursor,
+                'total'       => $total,
+            ));
+        }
+        wp_send_json_success(array(
+            'version'     => $version,
+            'changed'     => true,
+            'in_progress' => $in_prog,
+            'cursor'      => $cursor,
+            'total'       => $total,
+            'bracket'     => $cup['bracket'] ?? null,
+            'pairs'       => array_slice($all_pairs, 0, $cursor),
+        ));
+    }
+
+    // Cursor mode — return only newly revealed pairs since client_cur
+    $new_pairs = $cursor > $client_cur
+        ? array_slice($all_pairs, $client_cur, $cursor - $client_cur)
+        : array();
+
+    // Return bracket whenever draw is complete so viewers can detect finish
+    // regardless of whether they have received all pairs yet
+    $is_complete = !$in_prog && $cursor >= $total && $total > 0;
+
     wp_send_json_success(array(
-        'version' => $version,
-        'changed' => true,
-        'bracket' => $cup['bracket'] ?? null,
-        'pairs'   => $cup['draw_pairs'] ?? array(),
+        'version'     => $version,
+        'changed'     => $cursor !== $client_cur || $version !== $client_ver,
+        'in_progress' => $in_prog,
+        'cursor'      => $cursor,
+        'total'       => $total,
+        'complete'    => $is_complete,
+        'bracket'     => $is_complete ? ($cup['bracket'] ?? null) : null,
+        'pairs'       => $new_pairs,
     ));
+}
+
+// ── AJAX: Advance draw cursor (draw master only) ───────────────────────────────
+add_action('wp_ajax_nipgl_cup_advance_cursor',        'nipgl_ajax_cup_advance_cursor');
+add_action('wp_ajax_nopriv_nipgl_cup_advance_cursor', 'nipgl_ajax_cup_advance_cursor');
+function nipgl_ajax_cup_advance_cursor() {
+    $nonce = sanitize_text_field($_POST['nonce'] ?? '');
+    if (!wp_verify_nonce($nonce, 'nipgl_cup_nonce')) {
+        wp_send_json_error('Session expired.');
+    }
+    if (!nipgl_cup_check_draw_auth()) wp_send_json_error('Unauthorised.');
+
+    $cup_id = sanitize_key($_POST['cup_id'] ?? '');
+    if (!$cup_id) wp_send_json_error('Missing cup_id');
+
+    $cup    = get_option('nipgl_cup_' . $cup_id, array());
+    $total  = count($cup['draw_pairs'] ?? array());
+    $cursor = intval($cup['pairs_cursor'] ?? 0);
+
+    if ($cursor < $total) {
+        $cup['pairs_cursor'] = $cursor + 1;
+    }
+    // Mark draw complete when all pairs revealed
+    if ($cup['pairs_cursor'] >= $total) {
+        $cup['draw_in_progress'] = false;
+    }
+    update_option('nipgl_cup_' . $cup_id, $cup);
+    wp_send_json_success(array('cursor' => $cup['pairs_cursor'], 'total' => $total));
 }
 
 // ── AJAX: Perform draw (admin or passphrase-authenticated) ─────────────────────
 add_action('wp_ajax_nipgl_cup_perform_draw',        'nipgl_ajax_cup_perform_draw');
 add_action('wp_ajax_nopriv_nipgl_cup_perform_draw', 'nipgl_ajax_cup_perform_draw');
 function nipgl_ajax_cup_perform_draw() {
-    check_ajax_referer('nipgl_cup_nonce', 'nonce');
+    $nonce = sanitize_text_field($_POST['nonce'] ?? '');
+    if (!wp_verify_nonce($nonce, 'nipgl_cup_nonce')) {
+        wp_send_json_error('Session expired — please refresh the page and try again.');
+    }
     if (!nipgl_cup_check_draw_auth()) wp_send_json_error('Unauthorised — please authenticate first.');
 
     $cup_id = sanitize_key($_POST['cup_id'] ?? '');
@@ -432,8 +550,10 @@ function nipgl_cup_perform_draw($cup_id, $cup) {
         'dates'   => $dates,
         'matches' => $all_matches,
     );
-    $cup['draw_pairs']   = $pairs_for_anim;
-    $cup['draw_version'] = intval($cup['draw_version'] ?? 0) + 1;
+    $cup['draw_pairs']      = $pairs_for_anim;
+    $cup['draw_version']    = intval($cup['draw_version'] ?? 0) + 1;
+    $cup['pairs_cursor']    = 0;        // starts at 0 — draw master advances as animation plays
+    $cup['draw_in_progress'] = true;    // cleared when cursor reaches end
     update_option('nipgl_cup_' . $cup_id, $cup);
 
     return true;
@@ -634,8 +754,10 @@ function nipgl_cup_handle_admin_actions() {
         if (wp_verify_nonce($_GET['_wpnonce'] ?? '', 'nipgl_cup_reset_' . $cup_id)) {
             $cup = get_option('nipgl_cup_' . $cup_id, array());
             $cup['bracket']      = null;
-            $cup['draw_pairs']   = array();
-            $cup['draw_version'] = 0;
+            $cup['draw_pairs']       = array();
+            $cup['draw_version']     = 0;
+            $cup['pairs_cursor']     = 0;
+            $cup['draw_in_progress'] = false;
             update_option('nipgl_cup_' . $cup_id, $cup);
             wp_redirect(admin_url('admin.php?page=nipgl-cups&edit=' . $cup_id . '&saved=1'));
             exit;

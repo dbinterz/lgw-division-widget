@@ -108,6 +108,67 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
+### v6.3.0
+
+- Fixed blank print/PDF — replaced `body > *` selector (fails when bracket is nested in page content) with `visibility: hidden` on all + `visibility: visible` on `.nipgl-cup-wrap` and descendants — works at any DOM depth; all round columns forced to `display: flex` before print dialog opens so mobile-hidden rounds appear
+
+### v6.2.9
+
+- **Print Draw button** — appears in bracket header after draw completes; print styles hide UI chrome and overlay elements
+- **Match scorecard viewer** — click any completed match card to see the submitted scorecard in a modal (rink-by-rink scores, player names, winner highlighted, confirmation status); shows "no scorecard submitted yet" if none found
+- Cup scorecards automatically feed into player appearance records via the existing submission flow
+
+### v6.2.8
+
+- Fixed draw stuck at N-1/N — round header entries counted in `pairs_for_anim` total but never called `nipgl_cup_advance_cursor`; cursor never reached total so `complete` was never set; headers now fire `advance_cursor` on the draw master side and during skip-to-end
+
+### v6.2.7
+
+- Fixed viewer draw completion — server now returns a `complete` flag alongside the bracket; viewer detects completion reliably on this flag rather than inferring from `in_progress + bracket` (which had a race condition on the same poll that delivered the last pairs)
+- Viewer overlay now shows running match count (X / Y drawn) and estimated time remaining
+
+### v6.2.6
+
+- Fixed viewer draw not completing — `waitForAnim` could hang indefinitely if `animating` was still `true` when the completion poll fired; now times out after 6s and force-clears state before calling `showViewerComplete`
+
+### v6.2.5
+
+- Fixed `initCupWidget is not defined` ReferenceError — function was accidentally dropped during the `startDrawPoll` rewrite in 6.2.3; restored
+
+### v6.2.4
+
+- Fixed login button broken by 6.2.3 — `drawMasterActive` declared after `initAdminDraw` causing a ReferenceError in strict mode; moved to module scope
+
+### v6.2.3
+
+- Fixed draw master seeing a second viewer overlay — `drawMasterActive` flag suppresses the viewer poll overlay when the draw master's own animation is running
+- Fixed viewer "View Bracket" button not appearing — complete state now reliably shown
+- Polling uses exponential backoff: 1s during active draw, backs off to 2s → 4s → 8s when idle — significantly reduces mobile network requests
+
+### v6.2.2
+
+- Draw overlay shows "✅ The draw is complete!" with a "View Bracket" button when finished — covers draw master, skip-to-end, and live viewers; overlay stays open until the user explicitly dismisses it
+
+### v6.2.1
+
+- Fixed draw animation replaying on page refresh — polling suppressed on page load when a complete bracket already exists; `draw_in_progress` auto-cleared server-side when cursor reaches total (handles draw master disconnecting early)
+
+### v6.2.0
+
+- **Fully synchronised live draw** — the draw master's animation advances a server-side cursor match by match via `nipgl_cup_advance_cursor`; viewers poll at 1s and see each team revealed in lockstep with the draw master; viewers who open the page mid-draw join at the current position; the overlay closes and bracket renders for all viewers simultaneously when the draw completes
+
+### v6.1.9
+
+- Removed passphrase hint text and `e.g. filled.count.ripen` placeholder from the scorecard login form on division pages
+
+### v6.1.8
+
+- Removed passphrase hint text and `word.word.word` placeholder from the public draw login modal
+
+### v6.1.7
+
+- Fixed "unexpected response" on mobile passphrase entry — `check_ajax_referer` replaced with `wp_verify_nonce` in both the draw auth and perform draw handlers; nonce failures (e.g. from page caching serving a stale nonce) now return a JSON error with a "session expired — please refresh" message instead of a plain `-1` that breaks JSON parsing
+
 ### v6.1.6
 
 - Fixed "unexpected token" error on mobile after passphrase entry — `ajaxUrl` now always taken from `nipglCupData` (always present) rather than `nipglData` (only present when division widget is also on the page); AJAX response parsed as text first so non-JSON responses give a readable error message
