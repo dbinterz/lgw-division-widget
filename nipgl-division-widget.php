@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 6.3.0
+ * Version: 6.4.15
  * Author: NIPGL
  * Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
@@ -11,11 +11,12 @@
  */
 
 define('NIPGL_PLUGIN_FILE', __FILE__);
-define('NIPGL_VERSION', '6.3.0');
+define('NIPGL_VERSION', '6.4.15');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-scorecards.php';
 require_once plugin_dir_path(__FILE__) . 'nipgl-cup.php';
+require_once plugin_dir_path(__FILE__) . 'nipgl-champ.php';
 require_once plugin_dir_path(__FILE__) . 'nipgl-players.php';
 require_once plugin_dir_path(__FILE__) . 'nipgl-sc-admin.php';
 require_once plugin_dir_path(__FILE__) . 'nipgl-drive.php';
@@ -338,6 +339,9 @@ function nipgl_admin_menu() {
     // Cups submenu — function defined in nipgl-cup.php, called here so parent exists
     if (function_exists('nipgl_cups_register_submenu')) {
         nipgl_cups_register_submenu();
+    }
+    if (function_exists('nipgl_champs_register_submenu')) {
+        nipgl_champs_register_submenu();
     }
 }
 
