@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Verify plugin version matches tag
+        run: |
+          PLUGIN_VERSION=$(grep -m1 "Version:" nipgl-division-widget.php | awk '{print $NF}')
+          TAG_VERSION="${{ steps.version.outputs.VERSION }}"
+          if [ "$PLUGIN_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Plugin header version ($PLUGIN_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "✅ Version check passed: $PLUGIN_VERSION"
+
+      - name: Build zip
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          ZIPNAME="nipgl-division-widget-v${VERSION}.zip"
+          mkdir -p nipgl-division-widget
+
+          # Copy all plugin files — excludes dev/debug files
+          cp nipgl-division-widget.php nipgl-division-widget/
+          cp nipgl-scorecards.php      nipgl-division-widget/
+          cp nipgl-scorecard.js        nipgl-division-widget/
+          cp nipgl-scorecard.css       nipgl-division-widget/
+          cp nipgl-cup.php             nipgl-division-widget/
+          cp nipgl-cup.js              nipgl-division-widget/
+          cp nipgl-cup.css             nipgl-division-widget/
+          cp nipgl-champ.php           nipgl-division-widget/
+          cp nipgl-champ.js            nipgl-division-widget/
+          cp nipgl-champ.css           nipgl-division-widget/
+          cp nipgl-widget.js           nipgl-division-widget/
+          cp nipgl-widget.css          nipgl-division-widget/
+          cp nipgl-admin.js            nipgl-division-widget/
+          cp nipgl-admin.css           nipgl-division-widget/
+          cp nipgl-sc-admin.php        nipgl-division-widget/
+          cp nipgl-players.php         nipgl-division-widget/
+          cp nipgl-drive.php           nipgl-division-widget/
+          cp nipgl-sheets.php          nipgl-division-widget/
+          cp nipgl-pdf.php             nipgl-division-widget/
+          cp readme.txt                nipgl-division-widget/
+          cp README.md                 nipgl-division-widget/
+
+          zip -r "$ZIPNAME" nipgl-division-widget/
+          echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
+          echo "✅ Built $ZIPNAME ($(du -h $ZIPNAME | cut -f1))"
+
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Extract the section for this version from readme.txt
+          NOTES=$(awk "/^= ${VERSION} =/{found=1; next} found && /^= /{exit} found{print}" readme.txt)
+          if [ -z "$NOTES" ]; then
+            NOTES="See readme.txt for changelog."
+          fi
+          # Write to file to avoid quoting issues
+          echo "$NOTES" > release_notes.txt
+          echo "✅ Extracted changelog for v${VERSION}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "v${{ steps.version.outputs.VERSION }}"
+          body_path: release_notes.txt
+          files: ${{ env.ZIPNAME }}
+          fail_on_unmatched_files: true
