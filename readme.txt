@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 6.4.16
+Stable tag: 6.4.17
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,13 +71,15 @@ Parameters:
 
 == Changelog ==
 
-= 6.4.16 =
-* Security: added nonce checks to logout, get_scorecard, get_scorecard_by_id, and cup_get_scorecard AJAX handlers
+= 6.4.17 =
+* Security: nonce checks on logout, get_scorecard, get_scorecard_by_id, cup_get_scorecard AJAX handlers
 * Security: get_scorecard_by_id now requires passphrase auth and verifies club involvement
-* Security: added CSRF nonce to reset theme admin action
-* Security: added 8-hour inactivity timeout to club passphrase sessions
-* Security: draw auth token invalidated when draw completes
-* Security: scNonce added to nipglData for scorecard fetches on division-only pages
+* Security: CSRF nonce added to reset theme admin action
+* Security: 8-hour inactivity timeout on club passphrase sessions
+* Security: draw auth token invalidated on draw completion
+* UX: confirmation dialog added to resolve disputed scorecard buttons
+* UX: CSV proxy now returns user-friendly error messages instead of raw server errors
+* UX: improved error display styling in the division widget
 
 = 6.3.0 =
 * Fixed empty print/PDF — replaced body > * visibility approach with visibility:hidden on all + visibility:visible on cup wrap, which works at any nesting depth; all rounds forced visible before print dialog opens
