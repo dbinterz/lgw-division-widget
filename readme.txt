@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 6.4.15
+Stable tag: 6.4.16
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,68 +71,13 @@ Parameters:
 
 == Changelog ==
 
-= 6.4.15 =
-* Draw now tries to separate same-club entries in R1 and R2 (best-effort swap); R1 winner vs same-club bye in R2 remains acceptable as per requirements
-
-= 6.4.14 =
-* Report: projection-only cells within limit now show green instead of muted grey
-
-= 6.4.13 =
-* Report: projection-only cells (no confirmed homes yet) no longer highlighted amber unless the projected count exceeds the limit
-
-= 6.4.12 =
-* Fixed parse error — duplicate endif left by report rewrite
-
-= 6.4.11 =
-* Home games report: single column per date showing confirmed/limit and (worst-case) in brackets; CSS class header replaces inline styles so dark navy renders correctly; amber when max would exceed limit
-
-= 6.4.10 =
-* Home games report: worst-case R2 projection now split by date per section; two-row header groups columns by round name; narrower columns
-
-= 6.4.9 =
-* Home games report: Max R2 Homes column shows worst-case R2 home count per club assuming all their R1 entries win; amber highlight if it would exceed the green limit
-
-= 6.4.8 =
-* Home games report now includes an Entries column showing total entries per club
-
-= 6.4.7 =
-* Home games report columns now sorted chronologically by dd/mm/yy date format
-
-= 6.4.6 =
-* Home games report now merges counts by date across sections — same date in Section A and B shows a single combined total vs the green limit
-
-= 6.4.5 =
-* Fixed club badges — badges and clubBadges now always passed in nipglChampData; champBadge() extracts club from entry string for lookup
-* Sticky section tab — selected section persists across page refreshes via sessionStorage
-* Multi-green clubs config — "Club: 2" format raises home-game limit to 6×greens for that club
-* Per-section round dates — each section can have its own dates overriding the defaults
-* Home games report on edit page — grid of home matches per club per round/section, red cells flag over-limit
-
-= 6.4.4 =
-* Club badges now display correctly on live page — entry strings parsed to extract club name for clubBadges lookup
-* Badges hidden in print layout across all rounds (saves space, not needed on paper)
-
-= 6.4.3 =
-* Fixed winner propagation — no longer uses floor(match_idx/2) which placed winners in wrong R2 slots; now scans next round for the match whose prev_game_home/away matches the current game_num
-
-= 6.4.2 =
-* Fixed game number indexing — game_num and prev_game_home/away now assigned in PHP at draw time, not computed in JS; R2 null slots correctly reference their feeding prelim game number regardless of position
-* Removed JS pre-pass that was incorrectly mapping slot positions to game numbers
-
-= 6.4.1 =
-* Fixed championships JS: dataset.cupId → dataset.champId, champNonce, section param missing from all AJAX calls, initCupWidget → initChampWidget
-* Fixed bracket full-width on large screens: rounds use flex:1 1 180px, bracket width:100%
-* Fixed entry name truncation: draw-num removed from absolute positioning, now inline flex item
-* Added sequential game numbers to every match card
-* TBD slots now show "Winner of Game X" based on the feeding match
-* Print layout: R0/R1 as side-by-side flex rows with both teams visible, no truncation
-
-= 6.4.0 =
-* Added National Championships feature (nipgl-champ.php/js/css) — bracket competitions for singles, pairs, triples, fours
-* Based directly on cup draw system; same live draw animation, polling, score entry, CSS
-* Max 6 entries per club at home per round (vs cup's 1-per-club constraint)
-* Auto-splits entries into balanced sections (1, 2, or 4); section winners feed a Final Stage draw
-* Shortcode: [nipgl_champ id="your-id"]
+= 6.4.16 =
+* Security: added nonce checks to logout, get_scorecard, get_scorecard_by_id, and cup_get_scorecard AJAX handlers
+* Security: get_scorecard_by_id now requires passphrase auth and verifies club involvement
+* Security: added CSRF nonce to reset theme admin action
+* Security: added 8-hour inactivity timeout to club passphrase sessions
+* Security: draw auth token invalidated when draw completes
+* Security: scNonce added to nipglData for scorecard fetches on division-only pages
 
 = 6.3.0 =
 * Fixed empty print/PDF — replaced body > * visibility approach with visibility:hidden on all + visibility:visible on cup wrap, which works at any nesting depth; all rounds forced visible before print dialog opens

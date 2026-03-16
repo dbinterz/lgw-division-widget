@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL National Championships - v6.4.15
+ * NIPGL National Championships - v6.4.16
  *
  * Single-elimination bracket competitions for singles, pairs, triples, fours.
  * Based on the cup draw system with two key differences:
@@ -24,6 +24,7 @@ function nipgl_champ_enqueue() {
     if (!wp_script_is('nipgl-widget', 'enqueued')) {
         wp_localize_script('nipgl-champ', 'nipglData', array(
             'ajaxUrl'    => admin_url('admin-ajax.php'),
+            'scNonce'    => wp_create_nonce('nipgl_submit_nonce'),
             'badges'     => get_option('nipgl_badges',      array()),
             'clubBadges' => get_option('nipgl_club_badges', array()),
             'sponsors'   => get_option('nipgl_sponsors',    array()),
@@ -242,7 +243,11 @@ function nipgl_ajax_champ_advance_cursor() {
     $total  = count($champ[$pairs_key] ?? array());
     $cursor = intval($champ[$cursor_key] ?? 0);
     if ($cursor < $total) $champ[$cursor_key] = $cursor + 1;
-    if ($champ[$cursor_key] >= $total) $champ[$prog_key] = false;
+    if ($champ[$cursor_key] >= $total) {
+        $champ[$prog_key] = false;
+        $token = sanitize_text_field($_POST['draw_token'] ?? '');
+        if ($token) delete_transient('nipgl_draw_auth_' . $token);
+    }
 
     update_option('nipgl_champ_' . $champ_id, $champ);
     wp_send_json_success(array('cursor' => $champ[$cursor_key], 'total' => $total));

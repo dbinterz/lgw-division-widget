@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Scorecard Feature - v6.3.0
+ * NIPGL Scorecard Feature - v6.4.16
  * Per-club passphrase auth, two-party submission, confirm/amend/dispute flow.
  */
 
@@ -19,12 +19,22 @@ function nipgl_register_scorecard_cpt() {
 }
 
 // ── Session helpers ───────────────────────────────────────────────────────────
+define('NIPGL_SESSION_TTL', 8 * HOUR_IN_SECONDS); // 8-hour inactivity timeout
+
 function nipgl_session_start() {
     if (session_status() === PHP_SESSION_NONE && !headers_sent()) session_start();
 }
 function nipgl_get_auth_club() {
     nipgl_session_start();
-    return $_SESSION['nipgl_club'] ?? '';
+    if (empty($_SESSION['nipgl_club'])) return '';
+    // Expire session after NIPGL_SESSION_TTL seconds of inactivity
+    if (!empty($_SESSION['nipgl_club_ts']) && (time() - $_SESSION['nipgl_club_ts']) > NIPGL_SESSION_TTL) {
+        unset($_SESSION['nipgl_club'], $_SESSION['nipgl_club_ts']);
+        return '';
+    }
+    // Refresh timestamp on each valid access
+    $_SESSION['nipgl_club_ts'] = time();
+    return $_SESSION['nipgl_club'];
 }
 function nipgl_passphrase_verified() {
     return (bool) nipgl_get_auth_club();
@@ -122,7 +132,8 @@ function nipgl_ajax_check_pin() {
         if (strtolower($club['name']) === strtolower($club_name)) {
             if (!empty($club['pin']) && hash_equals($club['pin'], hash('sha256', $entered))) {
                 nipgl_session_start();
-                $_SESSION['nipgl_club'] = $club['name'];
+                $_SESSION['nipgl_club']    = $club['name'];
+                $_SESSION['nipgl_club_ts'] = time();
                 $pending = nipgl_get_pending_for_club($club['name']);
                 wp_send_json_success(array(
                     'club'    => $club['name'],
@@ -138,8 +149,9 @@ function nipgl_ajax_check_pin() {
 add_action('wp_ajax_nopriv_nipgl_logout', 'nipgl_ajax_logout');
 add_action('wp_ajax_nipgl_logout',        'nipgl_ajax_logout');
 function nipgl_ajax_logout() {
+    check_ajax_referer('nipgl_submit_nonce', 'nonce');
     nipgl_session_start();
-    unset($_SESSION['nipgl_club']);
+    unset($_SESSION['nipgl_club'], $_SESSION['nipgl_club_ts']);
     wp_send_json_success();
 }
 
@@ -176,10 +188,19 @@ function nipgl_get_pending_for_club($club) {
 add_action('wp_ajax_nopriv_nipgl_get_scorecard_by_id', 'nipgl_ajax_get_scorecard_by_id');
 add_action('wp_ajax_nipgl_get_scorecard_by_id',        'nipgl_ajax_get_scorecard_by_id');
 function nipgl_ajax_get_scorecard_by_id() {
-    $id = intval($_GET['id'] ?? 0);
+    check_ajax_referer('nipgl_submit_nonce', 'nonce');
+    if (!nipgl_passphrase_verified()) wp_send_json_error('Not authorised');
+
+    $id   = intval($_GET['id'] ?? 0);
+    $club = nipgl_get_auth_club();
     if (!$id) wp_send_json_error('Missing ID');
     $sc = nipgl_get_scorecard_data($id);
     if (!$sc) wp_send_json_error('Not found');
+
+    // Club must be involved in this match
+    if (!nipgl_club_involved($club, $sc['home_team'] ?? '', $sc['away_team'] ?? ''))
+        wp_send_json_error('Your club is not involved in this match');
+
     $sc['_status']       = get_post_meta($id, 'nipgl_sc_status',     true);
     $sc['_submitted_by'] = get_post_meta($id, 'nipgl_submitted_by',  true);
     $sc['_confirmed_by'] = get_post_meta($id, 'nipgl_confirmed_by',  true);
@@ -647,6 +668,7 @@ function nipgl_scores_match($a, $b) {
 add_action('wp_ajax_nopriv_nipgl_get_scorecard', 'nipgl_ajax_get_scorecard');
 add_action('wp_ajax_nipgl_get_scorecard',        'nipgl_ajax_get_scorecard');
 function nipgl_ajax_get_scorecard() {
+    check_ajax_referer('nipgl_submit_nonce', 'nonce');
     $home = sanitize_text_field($_GET['home'] ?? '');
     $away = sanitize_text_field($_GET['away'] ?? '');
     $date = sanitize_text_field($_GET['date'] ?? '');

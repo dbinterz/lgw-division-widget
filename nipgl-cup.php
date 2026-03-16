@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Cup Bracket Feature - v6.3.0
+ * NIPGL Cup Bracket Feature - v6.4.16
  * Single-elimination knockout bracket widget with live animated draw.
  */
 
@@ -110,6 +110,7 @@ function nipgl_ajax_cup_save_score() {
 add_action('wp_ajax_nipgl_cup_get_scorecard',        'nipgl_ajax_cup_get_scorecard');
 add_action('wp_ajax_nopriv_nipgl_cup_get_scorecard', 'nipgl_ajax_cup_get_scorecard');
 function nipgl_ajax_cup_get_scorecard() {
+    check_ajax_referer('nipgl_cup_nonce', 'nonce');
     $home = sanitize_text_field($_POST['home'] ?? '');
     $away = sanitize_text_field($_POST['away'] ?? '');
     if (!$home || !$away) wp_send_json_error('Missing teams');
@@ -307,9 +308,11 @@ function nipgl_ajax_cup_advance_cursor() {
     if ($cursor < $total) {
         $cup['pairs_cursor'] = $cursor + 1;
     }
-    // Mark draw complete when all pairs revealed
+    // Mark draw complete when all pairs revealed and invalidate the draw token
     if ($cup['pairs_cursor'] >= $total) {
         $cup['draw_in_progress'] = false;
+        $token = sanitize_text_field($_POST['draw_token'] ?? '');
+        if ($token) delete_transient('nipgl_draw_auth_' . $token);
     }
     update_option('nipgl_cup_' . $cup_id, $cup);
     wp_send_json_success(array('cursor' => $cup['pairs_cursor'], 'total' => $total));

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 6.4.15
+ * Version: 6.4.16
  * Author: NIPGL
  * Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('NIPGL_PLUGIN_FILE', __FILE__);
-define('NIPGL_VERSION', '6.4.15');
+define('NIPGL_VERSION', '6.4.16');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-scorecards.php';
@@ -193,6 +193,7 @@ function nipgl_enqueue() {
     $sponsors     = get_option('nipgl_sponsors',     array());
     wp_localize_script('nipgl-widget', 'nipglData', array(
         'ajaxUrl'     => admin_url('admin-ajax.php'),
+        'scNonce'     => wp_create_nonce('nipgl_submit_nonce'),
         'badges'      => $badges,
         'clubBadges'  => $club_badges,
         'sponsors'    => $sponsors,
@@ -762,6 +763,7 @@ function nipgl_maybe_reset_theme() {
     if (!isset($_GET['nipgl_reset_theme'])) return;
     if (!isset($_GET['page']) || $_GET['page'] !== 'nipgl-settings') return;
     if (!current_user_can('manage_options')) return;
+    check_admin_referer('nipgl_reset_theme_nonce');
     update_option('nipgl_theme', array());
     wp_redirect(admin_url('options-general.php?page=nipgl-settings&saved=1'));
     exit;
@@ -816,7 +818,7 @@ function nipgl_settings_page() {
                     </td>
                 </tr>
             </table>
-            <p style="margin-top:0"><a href="<?php echo admin_url('options-general.php?page=nipgl-settings&nipgl_reset_theme=1'); ?>" class="button" onclick="return confirm('Reset theme colours to defaults?')">Reset to defaults</a></p>
+            <p style="margin-top:0"><a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=nipgl-settings&nipgl_reset_theme=1'), 'nipgl_reset_theme_nonce'); ?>" class="button" onclick="return confirm('Reset theme colours to defaults?')">Reset to defaults</a></p>
 
             <hr>
             <h2>Sponsors</h2>

@@ -108,84 +108,13 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
-### v6.4.15
-
-- Draw separates same-club entries in R1 prelims and R2 bye pairings where possible; R1 winner vs same-club R2 bye is permitted
-
-### v6.4.14
-
-- Report: projection-only cells within limit are green
-
-### v6.4.13
-
-- Report: projection-only cells only amber when `(max) > limit`, not just when non-zero
-
-### v6.4.12
-
-- Fixed parse error — duplicate `endif` in report block
-
-### v6.4.11
-
-- Home games report rewritten: one column per date, cell shows `actual/limit (max)`, CSS classes fix dark header, amber when worst-case would exceed limit
-
-### v6.4.10
-
-- Home games report: worst-case R2 projection per date; two-row header (round name + date); narrower columns
-
-### v6.4.9
-
-- Home games report: **Max R2 Homes** column — worst-case projection of R2 home games per club if all their R1 entries win; amber if over limit
-
-### v6.4.8
-
-- Home games report: Entries column added after club name showing total entries per club
-
-### v6.4.7
-
-- Home games report columns sorted by parsed dd/mm/yy date, not alphabetically
-
-### v6.4.6
-
-- Home games report merges by date — e.g. Ballymena with 2 homes in Sec A and 3 in Sec B on the same date shows `5 / 6` in one column
-
-### v6.4.5
-
-- Fixed club badges — `nipglChampData` now always includes `badges`/`clubBadges`; `champBadge()` extracts club name from entry string
-- Sticky section tab — `sessionStorage` remembers selected section across refreshes
-- Multi-green clubs — config field `Club: N` raises draw home-game limit to 6×N for that club
-- Per-section round dates — each section can override default dates (e.g. different nights)
-- Home games report on admin edit page — table of home matches per club per round, flags over-limit cells in red
-
-### v6.4.4
-
-- Club badges now show on live page — `champBadge()` extracts club from `"Player, Club"` entry format and looks up `clubBadges`
-- Badges suppressed in all print rounds
-
-### v6.4.3
-
-- Fixed winner propagation — scans next round for `prev_game_home/away` match instead of `floor(match_idx/2)`, which was placing prelim winners in wrong Round 2 slots
-
-### v6.4.2
-
-- Fixed game number indexing — `game_num` and `prev_game_home`/`away` assigned by PHP at draw time; R2 "Winner of Game X" slots correctly reference their actual feeding prelim game
-- Removed incorrect JS pre-pass that was computing game numbers from slot position
-
-### v6.4.1
-
-- Fixed championships JS bugs: `dataset.champId`, `champNonce`, `section` param, `initChampWidget`
-- Bracket fills full width on large screens
-- Entry names no longer truncated — draw numbers are inline flex items, names wrap naturally
-- Game numbers on every match card (Game 1, 2…)
-- Empty slots show "Winner of Game X" instead of TBD
-- Print: R0/R1 side-by-side flex rows, both participants visible, all text unclipped
-
-### v6.4.0
-
-- Added National Championships (`[nipgl_champ id="..."]`) — built directly on cup draw system
-- Same live draw animation, delta polling, no-replay-on-refresh, score entry, CSS
-- 6-per-club-per-round constraint (championships allow more from same club than cup)
-- Auto-splits into 1, 2 or 4 balanced sections; section winners feed a Final Stage
-- New files: `nipgl-champ.php`, `nipgl-champ.js`, `nipgl-champ.css`
+### v6.4.16
+- Security: nonce checks added to logout, get_scorecard, get_scorecard_by_id, cup_get_scorecard AJAX handlers
+- Security: get_scorecard_by_id now requires passphrase auth and verifies club involvement
+- Security: CSRF nonce added to reset theme admin action
+- Security: 8-hour inactivity timeout on club passphrase sessions
+- Security: draw auth token invalidated on draw completion
+- Security: scNonce added to nipglData for scorecard fetches on division-only pages
 
 ### v6.3.0
 

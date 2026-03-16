@@ -3,7 +3,7 @@
   'use strict';
 
   var ajaxUrl  = (typeof nipglSubmit !== 'undefined') ? nipglSubmit.ajaxUrl  : '/wp-admin/admin-ajax.php';
-  var nonce    = (typeof nipglSubmit !== 'undefined') ? nipglSubmit.nonce    : '';
+  var nonce    = (typeof nipglSubmit !== 'undefined') ? nipglSubmit.nonce    : ((typeof nipglData !== 'undefined') ? nipglData.scNonce : '');
   var authClub = (typeof nipglSubmit !== 'undefined') ? nipglSubmit.authClub : '';
 
   // ── Utility ───────────────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@
         if (detail.style.display !== 'none') { detail.style.display = 'none'; btn.textContent = 'View Scorecard'; return; }
         btn.textContent = '⏳ Loading…';
         var xhr = new XMLHttpRequest();
-        xhr.open('GET', ajaxUrl + '?action=nipgl_get_scorecard_by_id&id=' + id + '&_=' + Date.now());
+        xhr.open('GET', ajaxUrl + '?action=nipgl_get_scorecard_by_id&id=' + id + '&nonce=' + encodeURIComponent(nonce) + '&_=' + Date.now());
         xhr.onload = function(){
           var res = JSON.parse(xhr.responseText || '{}');
           btn.textContent = 'Hide Scorecard';
@@ -858,7 +858,8 @@
     xhr.open('GET', ajaxUrl+'?action=nipgl_get_scorecard'
       +'&home='+encodeURIComponent(home)
       +'&away='+encodeURIComponent(away)
-      +'&date='+encodeURIComponent(date)+'&_='+Date.now());
+      +'&date='+encodeURIComponent(date)
+      +'&nonce='+encodeURIComponent(nonce)+'&_='+Date.now());
     xhr.onload = function(){
       var res = JSON.parse(xhr.responseText || '{}');
       if (res.success && res.data) {
