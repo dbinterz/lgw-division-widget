@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Cup Bracket Feature - v6.4.22
+ * NIPGL Cup Bracket Feature - v6.4.25
  * Single-elimination knockout bracket widget with live animated draw.
  */
 

@@ -108,9 +108,22 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
+### v6.4.25
+- Final stage always has 4 entries: 4 sections → 1 qualifier each (winner); 2 sections → 2 each (both finalists, seeded once SFs resolve); 1 section → 4 (all semi-finalists, seeded once QFs resolve)
+- Section bracket winner label changed from "Champion" (🏆) to "Qualifier" (✅); Final Stage winner retains "Champion" (🏆)
+
+### v6.4.24
+- Fixed score of 0 not displaying on match cards — `escHtml` used `s || ''` treating 0 as falsy
+- Fixed final stage showing "Preliminary Round / Final" instead of "Semi-Final / Final"
+
+### v6.4.23
+- Fixed 500 error when entering the last result in a championship section — `nipgl_champ_try_seed_final` called undefined function `nipgl_champ_make_skeleton_bracket`; replaced with `nipgl_champ_perform_final_draw`
+
 ### v6.4.22
-- Fixed championship section tabs not switching — clicking a section tab now correctly shows that section's pane (`initSectionTabs` was only persisting to `sessionStorage` on click, not updating active classes; the DOM switching was lost when the inline script was removed in v6.4.20)
-- Code quality: shared draw library extracted to `nipgl-draw.php` — bracket geometry, animation pairs, and skeleton-round assembly now live in one place (`nipgl_draw_build_bracket`, `nipgl_draw_default_rounds`, `nipgl_draw_cup_club`); cup and champ draw functions refactored to thin wrappers supplying their own club/home-limit callbacks
+- Fixed championship section tabs not switching — clicking a section tab now correctly shows that section's pane (`initSectionTabs` was only saving to `sessionStorage`, not updating active classes; the DOM switching was lost when the inline script was removed in v6.4.20)
+
+### v6.4.21
+- Code quality: shared draw library extracted to `nipgl-draw.php` — bracket geometry, animation pairs, and skeleton-round assembly now live in one place (`nipgl_draw_build_bracket`, `nipgl_draw_default_rounds`, `nipgl_draw_cup_club`); cup and champ draw functions refactored to thin wrappers
 
 ### v6.4.20
 - Robustness: bracket size check at draw time — rejects writes exceeding 800KB

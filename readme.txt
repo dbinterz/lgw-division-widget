@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 6.4.22
+Stable tag: 6.4.25
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,8 +71,21 @@ Parameters:
 
 == Changelog ==
 
+= 6.4.25 =
+* Final stage always has 4 entries: 4 sections contribute 1 qualifier each (section winner), 2 sections contribute 2 each (both finalists, seeded once SFs complete), 1 section contributes all 4 semi-finalists (seeded once QFs complete)
+* Section bracket winner/qualifier label changed from "Champion" to "Qualifier" (with ✅ icon) since section winners simply progress to the Final Stage; Final Stage winner still shows "Champion" with 🏆
+
+= 6.4.24 =
+* Fixed score of 0 not displaying on match cards — escHtml used s||'' which treated 0 as falsy; changed to explicit null/undefined check
+* Fixed final stage bracket showing "Preliminary Round / Final" instead of "Semi-Final / Final" — final draw now passes nipgl_draw_default_rounds as stored_rounds so round names reflect the full bracket size
+
+= 6.4.23 =
+* Fixed 500 error when entering the last result in a championship section — nipgl_champ_try_seed_final called undefined function nipgl_champ_make_skeleton_bracket; replaced with nipgl_champ_perform_final_draw which performs the full final stage draw automatically
+
 = 6.4.22 =
 * Fixed championship section tabs not switching — clicking a section tab now correctly shows that section's pane (the DOM switching was dropped when the inline script was removed in v6.4.20; initSectionTabs was only saving to sessionStorage, not updating active classes)
+
+= 6.4.21 =
 * Code quality: shared draw library extracted to nipgl-draw.php — bracket geometry, animation pairs, and skeleton-round assembly now live in one place (nipgl_draw_build_bracket, nipgl_draw_default_rounds, nipgl_draw_cup_club); cup and champ draw functions refactored to thin wrappers supplying their own club/home-limit callbacks
 
 = 6.4.20 =

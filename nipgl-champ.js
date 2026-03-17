@@ -44,7 +44,7 @@
   function qsa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
 
   function escHtml(s) {
-    return String(s || '')
+    return String(s !== null && s !== undefined ? s : '')
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
       .replace(/"/g,'&quot;');
   }
@@ -250,11 +250,14 @@
       connCol2.className = 'nipgl-champ-connector-col';
       bracketEl.appendChild(connCol2);
 
+      var isSection = wrap && wrap.dataset.section !== 'final';
+      var champLabel = isSection ? 'Qualifier' : 'Champion';
+      var champIcon  = isSection ? '✅' : '🏆';
       var champEl = document.createElement('div');
       champEl.className = 'nipgl-champ-champion';
-      champEl.innerHTML = '<div class="nipgl-champ-trophy">🏆</div>'
+      champEl.innerHTML = '<div class="nipgl-champ-trophy">' + champIcon + '</div>'
         + '<div class="nipgl-champ-champion-name">' + escHtml(champion) + '</div>'
-        + '<div class="nipgl-champ-champion-label">Champion</div>';
+        + '<div class="nipgl-champ-champion-label">' + champLabel + '</div>';
       bracketEl.appendChild(champEl);
     }
 

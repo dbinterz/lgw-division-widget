@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL National Championships - v6.4.22
+ * NIPGL National Championships - v6.4.25
  *
  * Single-elimination bracket competitions for singles, pairs, triples, fours.
  * Based on the cup draw system with two key differences:
@@ -126,16 +126,9 @@ function nipgl_ajax_champ_save_score() {
                 }
             }
         }
-        // If this is a section bracket, check if section is complete and seed final
+        // If this is a section bracket, try seeding the final stage (no-op if not ready)
         if ($section !== 'final') {
-            $last_round = end($bracket['matches']);
-            $final_match = reset($last_round);
-            if ($final_match && $final_match['home_score'] !== null && $final_match['away_score'] !== null) {
-                nipgl_champ_try_seed_final($champ_id, $champ);
-                update_option('nipgl_champ_' . $champ_id, $champ);
-                wp_send_json_success(array('bracket' => $bracket, 'champ' => $champ));
-                return;
-            }
+            nipgl_champ_try_seed_final($champ_id, $champ);
         }
     }
 
@@ -144,30 +137,75 @@ function nipgl_ajax_champ_save_score() {
 }
 
 /**
- * Once all sections have a winner, seed their winners into the Final Stage bracket.
+ * Extract qualifiers from a section bracket.
+ * $q_per_section controls how many players qualify from this section:
+ *   1 → section winner (final match must have a scored result)
+ *   2 → both finalists (final match slots must be populated — SF results in)
+ *   4 → all four semi-finalists (SF slots must be populated — QF results in)
+ * Returns array of entry strings, or null if not yet ready.
+ */
+function nipgl_champ_get_section_qualifiers($bracket, $q_per_section) {
+    $matches  = $bracket['matches'] ?? array();
+    $n_rounds = count($matches);
+    if ($n_rounds === 0) return null;
+
+    if ($q_per_section === 1) {
+        // Winner of the section final
+        $final_match = reset($matches[$n_rounds - 1]);
+        if (!$final_match) return null;
+        $hs = $final_match['home_score']; $as = $final_match['away_score'];
+        if ($hs === null || $as === null || $hs === $as) return null;
+        return array($hs > $as ? $final_match['home'] : $final_match['away']);
+    }
+
+    if ($q_per_section === 2) {
+        // Both finalists — populated in the Final match slots once SFs complete
+        $final_match = reset($matches[$n_rounds - 1]);
+        if (!$final_match || empty($final_match['home']) || empty($final_match['away'])) return null;
+        return array($final_match['home'], $final_match['away']);
+    }
+
+    if ($q_per_section === 4) {
+        // All four semi-finalists — populated in the SF round slots once QFs complete
+        if ($n_rounds < 2) return null;
+        $sf_round    = $matches[$n_rounds - 2];
+        $qualifiers  = array();
+        foreach ($sf_round as $m) {
+            if (empty($m['home']) || empty($m['away'])) return null;
+            $qualifiers[] = $m['home'];
+            $qualifiers[] = $m['away'];
+        }
+        return count($qualifiers) === 4 ? $qualifiers : null;
+    }
+
+    return null;
+}
+
+/**
+ * Called after every section score save. Collects qualifiers from all sections
+ * and triggers the Final Stage draw once all 4 qualifiers are known.
+ * Number of qualifiers per section: 4/n_sections (4 sec→1, 2 sec→2, 1 sec→4).
  */
 function nipgl_champ_try_seed_final($champ_id, &$champ) {
-    $sections = $champ['sections'] ?? array();
+    if (isset($champ['final_bracket'])) return; // already seeded
+
+    $sections   = $champ['sections'] ?? array();
     $n_sections = count($sections);
-    if ($n_sections < 2) return; // single-section championship, no separate final
+    if ($n_sections < 1) return;
 
-    $winners = array();
+    $q_per_section = intval(4 / $n_sections); // 1, 2, or 4
+
+    $all_qualifiers = array();
     foreach ($sections as $idx => $sec) {
-        $bracket_key = 'section_' . $idx . '_bracket';
-        $bracket = $champ[$bracket_key] ?? null;
-        if (!$bracket) return;
-        $last_round = end($bracket['matches']);
-        $final_match = reset($last_round);
-        if (!$final_match) return;
-        $hs = $final_match['home_score']; $as = $final_match['away_score'];
-        if ($hs === null || $as === null || $hs === $as) return; // not complete
-        $winners[] = $hs > $as ? $final_match['home'] : $final_match['away'];
+        $bracket = $champ['section_' . $idx . '_bracket'] ?? null;
+        if (!$bracket) return; // section not yet drawn
+        $q = nipgl_champ_get_section_qualifiers($bracket, $q_per_section);
+        if ($q === null) return; // this section not ready yet
+        $all_qualifiers = array_merge($all_qualifiers, $q);
     }
 
-    // All sections complete — seed final stage if not already seeded
-    if (!isset($champ['final_bracket'])) {
-        $champ['final_bracket'] = nipgl_champ_make_skeleton_bracket($winners, $champ['title'] . ' — Final Stage', array());
-    }
+    // All 4 qualifiers known — perform the final stage draw
+    nipgl_champ_perform_final_draw($champ_id, $champ, $all_qualifiers);
 }
 
 // ── AJAX: poll ─────────────────────────────────────────────────────────────────
@@ -435,31 +473,34 @@ function nipgl_champ_perform_draw($champ_id, $champ, $section = '0') {
 }
 
 /**
- * Draw the Final Stage once all section winners are known.
+ * Draw the Final Stage.
+ * $qualifiers may be passed directly (from try_seed_final) or derived from
+ * completed section brackets (admin "Draw Final Stage Now" button path).
  */
-function nipgl_champ_perform_final_draw($champ_id, $champ) {
+function nipgl_champ_perform_final_draw($champ_id, &$champ, $qualifiers = null) {
     $sections    = $champ['sections'] ?? array();
+    $n_sections  = count($sections);
     $multi_green = array_filter(array_map('trim', explode("\n", $champ['multi_green'] ?? '')));
-    $winners     = array();
 
-    foreach ($sections as $idx => $sec) {
-        $bracket_key = 'section_' . $idx . '_bracket';
-        $bracket     = $champ[$bracket_key] ?? null;
-        if (!$bracket) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' has not been drawn yet.');
-        $last_round  = end($bracket['matches']);
-        $final_match = reset($last_round);
-        if (!$final_match) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' is not complete.');
-        $hs = $final_match['home_score']; $as = $final_match['away_score'];
-        if ($hs === null || $as === null || $hs === $as) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' is not complete.');
-        $winners[] = $hs > $as ? $final_match['home'] : $final_match['away'];
+    if ($qualifiers === null) {
+        // Admin manual trigger — derive qualifiers using the same logic as try_seed_final
+        $q_per_section  = $n_sections > 0 ? intval(4 / $n_sections) : 1;
+        $qualifiers = array();
+        foreach ($sections as $idx => $sec) {
+            $bracket = $champ['section_' . $idx . '_bracket'] ?? null;
+            if (!$bracket) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' has not been drawn yet.');
+            $q = nipgl_champ_get_section_qualifiers($bracket, $q_per_section);
+            if ($q === null) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' does not have enough results yet.');
+            $qualifiers = array_merge($qualifiers, $q);
+        }
     }
 
-    if (count($winners) < 2) return new WP_Error('too_few', 'Need at least 2 section winners for Final Stage.');
+    if (count($qualifiers) < 2) return new WP_Error('too_few', 'Need at least 2 qualifiers for Final Stage.');
 
-    shuffle($winners);
+    shuffle($qualifiers);
 
     $numbered = array();
-    foreach ($winners as $i => $name) {
+    foreach ($qualifiers as $i => $name) {
         $numbered[] = array('name' => $name, 'draw_num' => $i + 1);
     }
 
@@ -470,7 +511,9 @@ function nipgl_champ_perform_final_draw($champ_id, $champ) {
         },
         'separate_prelim' => 'nipgl_champ_separate_clubs',
         'separate_r2'     => 'nipgl_champ_separate_r2_slots',
-        'stored_rounds'   => array(),
+        // Force round names based on full bracket size so we get e.g. Semi-Final/Final
+        // rather than Preliminary Round/Final when prelim_count > 0
+        'stored_rounds'   => nipgl_draw_default_rounds(count($numbered)),
         'dates'           => array(),
         'r2_label'        => 'Final Stage Draw',
         'game_nums'       => true,

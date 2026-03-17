@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Shared Draw Library - v6.4.22
+ * NIPGL Shared Draw Library - v6.4.25
  *
  * Shared bracket-building logic used by both the Cup and National Championships.
  * Callers supply entry data and behaviour callbacks; this file owns the bracket
