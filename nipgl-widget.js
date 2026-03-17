@@ -688,7 +688,7 @@
 
     function showError(msg){
       panels.forEach(function(p){
-        p.innerHTML='<div class="nipgl-status"><strong>Unable to load data.</strong><small>'+msg+'</small></div>';
+        p.innerHTML='<div class="nipgl-status nipgl-status-error">⚠️ <strong>Unable to load data.</strong> <small>'+msg+'</small></div>';
       });
     }
 
@@ -709,10 +709,15 @@
         }
         bindFilterBtns(); bindTeamLinks();
       } else {
-        showError('Server returned status '+xhr.status);
+        var msg = 'Could not load league data — please try refreshing the page.';
+        try {
+          var json = JSON.parse(xhr.responseText);
+          if (json && json.error) msg = json.error;
+        } catch(e) {}
+        showError(msg);
       }
     };
-    xhr.onerror=function(){showError('Network error.');};
+    xhr.onerror=function(){ showError('Network error — please check your connection and try again.'); };
     xhr.send();
   }
 

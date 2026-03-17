@@ -108,13 +108,12 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
-### v6.4.16
-- Security: nonce checks added to logout, get_scorecard, get_scorecard_by_id, cup_get_scorecard AJAX handlers
-- Security: get_scorecard_by_id now requires passphrase auth and verifies club involvement
-- Security: CSRF nonce added to reset theme admin action
-- Security: 8-hour inactivity timeout on club passphrase sessions
-- Security: draw auth token invalidated on draw completion
-- Security: scNonce added to nipglData for scorecard fetches on division-only pages
+### v6.4.19
+- Robustness: CSV proxy retries once on failure; serves stale cache as fallback
+- Robustness: input length caps on cup/champ admin save handlers
+- Performance: home games report cached per champ/draw version; invalidated on save, score entry, reset
+- Admin: League Setup submenu + restructured Settings page (v6.4.18)
+- Security: all fixes from v6.4.17
 
 ### v6.3.0
 

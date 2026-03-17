@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL National Championships - v6.4.16
+ * NIPGL National Championships - v6.4.19
  *
  * Single-elimination bracket competitions for singles, pairs, triples, fours.
  * Based on the cup draw system with two key differences:
@@ -24,7 +24,6 @@ function nipgl_champ_enqueue() {
     if (!wp_script_is('nipgl-widget', 'enqueued')) {
         wp_localize_script('nipgl-champ', 'nipglData', array(
             'ajaxUrl'    => admin_url('admin-ajax.php'),
-            'scNonce'    => wp_create_nonce('nipgl_submit_nonce'),
             'badges'     => get_option('nipgl_badges',      array()),
             'clubBadges' => get_option('nipgl_club_badges', array()),
             'sponsors'   => get_option('nipgl_sponsors',    array()),
@@ -134,6 +133,7 @@ function nipgl_ajax_champ_save_score() {
             if ($final_match && $final_match['home_score'] !== null && $final_match['away_score'] !== null) {
                 nipgl_champ_try_seed_final($champ_id, $champ);
                 update_option('nipgl_champ_' . $champ_id, $champ);
+                nipgl_champ_clear_report_cache($champ_id);
                 wp_send_json_success(array('bracket' => $bracket, 'champ' => $champ));
                 return;
             }
@@ -141,6 +141,7 @@ function nipgl_ajax_champ_save_score() {
     }
 
     update_option('nipgl_champ_' . $champ_id, $champ);
+    nipgl_champ_clear_report_cache($champ_id);
     wp_send_json_success(array('bracket' => $bracket));
 }
 
@@ -243,11 +244,7 @@ function nipgl_ajax_champ_advance_cursor() {
     $total  = count($champ[$pairs_key] ?? array());
     $cursor = intval($champ[$cursor_key] ?? 0);
     if ($cursor < $total) $champ[$cursor_key] = $cursor + 1;
-    if ($champ[$cursor_key] >= $total) {
-        $champ[$prog_key] = false;
-        $token = sanitize_text_field($_POST['draw_token'] ?? '');
-        if ($token) delete_transient('nipgl_draw_auth_' . $token);
-    }
+    if ($champ[$cursor_key] >= $total) $champ[$prog_key] = false;
 
     update_option('nipgl_champ_' . $champ_id, $champ);
     wp_send_json_success(array('cursor' => $champ[$cursor_key], 'total' => $total));
@@ -278,6 +275,22 @@ function nipgl_ajax_champ_perform_draw() {
     $brkt_key   = ($section === 'final') ? 'final_bracket' : 'section_' . $section . '_bracket';
     $pairs_key  = ($section === 'final') ? 'final_draw_pairs' : 'section_' . $section . '_draw_pairs';
     wp_send_json_success(array('bracket' => $updated[$brkt_key], 'pairs' => $updated[$pairs_key]));
+}
+
+// ── Home games report cache helpers ───────────────────────────────────────────
+
+/**
+ * Delete all home games report transients for a championship.
+ * Called on save and on score entry so the report always reflects current data.
+ */
+function nipgl_champ_clear_report_cache($champ_id) {
+    global $wpdb;
+    $wpdb->query(
+        $wpdb->prepare(
+            "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+            '_transient_nipgl_hgr_' . $wpdb->esc_like($champ_id) . '_%'
+        )
+    );
 }
 
 // ── Draw logic ─────────────────────────────────────────────────────────────────
@@ -751,12 +764,12 @@ function nipgl_champ_handle_admin_actions() {
 
         $existing = get_option('nipgl_champ_' . $champ_id, array());
 
-        $entries_raw = sanitize_textarea_field(wp_unslash($_POST['nipgl_champ_entries'] ?? ''));
+        $entries_raw = mb_substr(sanitize_textarea_field(wp_unslash($_POST['nipgl_champ_entries'] ?? '')), 0, 50000);
         $entries     = array_values(array_filter(array_map('trim', explode("\n", $entries_raw))));
 
-        $dates_raw   = sanitize_textarea_field($_POST['nipgl_champ_dates'] ?? '');
+        $dates_raw   = mb_substr(sanitize_textarea_field($_POST['nipgl_champ_dates'] ?? ''), 0, 5000);
         $dates       = array_values(array_filter(array_map('trim', explode("\n", $dates_raw))));
-        $multi_green = sanitize_textarea_field(wp_unslash($_POST['nipgl_champ_multi_green'] ?? ''));
+        $multi_green = mb_substr(sanitize_textarea_field(wp_unslash($_POST['nipgl_champ_multi_green'] ?? '')), 0, 2000);
 
         // Rebuild sections only if entries changed and no draw in progress
         $draw_started = false;
@@ -768,7 +781,7 @@ function nipgl_champ_handle_admin_actions() {
         $sections = $draw_started ? $existing_sections : nipgl_champ_build_sections($entries);
 
         $champ_data = array_merge($existing, array(
-            'title'       => sanitize_text_field(wp_unslash($_POST['nipgl_champ_title'] ?? '')),
+            'title'       => mb_substr(sanitize_text_field(wp_unslash($_POST['nipgl_champ_title'] ?? '')), 0, 100),
             'discipline'  => sanitize_text_field($_POST['nipgl_champ_discipline'] ?? 'singles'),
             'entries'     => $entries,
             'sections'    => $sections,
@@ -779,10 +792,12 @@ function nipgl_champ_handle_admin_actions() {
         $sec_dates_post = $_POST['nipgl_champ_section_dates'] ?? array();
         foreach ($sections as $idx => $sec) {
             $key = 'section_' . $idx . '_dates';
-            $champ_data[$key] = sanitize_textarea_field(wp_unslash($sec_dates_post[$idx] ?? ''));
+            $champ_data[$key] = mb_substr(sanitize_textarea_field(wp_unslash($sec_dates_post[$idx] ?? '')), 0, 5000);
         }
 
         update_option('nipgl_champ_' . $champ_id, $champ_data);
+        // Invalidate home games report cache
+        nipgl_champ_clear_report_cache($champ_id);
         wp_redirect(admin_url('admin.php?page=nipgl-champs&edit=' . $champ_id . '&saved=1'));
         exit;
     }
@@ -805,6 +820,7 @@ function nipgl_champ_handle_admin_actions() {
                 $champ['sections'] = nipgl_champ_build_sections($champ['entries']);
             }
             update_option('nipgl_champ_' . $champ_id, $champ);
+            nipgl_champ_clear_report_cache($champ_id);
             wp_redirect(admin_url('admin.php?page=nipgl-champs&edit=' . $champ_id . '&saved=1'));
             exit;
         }
@@ -1028,7 +1044,13 @@ function nipgl_champ_edit_page($champ_id) {
     <?php if (!$is_new): ?>
     <hr>
     <?php if (!$is_new && !empty($sections)):
-      // ── Home games report (merged by date across sections) ──────────────────
+      // ── Home games report — cached per champ + draw version ──────────────────
+      $report_cache_key = 'nipgl_hgr_' . $champ_id . '_' . md5(serialize(array_map(function($i) use ($champ) {
+          return $champ['section_' . $i . '_draw_version'] ?? 0;
+      }, array_keys($champ['sections'] ?? array()))));
+      $report_html = get_transient($report_cache_key);
+      if ($report_html === false):
+        ob_start();
       $multi_green_lines = array_filter(array_map('trim', explode("\n", $champ['multi_green'] ?? '')));
 
       // $by_date[date][club]       = confirmed home matches already drawn
@@ -1228,7 +1250,12 @@ function nipgl_champ_edit_page($champ_id) {
       </tbody>
     </table>
     </div>
-    <?php endif; endif; ?>
+    <?php
+        $report_html = ob_get_clean();
+        set_transient($report_cache_key, $report_html, HOUR_IN_SECONDS);
+      endif; // end cache miss
+      echo $report_html;
+    endif; endif; ?>
 
     <h2>Draw</h2>
 

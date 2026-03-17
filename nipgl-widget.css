@@ -123,6 +123,7 @@
 .nipgl-panel.active{display:block}
 .nipgl-status{font-size:13px;color:var(--nipgl-text-muted);padding:20px;text-align:center}
 .nipgl-status small{display:block;margin-top:8px;font-family:monospace;background:#f8f0f0;padding:8px;border-radius:4px;text-align:left;word-break:break-all}
+.nipgl-status-error{color:#842029;background:#f8d7da;border-radius:6px;border:1px solid #f1aeb5}
 
 /* Print button inside panel */
 .nipgl-print-btn{display:flex;align-items:center;gap:5px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:var(--nipgl-bg-alt);color:var(--nipgl-navy);border:none;border-bottom:1px solid var(--nipgl-border);width:100%;font-family:'Saira',Arial,sans-serif}

@@ -80,12 +80,12 @@ function nipgl_drive_oauth_callback() {
     delete_transient('nipgl_drive_oauth_token');
 
     // Redirect back to settings without the OAuth params in the URL
-    wp_redirect(admin_url('options-general.php?page=nipgl-settings&nipgl_oauth_connected=1'));
+    wp_redirect(admin_url('admin.php?page=nipgl-league-setup&nipgl_oauth_connected=1'));
     exit;
 }
 
 function nipgl_drive_oauth_redirect_uri() {
-    return admin_url('options-general.php?page=nipgl-settings&nipgl_oauth_callback=1');
+    return admin_url('admin.php?page=nipgl-league-setup&nipgl_oauth_callback=1');
 }
 
 function nipgl_drive_oauth_auth_url($client_id) {

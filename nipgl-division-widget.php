@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 6.4.16
+ * Version: 6.4.19
  * Author: NIPGL
  * Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('NIPGL_PLUGIN_FILE', __FILE__);
-define('NIPGL_VERSION', '6.4.16');
+define('NIPGL_VERSION', '6.4.19');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-scorecards.php';
@@ -104,7 +104,7 @@ function nipgl_check_updates_now() {
     delete_transient('nipgl_github_update');
     // Also clear WordPress's own plugin update transient so it re-checks immediately
     delete_site_transient('update_plugins');
-    wp_redirect(admin_url('options-general.php?page=nipgl-settings&updated=1'));
+    wp_redirect(admin_url('admin.php?page=nipgl-settings&updated=1'));
     exit;
 }
 add_action('upgrader_process_complete', 'nipgl_clear_update_cache', 10, 2);
@@ -139,18 +139,52 @@ function nipgl_csv_proxy() {
         exit;
     }
 
-    $response = wp_remote_get($url, array('timeout' => 10, 'user-agent' => 'Mozilla/5.0'));
+    $fetch_args = array('timeout' => 10, 'user-agent' => 'Mozilla/5.0');
+    $response   = wp_remote_get($url, $fetch_args);
+
+    // Retry once on failure after a short delay
+    if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        sleep(1);
+        $response = wp_remote_get($url, $fetch_args);
+    }
+
     if (is_wp_error($response)) {
-        wp_die('Fetch failed: ' . $response->get_error_message(), '', array('response' => 502));
+        // Serve stale cache as fallback if available
+        $stale = get_transient('nipgl_csv_stale_' . md5($url));
+        if ($stale !== false) {
+            header('Content-Type: text/plain; charset=utf-8');
+            header('X-NIPGL-Cache: STALE');
+            echo $stale;
+            exit;
+        }
+        header('Content-Type: application/json');
+        http_response_code(502);
+        echo json_encode(array('error' => 'Could not reach Google Sheets. Please try again shortly.'));
+        exit;
     }
     $code = wp_remote_retrieve_response_code($response);
-    if ($code !== 200) { wp_die('Upstream error: ' . $code, '', array('response' => 502)); }
+    if ($code !== 200) {
+        // Serve stale cache as fallback if available
+        $stale = get_transient('nipgl_csv_stale_' . md5($url));
+        if ($stale !== false) {
+            header('Content-Type: text/plain; charset=utf-8');
+            header('X-NIPGL-Cache: STALE');
+            echo $stale;
+            exit;
+        }
+        header('Content-Type: application/json');
+        http_response_code(502);
+        echo json_encode(array('error' => 'Google Sheets returned an unexpected response. Please check the sheet is published and the URL is correct.'));
+        exit;
+    }
 
     $body = wp_remote_retrieve_body($response);
 
     // Cache for configured duration (default 5 minutes)
     $cache_mins = intval(get_option('nipgl_cache_mins', 5));
     set_transient($cache_key, $body, $cache_mins * MINUTE_IN_SECONDS);
+    // Store a longer-lived stale copy as fallback for transient fetch failures (24 hours)
+    set_transient('nipgl_csv_stale_' . md5($url), $body, DAY_IN_SECONDS);
 
     header('Content-Type: text/plain; charset=utf-8');
     header('X-NIPGL-Cache: MISS');
@@ -302,14 +336,7 @@ function nipgl_division_shortcode($atts) {
 // ── 4. Admin Settings Page ────────────────────────────────────────────────────
 add_action('admin_menu', 'nipgl_admin_menu');
 function nipgl_admin_menu() {
-    add_options_page(
-        'NIPGL Widget Settings',
-        'NIPGL Widget',
-        'manage_options',
-        'nipgl-settings',
-        'nipgl_settings_page'
-    );
-    // Scorecards top-level menu
+    // Top-level NIPGL menu
     add_menu_page(
         'NIPGL Scorecards',
         'NIPGL',
@@ -328,7 +355,7 @@ function nipgl_admin_menu() {
         'nipgl-scorecards',
         'nipgl_scorecards_admin_page'
     );
-    // Players submenu — registered here to guarantee it appears after Scorecards
+    // Players
     add_submenu_page(
         'nipgl-scorecards',
         'Player Tracking',
@@ -337,13 +364,32 @@ function nipgl_admin_menu() {
         'nipgl-players',
         'nipgl_players_admin_page'
     );
-    // Cups submenu — function defined in nipgl-cup.php, called here so parent exists
+    // Cups — function defined in nipgl-cup.php
     if (function_exists('nipgl_cups_register_submenu')) {
         nipgl_cups_register_submenu();
     }
+    // Championships — function defined in nipgl-champ.php
     if (function_exists('nipgl_champs_register_submenu')) {
         nipgl_champs_register_submenu();
     }
+    // League Setup — cache, API key, Drive/Sheets integration, shortcode reference
+    add_submenu_page(
+        'nipgl-scorecards',
+        'League Setup',
+        'League Setup',
+        'manage_options',
+        'nipgl-league-setup',
+        'nipgl_league_setup_page'
+    );
+    // Settings — theme, sponsors, club badges, clubs/passphrases
+    add_submenu_page(
+        'nipgl-scorecards',
+        'NIPGL Settings',
+        'Settings',
+        'manage_options',
+        'nipgl-settings',
+        'nipgl_settings_page'
+    );
 }
 
 function nipgl_scorecards_admin_page() {
@@ -616,9 +662,11 @@ function nipgl_admin_render_sc_summary($sc) {
 add_action('admin_enqueue_scripts', 'nipgl_admin_enqueue');
 function nipgl_admin_enqueue($hook) {
     $nipgl_hooks = array(
-        'settings_page_nipgl-settings',
-        'nipgl_page_nipgl-cups',           // Cups submenu under NIPGL top-level
-        'toplevel_page_nipgl-scorecards',  // Safety: top-level itself
+        'nipgl_page_nipgl-settings',        // Settings submenu
+        'nipgl_page_nipgl-league-setup',    // League Setup submenu
+        'nipgl_page_nipgl-cups',            // Cups submenu
+        'nipgl_page_nipgl-champs',          // Championships submenu
+        'toplevel_page_nipgl-scorecards',   // Top-level itself
     );
     if (!in_array($hook, $nipgl_hooks, true)) return;
     wp_enqueue_media();
@@ -631,6 +679,7 @@ function nipgl_save_settings() {
     if (!current_user_can('manage_options')) wp_die('Unauthorized');
     check_admin_referer('nipgl_settings_nonce');
 
+    // Club badges
     $teams  = isset($_POST['nipgl_team'])       ? array_map('sanitize_text_field', $_POST['nipgl_team'])       : array();
     $images = isset($_POST['nipgl_image'])      ? array_map('esc_url_raw',         $_POST['nipgl_image'])      : array();
     $types  = isset($_POST['nipgl_badge_type']) ? array_map('sanitize_text_field', $_POST['nipgl_badge_type']) : array();
@@ -651,9 +700,9 @@ function nipgl_save_settings() {
     update_option('nipgl_badges',      $badges);
     update_option('nipgl_club_badges', $club_badges);
 
-    // Save sponsors
-    $sp_images = isset($_POST['nipgl_sp_image']) ? array_map('esc_url_raw',        $_POST['nipgl_sp_image']) : array();
-    $sp_urls   = isset($_POST['nipgl_sp_url'])   ? array_map('esc_url_raw',        $_POST['nipgl_sp_url'])   : array();
+    // Sponsors
+    $sp_images = isset($_POST['nipgl_sp_image']) ? array_map('esc_url_raw',         $_POST['nipgl_sp_image']) : array();
+    $sp_urls   = isset($_POST['nipgl_sp_url'])   ? array_map('esc_url_raw',         $_POST['nipgl_sp_url'])   : array();
     $sp_names  = isset($_POST['nipgl_sp_name'])  ? array_map('sanitize_text_field', $_POST['nipgl_sp_name'])  : array();
     $sponsors  = array();
     foreach ($sp_images as $i => $img) {
@@ -667,26 +716,25 @@ function nipgl_save_settings() {
     }
     update_option('nipgl_sponsors', $sponsors);
 
-    $cache_mins = isset($_POST['nipgl_cache_mins']) ? max(1, intval($_POST['nipgl_cache_mins'])) : 5;
-    update_option('nipgl_cache_mins', $cache_mins);
+    // Theme colours
+    $theme = array(
+        'color_primary'   => sanitize_hex_color($_POST['nipgl_color_primary']   ?? '') ?: '',
+        'color_secondary' => sanitize_hex_color($_POST['nipgl_color_secondary'] ?? '') ?: '',
+        'color_bg'        => sanitize_hex_color($_POST['nipgl_color_bg']        ?? '') ?: '',
+    );
+    update_option('nipgl_theme', $theme);
 
-    // API key
-    if (isset($_POST['nipgl_anthropic_key'])) {
-        update_option('nipgl_anthropic_key', sanitize_text_field($_POST['nipgl_anthropic_key']));
-    }
-    // Per-club passphrases
-    $club_names = isset($_POST['nipgl_club_name']) ? array_map('sanitize_text_field', $_POST['nipgl_club_name']) : array();
-    $club_pins  = isset($_POST['nipgl_club_pin'])  ? $_POST['nipgl_club_pin']  : array();
+    // Clubs / passphrases
+    $club_names     = isset($_POST['nipgl_club_name']) ? array_map('sanitize_text_field', $_POST['nipgl_club_name']) : array();
+    $club_pins      = isset($_POST['nipgl_club_pin'])  ? $_POST['nipgl_club_pin']  : array();
     $existing_clubs = get_option('nipgl_clubs', array());
     $clubs = array();
     foreach ($club_names as $i => $name) {
         $name = trim($name);
         if ($name === '') continue;
-        $pin_raw = trim($club_pins[$i] ?? '');
-        // Normalise passphrase: lowercase, collapse whitespace (mirrors frontend normalisation)
+        $pin_raw        = trim($club_pins[$i] ?? '');
         $pin_normalised = strtolower(preg_replace('/\s+/', ' ', $pin_raw));
-        // If passphrase field is blank, keep existing hash for this club
-        $existing_hash = '';
+        $existing_hash  = '';
         foreach ($existing_clubs as $ec) {
             if (strtolower($ec['name']) === strtolower($name)) { $existing_hash = $ec['pin']; break; }
         }
@@ -697,19 +745,29 @@ function nipgl_save_settings() {
     }
     update_option('nipgl_clubs', $clubs);
 
-    // Theme colours
-    $theme = array(
-        'color_primary'   => sanitize_hex_color($_POST['nipgl_color_primary']   ?? '') ?: '',
-        'color_secondary' => sanitize_hex_color($_POST['nipgl_color_secondary'] ?? '') ?: '',
-        'color_bg'        => sanitize_hex_color($_POST['nipgl_color_bg']        ?? '') ?: '',
-    );
-    update_option('nipgl_theme', $theme);
+    wp_redirect(admin_url('admin.php?page=nipgl-settings&saved=1'));
+    exit;
+}
 
-    // Drive settings
+add_action('admin_post_nipgl_save_league_setup', 'nipgl_save_league_setup');
+function nipgl_save_league_setup() {
+    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+    check_admin_referer('nipgl_league_setup_nonce');
+
+    // Cache duration
+    $cache_mins = isset($_POST['nipgl_cache_mins']) ? max(1, intval($_POST['nipgl_cache_mins'])) : 5;
+    update_option('nipgl_cache_mins', $cache_mins);
+
+    // Anthropic API key
+    if (isset($_POST['nipgl_anthropic_key'])) {
+        update_option('nipgl_anthropic_key', sanitize_text_field($_POST['nipgl_anthropic_key']));
+    }
+
+    // Drive + Sheets
     nipgl_drive_save_settings();
     nipgl_sheets_save_settings();
 
-    wp_redirect(admin_url('options-general.php?page=nipgl-settings&saved=1'));
+    wp_redirect(admin_url('admin.php?page=nipgl-league-setup&saved=1'));
     exit;
 }
 
@@ -753,7 +811,7 @@ function nipgl_clear_cache() {
     check_admin_referer('nipgl_clear_cache_nonce');
     global $wpdb;
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_nipgl_csv_%' OR option_name LIKE '_transient_timeout_nipgl_csv_%'");
-    wp_redirect(admin_url('options-general.php?page=nipgl-settings&saved=1&cleared=1'));
+    wp_redirect(admin_url('admin.php?page=nipgl-settings&saved=1&cleared=1'));
     exit;
 }
 
@@ -765,7 +823,7 @@ function nipgl_maybe_reset_theme() {
     if (!current_user_can('manage_options')) return;
     check_admin_referer('nipgl_reset_theme_nonce');
     update_option('nipgl_theme', array());
-    wp_redirect(admin_url('options-general.php?page=nipgl-settings&saved=1'));
+    wp_redirect(admin_url('admin.php?page=nipgl-settings&saved=1'));
     exit;
 }
 
@@ -774,23 +832,39 @@ function nipgl_settings_page() {
     $saved  = isset($_GET['saved']);
     ?>
     <div class="wrap nipgl-admin-wrap">
-        <h1>NIPGL Widget Settings</h1>
+        <h1>NIPGL Settings</h1>
         <?php if ($saved): ?>
             <div class="notice notice-success is-dismissible"><p>Settings saved.</p></div>
-        <?php endif; ?>
-        <?php if (isset($_GET['cleared'])): ?>
-            <div class="notice notice-success is-dismissible"><p>Cache cleared — all divisions will fetch fresh data on next load.</p></div>
-        <?php endif; ?>
-        <?php if (isset($_GET['updated'])): ?>
-            <div class="notice notice-success is-dismissible"><p>Update check complete — WordPress will now show any available updates on the <a href="<?php echo admin_url('update-core.php'); ?>">Updates page</a>.</p></div>
         <?php endif; ?>
 
         <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
             <?php wp_nonce_field('nipgl_settings_nonce'); ?>
             <input type="hidden" name="action" value="nipgl_save_settings">
 
+            <h2>Clubs &amp; Passphrases</h2>
+            <p>Add clubs and set a passphrase for each one. Used across all features — scorecards, cups, and championships.<br>
+            <em>Tip: the <a href="https://what3words.com" target="_blank">what3words</a> address for your clubhouse makes a good passphrase (e.g. <code>filled.count.ripen</code>).</em><br>
+            Leave the passphrase blank when editing to keep the existing one.</p>
+            <table class="widefat nipgl-badge-table" id="nipgl-club-table">
+                <thead><tr><th>Club Name</th><th>Passphrase (leave blank to keep existing)</th><th></th></tr></thead>
+                <tbody>
+                <?php
+                $clubs = get_option('nipgl_clubs', array());
+                if (empty($clubs)) $clubs = array(array('name'=>'','pin'=>''));
+                foreach ($clubs as $club): ?>
+                <tr class="nipgl-club-row">
+                    <td><input type="text" name="nipgl_club_name[]" value="<?php echo esc_attr($club['name']); ?>" placeholder="e.g. Ards" class="regular-text"></td>
+                    <td><input type="text" name="nipgl_club_pin[]" value="" placeholder="<?php echo $club['pin'] ? '(passphrase set — enter new to change)' : 'Set passphrase (word.word.word)'; ?>" autocomplete="off" autocapitalize="none" spellcheck="false" class="regular-text" style="width:240px"></td>
+                    <td><button type="button" class="button-link-delete nipgl-remove-row">Remove</button></td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p><button type="button" class="button" id="nipgl-add-club">+ Add Club</button></p>
+
+            <hr>
             <h2>Theme Colours</h2>
-            <p>Set the default colours for all division widgets on this site. These can be overridden per-widget using shortcode attributes: <code>color_primary</code>, <code>color_secondary</code>, <code>color_bg</code>.</p>
+            <p>Default colours for all widgets on this site. Can be overridden per-widget using shortcode attributes: <code>color_primary</code>, <code>color_secondary</code>, <code>color_bg</code>.</p>
             <?php $theme = get_option('nipgl_theme', array()); ?>
             <table class="form-table">
                 <tr>
@@ -818,59 +892,19 @@ function nipgl_settings_page() {
                     </td>
                 </tr>
             </table>
-            <p style="margin-top:0"><a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=nipgl-settings&nipgl_reset_theme=1'), 'nipgl_reset_theme_nonce'); ?>" class="button" onclick="return confirm('Reset theme colours to defaults?')">Reset to defaults</a></p>
-
-            <hr>
-            <h2>Sponsors</h2>
-            <p>The <strong>first sponsor</strong> appears above the division title on all pages. Additional sponsors rotate randomly below the league table. Add a per-division override via the shortcode if needed.</p>
-            <table class="widefat nipgl-badge-table" id="nipgl-sponsor-table">
-                <thead>
-                    <tr>
-                        <th>Sponsor Name / Alt Text</th>
-                        <th>Logo Image</th>
-                        <th>Link URL</th>
-                        <th>Preview</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php
-                    $sponsors = get_option('nipgl_sponsors', array());
-                    if (empty($sponsors)) $sponsors = array(array('image'=>'','url'=>'','name'=>''));
-                    foreach ($sponsors as $sp): ?>
-                    <tr class="nipgl-sponsor-row">
-                        <td><input type="text" name="nipgl_sp_name[]" value="<?php echo esc_attr($sp['name']); ?>" placeholder="e.g. Acme Ltd" class="regular-text"></td>
-                        <td>
-                            <input type="text" name="nipgl_sp_image[]" value="<?php echo esc_url($sp['image']); ?>" placeholder="Image URL" class="regular-text nipgl-image-url" readonly>
-                            <button type="button" class="button nipgl-pick-image">Choose Image</button>
-                        </td>
-                        <td><input type="text" name="nipgl_sp_url[]" value="<?php echo esc_url($sp['url']); ?>" placeholder="https://" class="regular-text"></td>
-                        <td><img class="nipgl-badge-preview" src="<?php echo esc_url($sp['image']); ?>" style="<?php echo $sp['image'] ? '' : 'display:none;'; ?>height:40px;object-fit:contain;max-width:120px;"></td>
-                        <td><button type="button" class="button-link-delete nipgl-remove-row">Remove</button></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-            <p><button type="button" class="button" id="nipgl-add-sponsor">+ Add Sponsor</button></p>
+            <p style="margin-top:0"><a href="<?php echo wp_nonce_url(admin_url('admin.php?page=nipgl-settings&nipgl_reset_theme=1'), 'nipgl_reset_theme_nonce'); ?>" class="button" onclick="return confirm('Reset theme colours to defaults?')">Reset to defaults</a></p>
 
             <hr>
             <h2>Club Badges</h2>
-            <p>Enter a name and choose a badge. Set <strong>Type</strong> to <strong>Club prefix</strong> for clubs with multiple teams — e.g. enter <code>MALONE</code> once and it will match <code>MALONE A</code>, <code>MALONE B</code>, <code>MALONE C</code> etc. Use <strong>Exact</strong> when a team needs its own specific badge. Exact matches always take priority over club prefix matches.</p>
-
+            <p>Assign badge images to clubs. Used across league tables, cup brackets, and championship draws.<br>
+            Set <strong>Type</strong> to <strong>Club prefix</strong> for clubs with multiple teams — e.g. enter <code>MALONE</code> to match <code>MALONE A</code>, <code>MALONE B</code>, etc. Use <strong>Exact</strong> for a team-specific badge. Exact matches take priority.</p>
             <table class="widefat nipgl-badge-table" id="nipgl-badge-table">
                 <thead>
-                    <tr>
-                        <th>Club / Team Name</th>
-                        <th>Type</th>
-                        <th>Badge Image</th>
-                        <th>Preview</th>
-                        <th></th>
-                    </tr>
+                    <tr><th>Club / Team Name</th><th>Type</th><th>Badge Image</th><th>Preview</th><th></th></tr>
                 </thead>
                 <tbody>
                     <?php
-                    $club_badges = get_option('nipgl_club_badges', array());
-                    // Merge for display: exact badges first, then club badges
+                    $club_badges    = get_option('nipgl_club_badges', array());
                     $all_badge_rows = array();
                     foreach ($badges as $team => $img) {
                         $all_badge_rows[] = array('name' => $team, 'image' => $img, 'type' => 'exact');
@@ -900,84 +934,41 @@ function nipgl_settings_page() {
                     <?php endforeach; ?>
                 </tbody>
             </table>
-
             <p><button type="button" class="button" id="nipgl-add-row">+ Add Badge</button></p>
 
             <hr>
-            <h2>Shortcode Usage</h2>
-            <h3 style="margin-bottom:4px">League table &amp; fixtures</h3>
-            <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block;margin-top:0">[nipgl_division csv="YOUR_CSV_URL" title="Division 1"]</pre>
-            <table class="widefat striped" style="max-width:680px;margin-top:8px">
-                <thead><tr><th style="width:160px">Parameter</th><th>Description</th><th style="width:80px">Required</th></tr></thead>
+            <h2>Sponsors</h2>
+            <p>The <strong>first sponsor</strong> appears above the division title. Additional sponsors rotate randomly below the league table. Add a per-division override via the shortcode if needed.</p>
+            <table class="widefat nipgl-badge-table" id="nipgl-sponsor-table">
+                <thead>
+                    <tr><th>Sponsor Name / Alt Text</th><th>Logo Image</th><th>Link URL</th><th>Preview</th><th></th></tr>
+                </thead>
                 <tbody>
-                <tr><td><code>csv</code></td><td>Published Google Sheets CSV URL</td><td>Yes</td></tr>
-                <tr><td><code>title</code></td><td>Heading displayed above the widget</td><td>No</td></tr>
-                <tr><td><code>promote</code></td><td>Number of promotion places to highlight (default: 0)</td><td>No</td></tr>
-                <tr><td><code>relegate</code></td><td>Number of relegation places to highlight (default: 0)</td><td>No</td></tr>
-                <tr><td><code>sponsor_img</code></td><td>Override primary sponsor image URL for this division only</td><td>No</td></tr>
-                <tr><td><code>sponsor_url</code></td><td>Override primary sponsor link URL for this division only</td><td>No</td></tr>
-                <tr><td><code>sponsor_name</code></td><td>Override primary sponsor alt text for this division only</td><td>No</td></tr>
+                    <?php
+                    $sponsors = get_option('nipgl_sponsors', array());
+                    if (empty($sponsors)) $sponsors = array(array('image'=>'','url'=>'','name'=>''));
+                    foreach ($sponsors as $sp): ?>
+                    <tr class="nipgl-sponsor-row">
+                        <td><input type="text" name="nipgl_sp_name[]" value="<?php echo esc_attr($sp['name']); ?>" placeholder="e.g. Acme Ltd" class="regular-text"></td>
+                        <td>
+                            <input type="text" name="nipgl_sp_image[]" value="<?php echo esc_url($sp['image']); ?>" placeholder="Image URL" class="regular-text nipgl-image-url" readonly>
+                            <button type="button" class="button nipgl-pick-image">Choose Image</button>
+                        </td>
+                        <td><input type="text" name="nipgl_sp_url[]" value="<?php echo esc_url($sp['url']); ?>" placeholder="https://" class="regular-text"></td>
+                        <td><img class="nipgl-badge-preview" src="<?php echo esc_url($sp['image']); ?>" style="<?php echo $sp['image'] ? '' : 'display:none;'; ?>height:40px;object-fit:contain;max-width:120px;"></td>
+                        <td><button type="button" class="button-link-delete nipgl-remove-row">Remove</button></td>
+                    </tr>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
-
-            <h3 style="margin-top:20px;margin-bottom:4px">Scorecard submission form</h3>
-            <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block;margin-top:0">[nipgl_submit]</pre>
-            <p style="margin-top:6px;color:#555;font-size:13px">Add to any page to allow clubs to submit match scorecards. Clubs authenticate with their passphrase before submitting. Both home and away clubs must confirm before a scorecard is marked as confirmed.</p>
-
-            <hr>
-            <h2>Score Entry</h2>
-            <p>Add clubs and set a passphrase for each one. Secretaries select their club and enter the passphrase to submit scorecards.<br><em>Tip: the <a href="https://what3words.com" target="_blank">what3words</a> address for your clubhouse makes a good default passphrase (e.g. <code>filled.count.ripen</code>).</em><br>Leave the passphrase blank when editing to keep the existing one.</p>
-
-            <table class="widefat nipgl-badge-table" id="nipgl-club-table">
-                <thead><tr><th>Club Name</th><th>Passphrase (leave blank to keep existing)</th><th></th></tr></thead>
-                <tbody>
-                <?php
-                $clubs = get_option('nipgl_clubs', array());
-                if (empty($clubs)) $clubs = array(array('name'=>'','pin'=>''));
-                foreach ($clubs as $club): ?>
-                <tr class="nipgl-club-row">
-                    <td><input type="text" name="nipgl_club_name[]" value="<?php echo esc_attr($club['name']); ?>" placeholder="e.g. Ards" class="regular-text"></td>
-                    <td><input type="text" name="nipgl_club_pin[]" value="" placeholder="<?php echo $club['pin'] ? '(passphrase set — enter new to change)' : 'Set passphrase (word.word.word)'; ?>" autocomplete="off" autocapitalize="none" spellcheck="false" class="regular-text" style="width:240px"></td>
-                    <td><button type="button" class="button-link-delete nipgl-remove-row">Remove</button></td>
-                </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-            <p><button type="button" class="button" id="nipgl-add-club">+ Add Club</button></p>
-
-            <table class="form-table" style="margin-top:16px">
-                <tr>
-                    <th scope="row"><label for="nipgl_anthropic_key">Anthropic API Key</label></th>
-                    <td>
-                        <?php $key = get_option('nipgl_anthropic_key',''); ?>
-                        <input type="password" id="nipgl_anthropic_key" name="nipgl_anthropic_key" value="<?php echo esc_attr($key); ?>" placeholder="sk-ant-…" style="width:380px">
-                        <p class="description">Required for AI photo reading. Get a key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.</p>
-                    </td>
-                </tr>
-            </table>
-
-            <hr>
-            <h2>Cache Settings</h2>
-            <p>Data is cached on your server to speed up page loads. Visitors see cached data until it expires, then a fresh fetch is made from Google Sheets.</p>
-            <table class="form-table">
-                <tr>
-                    <th scope="row"><label for="nipgl_cache_mins">Cache duration (minutes)</label></th>
-                    <td>
-                        <input type="number" id="nipgl_cache_mins" name="nipgl_cache_mins" value="<?php echo intval(get_option('nipgl_cache_mins', 5)); ?>" min="1" max="60" style="width:80px">
-                        <p class="description">How long to cache each division's data. 5 minutes is a good default during the season. Lower = fresher data but more Google requests.</p>
-                    </td>
-                </tr>
-            </table>
-
-            <?php nipgl_drive_settings_section(); ?>
-            <?php nipgl_sheets_settings_html(); ?>
+            <p><button type="button" class="button" id="nipgl-add-sponsor">+ Add Sponsor</button></p>
 
             <?php submit_button('Save Settings'); ?>
         </form>
 
         <hr>
         <h2>Plugin Updates</h2>
-        <p>Current version: <strong><?php echo NIPGL_VERSION; ?></strong>. Click below to force WordPress to check GitHub for a newer release immediately, rather than waiting up to 6 hours.</p>
+        <p>Current version: <strong><?php echo NIPGL_VERSION; ?></strong>. Click below to force WordPress to check GitHub for a newer release immediately.</p>
         <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
             <?php wp_nonce_field('nipgl_check_updates_nonce'); ?>
             <input type="hidden" name="action" value="nipgl_check_updates">
@@ -986,7 +977,7 @@ function nipgl_settings_page() {
 
         <hr>
         <h2>Clear Cache Now</h2>
-        <p>Force all divisions to fetch fresh data from Google Sheets on the next page load — useful immediately after entering results.</p>
+        <p>Force all divisions to fetch fresh data from Google Sheets on the next page load.</p>
         <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
             <?php wp_nonce_field('nipgl_clear_cache_nonce'); ?>
             <input type="hidden" name="action" value="nipgl_clear_cache">
@@ -994,7 +985,6 @@ function nipgl_settings_page() {
         </form>
     </div>
     <script>
-    // Colour picker <-> hex text field sync
     document.querySelectorAll('input[type="color"]').forEach(function(picker) {
         var row = picker.parentNode;
         var hex = row.querySelector('.nipgl-hex-input');
@@ -1005,6 +995,88 @@ function nipgl_settings_page() {
         });
     });
     </script>
+    <?php
+}
+
+// ── League Setup page ─────────────────────────────────────────────────────────
+function nipgl_league_setup_page() {
+    $saved = isset($_GET['saved']);
+    ?>
+    <div class="wrap nipgl-admin-wrap">
+        <h1>League Setup</h1>
+        <?php if ($saved): ?>
+            <div class="notice notice-success is-dismissible"><p>Settings saved.</p></div>
+        <?php endif; ?>
+        <?php if (isset($_GET['cleared'])): ?>
+            <div class="notice notice-success is-dismissible"><p>Cache cleared — all divisions will fetch fresh data on next load.</p></div>
+        <?php endif; ?>
+
+        <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+            <?php wp_nonce_field('nipgl_league_setup_nonce'); ?>
+            <input type="hidden" name="action" value="nipgl_save_league_setup">
+
+            <h2>Cache Settings</h2>
+            <p>Data is cached on your server to speed up page loads. Visitors see cached data until it expires, then a fresh fetch is made from Google Sheets.</p>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="nipgl_cache_mins">Cache duration (minutes)</label></th>
+                    <td>
+                        <input type="number" id="nipgl_cache_mins" name="nipgl_cache_mins" value="<?php echo intval(get_option('nipgl_cache_mins', 5)); ?>" min="1" max="60" style="width:80px">
+                        <p class="description">5 minutes is a good default during the season. Lower = fresher data but more Google Sheets requests.</p>
+                    </td>
+                </tr>
+            </table>
+
+            <hr>
+            <h2>Anthropic API Key</h2>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="nipgl_anthropic_key">API Key</label></th>
+                    <td>
+                        <?php $key = get_option('nipgl_anthropic_key', ''); ?>
+                        <input type="password" id="nipgl_anthropic_key" name="nipgl_anthropic_key" value="<?php echo esc_attr($key); ?>" placeholder="sk-ant-…" style="width:380px">
+                        <p class="description">Required for AI photo reading of scorecards. Get a key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.</p>
+                    </td>
+                </tr>
+            </table>
+
+            <?php nipgl_drive_settings_section(); ?>
+            <?php nipgl_sheets_settings_html(); ?>
+
+            <?php submit_button('Save League Setup'); ?>
+        </form>
+
+        <hr>
+        <h2>Shortcode Reference</h2>
+
+        <h3 style="margin-bottom:4px">League table &amp; fixtures</h3>
+        <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block;margin-top:0">[nipgl_division csv="YOUR_CSV_URL" title="Division 1"]</pre>
+        <table class="widefat striped" style="max-width:680px;margin-top:8px">
+            <thead><tr><th style="width:160px">Parameter</th><th>Description</th><th style="width:80px">Required</th></tr></thead>
+            <tbody>
+            <tr><td><code>csv</code></td><td>Published Google Sheets CSV URL</td><td>Yes</td></tr>
+            <tr><td><code>title</code></td><td>Heading above the widget</td><td>No</td></tr>
+            <tr><td><code>promote</code></td><td>Promotion places to highlight (default: 0)</td><td>No</td></tr>
+            <tr><td><code>relegate</code></td><td>Relegation places to highlight (default: 0)</td><td>No</td></tr>
+            <tr><td><code>color_primary</code></td><td>Override primary colour for this widget</td><td>No</td></tr>
+            <tr><td><code>color_secondary</code></td><td>Override secondary colour for this widget</td><td>No</td></tr>
+            <tr><td><code>color_bg</code></td><td>Override background colour for this widget</td><td>No</td></tr>
+            <tr><td><code>sponsor_img</code></td><td>Override primary sponsor image for this division</td><td>No</td></tr>
+            <tr><td><code>sponsor_url</code></td><td>Override primary sponsor link for this division</td><td>No</td></tr>
+            <tr><td><code>sponsor_name</code></td><td>Override primary sponsor alt text for this division</td><td>No</td></tr>
+            </tbody>
+        </table>
+
+        <h3 style="margin-top:20px;margin-bottom:4px">Scorecard submission form</h3>
+        <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block;margin-top:0">[nipgl_submit]</pre>
+        <p style="margin-top:6px;color:#555;font-size:13px">Allows clubs to submit and confirm match scorecards using their passphrase.</p>
+
+        <h3 style="margin-top:20px;margin-bottom:4px">Cup bracket</h3>
+        <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block;margin-top:0">[nipgl_cup id="cup-2025"]</pre>
+
+        <h3 style="margin-top:20px;margin-bottom:4px">National championship</h3>
+        <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block;margin-top:0">[nipgl_champ id="singles-2025"]</pre>
+    </div>
     <?php
 }
 
