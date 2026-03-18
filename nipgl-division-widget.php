@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 6.4.29
+ * Version: 6.4.30
  * Author: NIPGL
  * Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('NIPGL_PLUGIN_FILE', __FILE__);
-define('NIPGL_VERSION', '6.4.29');
+define('NIPGL_VERSION', '6.4.30');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-draw.php';
@@ -803,6 +803,63 @@ function nipgl_theme_mix($hex, $white, $whitePct) {
     list($r2,$g2,$b2) = nipgl_hex_to_rgb($white);
     $t = $whitePct / 100;
     return nipgl_rgb_to_hex(intval($r1+(($r2-$r1)*$t)), intval($g1+(($g2-$g1)*$t)), intval($b1+(($b2-$b1)*$t)));
+}
+
+// ── Shared helper: resolve badge URL for a team/club name ─────────────────────
+function nipgl_resolve_badge_url($name, $badges, $club_badges) {
+    if (!$name) return '';
+    if (isset($badges[$name])) return $badges[$name];
+    $upper = strtoupper($name);
+    foreach ($badges as $key => $url) {
+        if (strtoupper($key) === $upper) return $url;
+    }
+    $best_key = ''; $best_url = '';
+    foreach ($club_badges as $club => $url) {
+        $cu = strtoupper($club);
+        if ($upper === $cu || strpos($upper, $cu) === 0) {
+            if (strlen($club) > strlen($best_key)) { $best_key = $club; $best_url = $url; }
+        }
+    }
+    return $best_url;
+}
+
+// ── Shared helper: render a pre-draw entry list (badge + name rows) ────────────
+// $entries  — flat array of entry strings
+// $is_champ — true = "Player(s), Club" format; false = plain team name
+function nipgl_render_entry_list($entries, $is_champ = false) {
+    if (empty($entries)) return '';
+    $badges      = get_option('nipgl_badges',      array());
+    $club_badges = get_option('nipgl_club_badges', array());
+    $out = '<div class="nipgl-entry-list">';
+    foreach ($entries as $entry) {
+        $entry = trim($entry);
+        if (!$entry) continue;
+        if ($is_champ) {
+            $comma  = strpos($entry, ',');
+            $player = $comma !== false ? trim(substr($entry, 0, $comma)) : $entry;
+            $club   = $comma !== false ? trim(substr($entry, $comma + 1)) : '';
+            $badge_url = nipgl_resolve_badge_url($club, $badges, $club_badges);
+            $badge_html = $badge_url
+                ? '<img class="nipgl-entry-badge" src="' . esc_url($badge_url) . '" alt="">'
+                : '<span class="nipgl-entry-badge-placeholder"></span>';
+            $out .= '<div class="nipgl-entry-row">'
+                . $badge_html
+                . '<span class="nipgl-entry-name">' . esc_html($player) . '</span>'
+                . ($club ? '<span class="nipgl-entry-club">' . esc_html($club) . '</span>' : '')
+                . '</div>';
+        } else {
+            $badge_url  = nipgl_resolve_badge_url($entry, $badges, $club_badges);
+            $badge_html = $badge_url
+                ? '<img class="nipgl-entry-badge" src="' . esc_url($badge_url) . '" alt="">'
+                : '<span class="nipgl-entry-badge-placeholder"></span>';
+            $out .= '<div class="nipgl-entry-row">'
+                . $badge_html
+                . '<span class="nipgl-entry-name">' . esc_html($entry) . '</span>'
+                . '</div>';
+        }
+    }
+    $out .= '</div>';
+    return $out;
 }
 
 // Clear cache action

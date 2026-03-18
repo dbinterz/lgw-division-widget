@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL National Championships - v6.4.29
+ * NIPGL National Championships - v6.4.30
  *
  * Single-elimination bracket competitions for singles, pairs, triples, fours.
  * Based on the cup draw system with two key differences:
@@ -1214,6 +1214,10 @@ function nipgl_champ_shortcode($atts) {
             <div class="nipgl-champ-empty">
               <div class="nipgl-champ-empty-icon">🎲</div>
               <p><?php echo $is_admin ? 'No draw performed yet.' : 'The draw has not taken place yet. Check back soon!'; ?></p>
+              <?php if (!empty($sec['entries'])): ?>
+              <p class="nipgl-entry-count"><?php echo count($sec['entries']); ?> entries</p>
+              <?php echo nipgl_render_entry_list($sec['entries'], true); ?>
+              <?php endif; ?>
             </div>
             <?php endif; ?>
             <div class="nipgl-champ-bracket"></div>

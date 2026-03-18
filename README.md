@@ -108,6 +108,9 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
+### 6.4.30
+- Show entry list (badge + name) before draw is performed on Cup and Championship pages
+
 ### 6.4.29
 - Fixed sponsor bar dark background on Cup and Championship pages — moved primary bar inside scoped CSS variable context
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Cup Bracket Feature - v6.4.29
+ * NIPGL Cup Bracket Feature - v6.4.30
  * Single-elimination knockout bracket widget with live animated draw.
  */
 
@@ -222,6 +222,12 @@ function nipgl_cup_shortcode($atts) {
               <p>No draw has been performed yet. Click <strong>Perform Draw</strong> above to randomise the bracket.</p>
             <?php else: ?>
               <p>The draw has not yet taken place. Check back soon!</p>
+            <?php endif; ?>
+            <?php
+            $cup_entries = array_values(array_filter(array_map('trim', $cup['entries'] ?? array())));
+            if (!empty($cup_entries)): ?>
+            <p class="nipgl-entry-count"><?php echo count($cup_entries); ?> teams entered</p>
+            <?php echo nipgl_render_entry_list($cup_entries, false); ?>
             <?php endif; ?>
           </div>
         <?php endif; ?>

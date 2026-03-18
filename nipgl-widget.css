@@ -336,3 +336,12 @@ body.nipgl-modal-open{overflow:hidden}
   .modal-sc-inline .nipgl-sc-players{min-width:70px;font-size:11px}
   .modal-sc-inline .nipgl-sc-rink-body{gap:4px}
 }
+
+/* ── Pre-draw entry list ───────────────────────────────────────────────────── */
+.nipgl-entry-count{font-size:13px;color:var(--nipgl-text-muted,#666);margin:8px 0 4px;font-weight:600}
+.nipgl-entry-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px 12px;margin:8px 0 4px;text-align:left;max-height:420px;overflow-y:auto;padding-right:4px}
+.nipgl-entry-row{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:4px;background:var(--nipgl-bg-alt,#f0f2f8)}
+.nipgl-entry-badge{width:22px;height:22px;object-fit:contain;flex-shrink:0}
+.nipgl-entry-badge-placeholder{width:22px;height:22px;flex-shrink:0;border-radius:50%;background:var(--nipgl-border,#d0d5e8)}
+.nipgl-entry-name{font-size:13px;font-weight:600;color:var(--nipgl-text,#1a1a1a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nipgl-entry-club{font-size:11px;color:var(--nipgl-text-muted,#666);margin-left:auto;white-space:nowrap;flex-shrink:0}
