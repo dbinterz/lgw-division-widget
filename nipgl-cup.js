@@ -163,13 +163,20 @@
         card.dataset.round = ri;
         card.dataset.match = mi;
         var isAdmin = typeof nipglCupData !== 'undefined' && nipglCupData.isAdmin == 1;
+        var scorePassphraseSet = typeof nipglCupData !== 'undefined' && nipglCupData.scorePassphraseSet == 1;
         var hasResult = match.home_score !== null && match.home_score !== undefined &&
                         match.away_score !== null && match.away_score !== undefined;
-        if (isAdmin && !match.bye && (match.home || match.away)) {
-          // Admin: click opens score entry
+        if ((isAdmin || scorePassphraseSet) && !match.bye && (match.home || match.away)) {
+          // Admin or passphrase-enabled: click opens score entry (with auth gate for non-admins)
           card.classList.add('nipgl-cup-editable');
           card.addEventListener('click', function () {
-            openScoreEntry(wrap, card, match, ri, mi);
+            if (isAdmin || scoreToken) {
+              openScoreEntry(wrap, card, match, ri, mi);
+            } else {
+              openScoreLoginModal(wrap, function () {
+                openScoreEntry(wrap, card, match, ri, mi);
+              });
+            }
           });
         } else if (hasResult && match.home && match.away) {
           // Anyone: click opens scorecard viewer if result is set
@@ -506,7 +513,65 @@
 
   // ── Draw passphrase login modal ───────────────────────────────────────────────
   var drawToken        = null; // stored in memory for session duration
+  var scoreToken       = null; // stored in memory for session duration
   var drawMasterActive = false; // true while draw master animation is running
+
+  // ── Score entry login modal ───────────────────────────────────────────────────
+  function openScoreLoginModal(wrap, onSuccess) {
+    var existing = qs('.nipgl-cup-draw-login-modal');
+    if (existing) existing.parentNode.removeChild(existing);
+
+    var nonce = (typeof nipglCupData !== 'undefined') ? nipglCupData.cupNonce : '';
+
+    var modal = document.createElement('div');
+    modal.className = 'nipgl-cup-draw-login-modal';
+    modal.innerHTML =
+      '<div class="nipgl-cup-draw-login-box">' +
+        '<div class="nipgl-cup-draw-login-title">🔑 Score Entry Login</div>' +
+        '<input class="nipgl-cup-draw-login-input" type="password" placeholder="Enter passphrase" ' +
+               'autocomplete="off" autocapitalize="none" spellcheck="false">' +
+        '<div class="nipgl-cup-draw-login-actions">' +
+          '<button class="nipgl-cup-draw-login-submit">Unlock</button>' +
+          '<button class="nipgl-cup-draw-login-cancel">Cancel</button>' +
+        '</div>' +
+        '<div class="nipgl-cup-draw-login-msg"></div>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    var input     = qs('.nipgl-cup-draw-login-input',  modal);
+    var submitBtn = qs('.nipgl-cup-draw-login-submit', modal);
+    var msgEl     = qs('.nipgl-cup-draw-login-msg',    modal);
+    input.focus();
+
+    function doAuth() {
+      var passphrase = input.value.trim().toLowerCase();
+      if (!passphrase) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Checking…';
+      post('nipgl_cup_score_auth', { nonce: nonce, passphrase: passphrase }, function (res) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Unlock';
+        if (!res.success) {
+          msgEl.textContent = res.data || 'Incorrect passphrase.';
+          input.value = '';
+          input.focus();
+          return;
+        }
+        scoreToken = res.data.token;
+        modal.parentNode.removeChild(modal);
+        onSuccess();
+      });
+    }
+
+    submitBtn.addEventListener('click', doAuth);
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doAuth(); });
+    qs('.nipgl-cup-draw-login-cancel', modal).addEventListener('click', function () {
+      modal.parentNode.removeChild(modal);
+    });
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) modal.parentNode.removeChild(modal);
+    });
+  }
 
   function openDrawLoginModal(wrap, onSuccess) {
     var existing = qs('.nipgl-cup-draw-login-modal');
@@ -678,6 +743,7 @@
         cup_id: cupId, nonce: nonce,
         round_idx: roundIdx, match_idx: matchIdx,
         home_score: homeInput.value, away_score: awayInput.value,
+        score_token: scoreToken || '',
       }, function (res) {
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save';
@@ -938,8 +1004,6 @@
       if (emptyEl) emptyEl.style.display = '';
     }
     renderSponsorBar(wrap);
-
-    // Poll only if no complete bracket present on page load
     var shouldPoll = drawVersion === '0' || (drawInProgress && !bracketData);
     if (shouldPoll) {
       startDrawPoll(wrap, drawVersion);

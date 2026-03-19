@@ -108,6 +108,17 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
+### 6.4.33
+- Fixed sponsor_img shortcode override on Cup pages (lost in v6.4.32 merge)
+- Restored pre-draw entry list on Cup pages (lost in v6.4.32 merge)
+- Added score update audit log — records time, match, teams, score, updated-by and IP; visible in Cups admin
+
+### 6.4.32
+- Added passphrase-gated score entry for Cup brackets — non-admin users can enter scores after authenticating with the draw passphrase; token held in memory for the session
+
+### 6.4.31
+- Fixed pre-draw entry list badge lookup — added exact club-badge match and bidirectional prefix matching
+
 ### 6.4.30
 - Show entry list (badge + name) before draw is performed on Cup and Championship pages
 

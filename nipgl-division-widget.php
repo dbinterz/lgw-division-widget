@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 6.4.30
+ * Version: 6.4.33
  * Author: NIPGL
  * Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('NIPGL_PLUGIN_FILE', __FILE__);
-define('NIPGL_VERSION', '6.4.30');
+define('NIPGL_VERSION', '6.4.33');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-draw.php';
@@ -808,15 +808,24 @@ function nipgl_theme_mix($hex, $white, $whitePct) {
 // ── Shared helper: resolve badge URL for a team/club name ─────────────────────
 function nipgl_resolve_badge_url($name, $badges, $club_badges) {
     if (!$name) return '';
+    // 1. Exact match in team badges
     if (isset($badges[$name])) return $badges[$name];
     $upper = strtoupper($name);
+    // 2. Case-insensitive exact match in team badges
     foreach ($badges as $key => $url) {
         if (strtoupper($key) === $upper) return $url;
     }
+    // 3. Exact case-insensitive match in club badges (mirrors champBadge step 2)
+    foreach ($club_badges as $club => $url) {
+        if (strtoupper($club) === $upper) return $url;
+    }
+    // 4. Bidirectional prefix match in club badges — pick longest key that matches
+    //    Covers: entry="Ballymena A", key="Ballymena"  (entry starts with key)
+    //    And:    entry="Ballymena",   key="Ballymena BC" (key starts with entry)
     $best_key = ''; $best_url = '';
     foreach ($club_badges as $club => $url) {
         $cu = strtoupper($club);
-        if ($upper === $cu || strpos($upper, $cu) === 0) {
+        if (strpos($upper, $cu) === 0 || strpos($cu, $upper) === 0) {
             if (strlen($club) > strlen($best_key)) { $best_key = $club; $best_url = $url; }
         }
     }

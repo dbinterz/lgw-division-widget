@@ -1,6 +1,6 @@
 <?php
 /**
- * NIPGL Cup Bracket Feature - v6.4.30
+ * NIPGL Cup Bracket Feature - v6.4.25
  * Single-elimination knockout bracket widget with live animated draw.
  */
 
@@ -31,6 +31,7 @@ function nipgl_cup_enqueue() {
         'isAdmin'            => current_user_can('manage_options') ? 1 : 0,
         'scoreNonce'         => wp_create_nonce('nipgl_cup_score'),
         'drawPassphraseSet'  => get_option('nipgl_draw_passphrase', '') !== '' ? 1 : 0,
+        'scorePassphraseSet' => get_option('nipgl_draw_passphrase', '') !== '' ? 1 : 0,
         'cupNonce'           => wp_create_nonce('nipgl_cup_nonce'),
         'drawSpeed'          => (float) get_option('nipgl_draw_speed', 1.0),
     ));
@@ -66,11 +67,35 @@ function nipgl_cup_check_draw_auth() {
     return false;
 }
 
+// ── AJAX: Verify passphrase and issue a score entry token ─────────────────────
+add_action('wp_ajax_nipgl_cup_score_auth',        'nipgl_ajax_cup_score_auth');
+add_action('wp_ajax_nopriv_nipgl_cup_score_auth', 'nipgl_ajax_cup_score_auth');
+function nipgl_ajax_cup_score_auth() {
+    $nonce = sanitize_text_field($_POST['nonce'] ?? '');
+    if (!wp_verify_nonce($nonce, 'nipgl_cup_nonce')) {
+        wp_send_json_error('Session expired — please refresh the page and try again.');
+    }
+    $raw    = strtolower(trim(sanitize_text_field($_POST['passphrase'] ?? '')));
+    $stored = get_option('nipgl_draw_passphrase', '');
+    if ($stored === '') wp_send_json_error('No passphrase configured.');
+    if (!hash_equals($stored, hash('sha256', $raw))) wp_send_json_error('Incorrect passphrase.');
+    $token = wp_generate_password(32, false);
+    set_transient('nipgl_score_auth_' . $token, 1, 8 * HOUR_IN_SECONDS);
+    wp_send_json_success(array('token' => $token));
+}
 
-add_action('wp_ajax_nipgl_cup_save_score', 'nipgl_ajax_cup_save_score');
+
+add_action('wp_ajax_nipgl_cup_save_score',        'nipgl_ajax_cup_save_score');
+add_action('wp_ajax_nopriv_nipgl_cup_save_score', 'nipgl_ajax_cup_save_score');
 function nipgl_ajax_cup_save_score() {
     check_ajax_referer('nipgl_cup_score', 'nonce');
-    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+
+    // Allow WP admins or passphrase-authenticated users (via score token)
+    $score_token = sanitize_text_field($_POST['score_token'] ?? '');
+    $token_valid = $score_token && get_transient('nipgl_score_auth_' . $score_token);
+    if (!current_user_can('manage_options') && !$token_valid) {
+        wp_send_json_error('Unauthorised — please log in to enter scores.');
+    }
 
     $cup_id    = sanitize_key($_POST['cup_id']    ?? '');
     $round_idx = intval($_POST['round_idx']       ?? -1);
@@ -89,6 +114,26 @@ function nipgl_ajax_cup_save_score() {
     $match = &$bracket['matches'][$round_idx][$match_idx];
     $match['home_score'] = $home_score;
     $match['away_score'] = $away_score;
+
+    // Audit log entry
+    $audit_entry = array(
+        'ts'         => current_time('mysql'),
+        'cup_id'     => $cup_id,
+        'round'      => $round_idx,
+        'match'      => $match_idx,
+        'home'       => $match['home'] ?? '',
+        'away'       => $match['away'] ?? '',
+        'home_score' => $home_score,
+        'away_score' => $away_score,
+        'by'         => current_user_can('manage_options')
+                        ? (wp_get_current_user()->user_login ?: 'admin')
+                        : 'passphrase',
+        'ip'         => sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? ''),
+    );
+    $log = get_option('nipgl_cup_score_log', array());
+    array_unshift($log, $audit_entry);
+    $log = array_slice($log, 0, 200); // keep last 200 entries
+    update_option('nipgl_cup_score_log', $log);
 
     // Advance winner to next round if both scores set
     if ($home_score !== null && $away_score !== null && $home_score !== $away_score) {
@@ -165,17 +210,17 @@ function nipgl_cup_shortcode($atts) {
     $global_sponsors = get_option('nipgl_sponsors', array());
     if (!empty($atts['sponsor_img'])) {
         $primary_sponsor = array(
-            'image' => esc_url($atts['sponsor_img']),
-            'url'   => esc_url($atts['sponsor_url']),
-            'name'  => esc_attr($atts['sponsor_name']),
+            'image' => $atts['sponsor_img'],
+            'url'   => $atts['sponsor_url'],
+            'name'  => $atts['sponsor_name'],
         );
         $extra_sponsors = array_slice($global_sponsors, 1);
     } else {
         $primary_sponsor = !empty($global_sponsors[0]) ? $global_sponsors[0] : null;
         $extra_sponsors  = array_slice($global_sponsors, 1);
     }
-    $extra_json      = esc_attr(wp_json_encode($extra_sponsors));
-    $primary_html    = '';
+    $extra_json   = esc_attr(wp_json_encode($extra_sponsors));
+    $primary_html = '';
     if ($primary_sponsor && !empty($primary_sponsor['image'])) {
         $img          = '<img src="' . esc_url($primary_sponsor['image']) . '" alt="' . esc_attr($primary_sponsor['name'] ?: 'Sponsor') . '" class="nipgl-sponsor-img">';
         $primary_html = '<div class="nipgl-sponsor-bar nipgl-sponsor-primary">'
@@ -753,6 +798,36 @@ function nipgl_cups_list_page() {
              class="button button-small button-link-delete"
              onclick="return confirm('Delete this cup and all its data?')">Delete</a>
         </td>
+      </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?php endif; ?>
+
+    <hr>
+    <h2>Score Update Log</h2>
+    <?php
+    $log = get_option('nipgl_cup_score_log', array());
+    if (empty($log)): ?>
+    <p style="color:#666">No score updates recorded yet.</p>
+    <?php else: ?>
+    <table class="widefat striped" style="max-width:900px;font-size:13px">
+      <thead><tr><th>Time</th><th>Cup</th><th>Round</th><th>Home</th><th>Score</th><th>Away</th><th>Updated by</th><th>IP</th></tr></thead>
+      <tbody>
+      <?php foreach ($log as $e): ?>
+      <tr>
+        <td style="white-space:nowrap"><?php echo esc_html($e['ts']); ?></td>
+        <td><?php echo esc_html($e['cup_id']); ?></td>
+        <td><?php echo intval($e['round']) + 1; ?></td>
+        <td><?php echo esc_html($e['home']); ?></td>
+        <td style="text-align:center;font-weight:700">
+          <?php echo $e['home_score'] !== null ? intval($e['home_score']) : '–'; ?>
+          &ndash;
+          <?php echo $e['away_score'] !== null ? intval($e['away_score']) : '–'; ?>
+        </td>
+        <td><?php echo esc_html($e['away']); ?></td>
+        <td><?php echo esc_html($e['by']); ?></td>
+        <td style="color:#888;font-size:11px"><?php echo esc_html($e['ip']); ?></td>
       </tr>
       <?php endforeach; ?>
       </tbody>

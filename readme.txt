@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 6.4.30
+Stable tag: 6.4.33
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,17 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 6.4.33 =
+* Fixed sponsor_img shortcode override on Cup pages (lost in v6.4.32 merge)
+* Restored pre-draw entry list on Cup pages (lost in v6.4.32 merge)
+* Added score update audit log — records time, match, teams, score, updated-by and IP; visible in Cups admin
+
+= 6.4.32 =
+* Added passphrase-gated score entry for Cup brackets — non-admin users can enter scores after authenticating with the draw passphrase; token held in memory for the session
+
+= 6.4.31 =
+* Fixed pre-draw entry list badge lookup — added exact club-badge match and bidirectional prefix matching to cover cases where badge key is more specific than entry club name
 
 = 6.4.30 =
 * Show entry list (badge + name) before draw is performed on Cup and Championship pages
