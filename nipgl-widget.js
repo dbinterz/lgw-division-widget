@@ -1,4 +1,4 @@
-/* NIPGL Division Widget JS - v5.1 */
+/* NIPGL Division Widget JS - v6.4.47 */
 (function(){
   'use strict';
 
@@ -119,8 +119,15 @@
         var awayTeam =(r[colATeam] ||'').trim();
         var ptsAway  =(r[colPtsA]  ||'').trim();
         var timeNote='';
-        for(var x=colATeam+1;x<Math.min(colPtsA,r.length);x++){
-          if(/^\d{1,2}:\d{2}$/.test((r[x]||'').trim())) timeNote=r[x].trim();
+        for(var x=0;x<r.length;x++){
+          var cell=(r[x]||'').trim();
+          // Skip all data columns — only look for time in non-data columns
+          if(x===colHScore||x===colAScore||x===colPtsH||x===colPtsA||x===colHTeam||x===colATeam) continue;
+          // Match HH:MM or HH:MM:SS — strip seconds if present
+          if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(cell)){
+            timeNote=cell.slice(0,5); // take HH:MM only
+            break;
+          }
         }
         if(homeTeam && awayTeam){
           var played=(shotsHome!=='0'||shotsAway!=='0'||ptsHome!=='0'||ptsAway!=='0');
@@ -228,9 +235,10 @@
       g.matches.forEach(function(m){
         var scoreStr = m.played ? m.shotsHome+' – '+m.shotsAway : 'v';
         var ptsStr   = m.played ? '<span class="fx-pts">('+m.ptsHome+' – '+m.ptsAway+')</span>' : '';
+        var timeStr  = m.timeNote ? '<span class="fx-pts" style="margin-left:6px">&#9200; '+m.timeNote+'</span>' : '';
         html+='<tr>'
           +'<td class="fx-home">'+badgeImg(m.homeTeam)+m.homeTeam+'</td>'
-          +'<td class="fx-score">'+scoreStr+' '+ptsStr+'</td>'
+          +'<td class="fx-score">'+scoreStr+' '+ptsStr+timeStr+'</td>'
           +'<td class="fx-away">'+badgeImg(m.awayTeam)+m.awayTeam+'</td>'
           +'</tr>';
       });
@@ -384,7 +392,7 @@
           ? ' data-home="'+m.homeTeam.replace(/"/g,'&quot;')+'" data-away="'+m.awayTeam.replace(/"/g,'&quot;')+'" data-scrowid="'+scRowId+'" title="Click to view scorecard"'
           : '';
         fixtureRows+='<tr class="modal-fx-row'+(rowCls?' '+rowCls:'')+'"'+scAttrs+'>'
-          +'<td>'+g.date+'</td>'
+          +'<td>'+g.date+(m.timeNote?' <span style="color:#888;font-size:11px;white-space:nowrap">&#9200; '+m.timeNote+'</span>':'')+'</td>'
           +'<td style="text-align:center;font-weight:700;color:'+(isHome?'#1a2e5a':'#c0202a')+'">'+ha+'</td>'
           +'<td>'+badgeImg(opponent)+opponent+'</td>'
           +'<td style="text-align:center">'+scoreStr+'</td>'

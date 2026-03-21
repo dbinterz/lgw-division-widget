@@ -194,7 +194,7 @@ table.lg tr.row-relegated td.cp::before{content:'▼ ';font-size:9px;color:var(-
 .fx-sc{display:flex;align-items:center;justify-content:center;white-space:nowrap}
 .fx-sb{background:var(--nipgl-bg-alt);border:1px solid var(--nipgl-border);border-radius:3px;min-width:26px;padding:2px 5px;text-align:center;font-weight:700;font-size:14px;color:var(--nipgl-navy)}
 .fx-sep{padding:0 4px;color:var(--nipgl-text-muted);font-size:12px}
-.fx-time{grid-column:1/-1;text-align:right;font-size:11px;color:var(--nipgl-gold);font-weight:700;padding:0 2px 4px;margin-top:-4px}
+.fx-time{grid-column:1/-1;text-align:center;font-size:11px;color:var(--nipgl-gold);font-weight:700;padding:0 2px 4px;margin-top:-4px}
 .fx-row.played .fx-sb{background:var(--nipgl-navy);color:#fff;border-color:var(--nipgl-navy-mid)}
 .fx-row.played .fx-ph,.fx-row.played .fx-pa{color:var(--nipgl-pts)}
 

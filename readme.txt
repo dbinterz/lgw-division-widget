@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 6.4.43
+Stable tag: 6.4.47
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,25 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 6.4.45 =
+* Fixed time note (e.g. 17:30) not appearing on fixtures — the time value was stored in an earlier column (col 15) than the old parser expected (after the away team); now scans the entire row for a time pattern, excluding score/points columns; also handles Excel HH:MM:SS time format by stripping the seconds
+
+= 6.4.47 =
+* Fixed spurious time values (e.g. 12:00 from 0.5 points) — removed false decimal-fraction time detection; added team column skips to prevent name cells interfering; time column reliably detected as HH:MM after all data columns
+
+= 6.4.46 =
+* Fixed fixture time still showing truncated (e.g. "17") — Google Sheets published CSV exports time cells as a decimal fraction (0.729...) not as HH:MM:SS; parser now detects 0–1 decimal values and converts them to HH:MM correctly
+
+= 6.4.45 =
+* Fixed fixture time (e.g. 17:30) not displaying — time regex now matches HH:MM:SS format exported by Excel/Sheets; seconds stripped for display
+* Time now centred below the shots score on the main fixtures page; previously right-aligned across the full row
+* Time already appears in print view and team modal from v6.4.44
+
+= 6.4.44 =
+* Fixture time notes (e.g. 17:30) now shown in the print view — displayed inline in the score column alongside points
+* Fixture time notes now shown in the team modal — displayed inline in the date cell with a clock icon
+* Time notes were already displayed on the main fixtures page (no change needed there)
 
 = 6.4.43 =
 * Championships: added Write-back Sheets URL field in edit page — after each section/final draw and score save, bracket is written to the sheet (Section, Round, Home, Away, Date, Home Score, Away Score)

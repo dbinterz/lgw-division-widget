@@ -108,6 +108,15 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
+### 6.4.46
+- Fixed fixture time still truncated — Google Sheets published CSV exports time cells as decimal fractions (e.g. `0.729...`); parser now converts these to `HH:MM` correctly
+
+### 6.4.45
+- Fixed fixture time not displaying — regex now matches `HH:MM:SS`; handles full row scan; time centred below shots score
+
+### 6.4.44
+- Fixture time notes now shown in print view (inline in score column) and team modal (inline in date cell)
+
 ### 6.4.43
 - Championships: added Write-back Sheets URL field — bracket written to sheet after each draw and score save (Section, Round, Home, Away, Date, Home Score, Away Score)
 - Championships: winner propagation updates team name cell in next-round sheet row
