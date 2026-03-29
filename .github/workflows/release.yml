@@ -19,7 +19,7 @@ jobs:
 
       - name: Verify plugin version matches tag
         run: |
-          PLUGIN_VERSION=$(grep -m1 "Version:" nipgl-division-widget.php | awk '{print $NF}')
+          PLUGIN_VERSION=$(grep -m1 "Version:" lgw-division-widget.php | awk '{print $NF}')
           TAG_VERSION="${{ steps.version.outputs.VERSION }}"
           if [ "$PLUGIN_VERSION" != "$TAG_VERSION" ]; then
             echo "❌ Plugin header version ($PLUGIN_VERSION) does not match tag ($TAG_VERSION)"
@@ -30,33 +30,33 @@ jobs:
       - name: Build zip
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          ZIPNAME="nipgl-division-widget-v${VERSION}.zip"
-          mkdir -p nipgl-division-widget
+          ZIPNAME="lgw-division-widget-v${VERSION}.zip"
+          mkdir -p lgw-division-widget
 
           # Copy all plugin files — excludes dev/debug files
-          cp nipgl-division-widget.php nipgl-division-widget/
-          cp nipgl-scorecards.php      nipgl-division-widget/
-          cp nipgl-scorecard.js        nipgl-division-widget/
-          cp nipgl-scorecard.css       nipgl-division-widget/
-          cp nipgl-cup.php             nipgl-division-widget/
-          cp nipgl-cup.js              nipgl-division-widget/
-          cp nipgl-cup.css             nipgl-division-widget/
-          cp nipgl-champ.php           nipgl-division-widget/
-          cp nipgl-champ.js            nipgl-division-widget/
-          cp nipgl-champ.css           nipgl-division-widget/
-          cp nipgl-widget.js           nipgl-division-widget/
-          cp nipgl-widget.css          nipgl-division-widget/
-          cp nipgl-admin.js            nipgl-division-widget/
-          cp nipgl-admin.css           nipgl-division-widget/
-          cp nipgl-sc-admin.php        nipgl-division-widget/
-          cp nipgl-players.php         nipgl-division-widget/
-          cp nipgl-drive.php           nipgl-division-widget/
-          cp nipgl-sheets.php          nipgl-division-widget/
-          cp nipgl-pdf.php             nipgl-division-widget/
-          cp readme.txt                nipgl-division-widget/
-          cp README.md                 nipgl-division-widget/
+          cp lgw-division-widget.php lgw-division-widget/
+          cp lgw-scorecards.php      lgw-division-widget/
+          cp lgw-scorecard.js        lgw-division-widget/
+          cp lgw-scorecard.css       lgw-division-widget/
+          cp lgw-cup.php             lgw-division-widget/
+          cp lgw-cup.js              lgw-division-widget/
+          cp lgw-cup.css             lgw-division-widget/
+          cp lgw-champ.php           lgw-division-widget/
+          cp lgw-champ.js            lgw-division-widget/
+          cp lgw-champ.css           lgw-division-widget/
+          cp lgw-widget.js           lgw-division-widget/
+          cp lgw-widget.css          lgw-division-widget/
+          cp lgw-admin.js            lgw-division-widget/
+          cp lgw-admin.css           lgw-division-widget/
+          cp lgw-sc-admin.php        lgw-division-widget/
+          cp lgw-players.php         lgw-division-widget/
+          cp lgw-drive.php           lgw-division-widget/
+          cp lgw-sheets.php          lgw-division-widget/
+          cp lgw-pdf.php             lgw-division-widget/
+          cp readme.txt                lgw-division-widget/
+          cp README.md                 lgw-division-widget/
 
-          zip -r "$ZIPNAME" nipgl-division-widget/
+          zip -r "$ZIPNAME" lgw-division-widget/
           echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
           echo "✅ Built $ZIPNAME ($(du -h $ZIPNAME | cut -f1))"
 
