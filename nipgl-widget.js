@@ -2,8 +2,8 @@
 (function(){
   'use strict';
 
-  var badges         = (typeof nipglData !== 'undefined' && nipglData.badges)         ? nipglData.badges         : {};
-  var clubBadges     = (typeof nipglData !== 'undefined' && nipglData.clubBadges)     ? nipglData.clubBadges     : {};
+  var badges     = (typeof nipglData !== 'undefined' && nipglData.badges)     ? nipglData.badges     : {};
+  var clubBadges = (typeof nipglData !== 'undefined' && nipglData.clubBadges) ? nipglData.clubBadges : {};
   var ajaxUrl        = (typeof nipglData !== 'undefined') ? nipglData.ajaxUrl : '/wp-admin/admin-ajax.php';
   var scoreOverrides = (typeof nipglData !== 'undefined' && nipglData.scoreOverrides) ? nipglData.scoreOverrides : {};
 
@@ -261,7 +261,6 @@
   }
 
   function openPrintWindow(title, bodyHtml, extraCss){
-    // iframe-based print — works on mobile where window.open() is blocked
     var existing=document.getElementById('nipgl-print-frame');
     if(existing) existing.parentNode.removeChild(existing);
     var iframe=document.createElement('iframe');
@@ -280,7 +279,6 @@
     iframe.onload=function(){
       try{iframe.contentWindow.focus();iframe.contentWindow.print();}catch(e){window.print();}
     };
-    // Fallback: trigger if onload already fired
     try{iframe.contentWindow.focus();iframe.contentWindow.print();}catch(e){}
   }
 
@@ -328,8 +326,7 @@
         +'img{max-width:40px !important;max-height:40px !important}'  // safety net for any other images
         +'.modal-fix-table img{max-width:18px !important;max-height:18px !important}';
       openPrintWindow(teamName,
-        '<div class="nipgl-modal-title">'+titleEl.innerHTML+'</div>'
-        +bodyEl.innerHTML,
+        '<div class="nipgl-modal-title">'+titleEl.innerHTML+'</div>'+bodyEl.innerHTML,
         modalPrintCss
       );
     });
@@ -467,12 +464,10 @@
     var teams=parseTableRows(rows);
     if(!teams.length) return '<div class="nipgl-status">Could not find league table in data.</div>';
 
-    // Sort by pts descending, then +/- descending (on-the-fly in case sheet ordering differs)
     teams.sort(function(a,b){
       var pd=parseFloat(b.pts)-parseFloat(a.pts); if(pd!==0) return pd;
       return parseFloat(b.diff)-parseFloat(a.diff);
     });
-    // Re-assign positions after sort
     teams.forEach(function(t,i){t.pos=i+1;});
 
     var total=teams.length, MAX_PTS=7;
@@ -619,7 +614,7 @@
     }
 
     var activeFilter='all', allRows=null;
-    var parseFxGroups=parseFixtureGroups; // overridden after CSV loads to apply score overrides
+    var parseFxGroups=parseFixtureGroups;
     var panels=widget.querySelectorAll('.nipgl-panel');
     var tabs=widget.querySelectorAll('.nipgl-tab');
 
@@ -737,7 +732,6 @@
     xhr.onload=function(){
       if(xhr.status===200&&xhr.responseText&&xhr.responseText.trim().length>10){
         allRows=parseCSV(xhr.responseText);
-        // Assign to hoisted var — applies admin score overrides for this widget's CSV URL
         parseFxGroups=function(rows){ return applyScoreOverrides(parseFixtureGroups(rows), csvUrl); };
         var tp=getPanel('table'), fp=getPanel('fixtures');
         if(tp){

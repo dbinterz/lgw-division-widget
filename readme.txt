@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 6.4.49
+Stable tag: 6.4.51
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,18 +71,13 @@ Parameters:
 
 == Changelog ==
 
-= 6.4.49 =
-* Added 🏆 trophy icon to Cups admin submenu item
+= 6.4.51 =
+* Merged Quick Score Entry into the Scorecards admin page — removed separate Scores submenu
+* Both sections are collapsible with state remembered in sessionStorage; scorecards expanded by default, score entry collapsed
+* Section headers show live badge counts (overrides active, pending/disputed scorecards)
 
 
-= 6.4.49 =
-* Fixed print on mobile — replaced window.open() (blocked by iOS/Android) with hidden iframe approach; works on all mobile browsers
-* Fixture points totals (HPts/APts) now display as bold pill badges in played rows, making them clearly visible rather than muted grey
-* League table now auto-sorts by points descending then +/- descending on the fly — positions stay correct even if sheet ordering drifts
-* New admin page 📝 Scores — quickly enter or correct fixture scores per division before full scorecards are submitted; overrides appear immediately on the live site; per-row autosave on blur with clear/override indicators
-* Score overrides stored in WP options and merged into live fixture data on the front end; keyed by CSV URL + date + teams
-
-= 6.4.35 =
+= 6.4.51 =
 * Simplified auto-updater to construct release asset URL directly from tag name rather than parsing API assets array — more reliable
 
 = 6.4.34 =

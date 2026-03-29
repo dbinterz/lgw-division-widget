@@ -108,7 +108,7 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ## Changelog
 
-### 6.4.35
+### 6.4.51
 - Simplified auto-updater to construct release asset URL directly from tag name
 
 ### 6.4.34
@@ -137,12 +137,6 @@ The plugin parses the standard NIPGL scorecard Excel template. Cells with unreso
 
 ### 6.4.27
 - Added sponsor branding to Cup and Championship widgets (primary bar above bracket, rotating secondary below status bar)
-
-### 6.4.49
-- Fixed print on mobile — replaced `window.open()` (blocked on iOS/Android) with hidden iframe print; applies to table, fixtures, and team modal print buttons
-- Fixture points pills — HPts/APts now show as bold dark-red pill badges on played rows instead of muted grey
-- League table auto-sorts by pts desc then +/- desc on the fly; positions re-assigned after sort
-- New admin page **📝 Scores** — enter or correct fixture scores per division; autosaves on blur; overrides appear immediately on the live site; keyed by CSV URL + date + teams and stored in WP options
 
 ### 6.4.26
 - Added emoji icons to admin submenu items (Scorecards, Players, Cups, League Setup, Settings)

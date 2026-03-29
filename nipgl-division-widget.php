@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NIPGL Division Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 6.4.49
+ * Version: 6.4.51
  * Author: NIPGL
  * Plugin URI: https://github.com/dbinterz/nipgl-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/nipgl-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('NIPGL_PLUGIN_FILE', __FILE__);
-define('NIPGL_VERSION', '6.4.49');
+define('NIPGL_VERSION', '6.4.51');
 
 // Include scorecard feature
 require_once plugin_dir_path(__FILE__) . 'nipgl-draw.php';
@@ -33,6 +33,17 @@ function nipgl_github_request_args() {
     );
     if ($token) $headers['Authorization'] = 'token ' . $token;
     return array('headers' => $headers, 'timeout' => 10);
+}
+
+// ── Inject PAT when WP downloads the release zip from GitHub ─────────────────
+add_filter('http_request_args', 'nipgl_inject_github_auth', 10, 2);
+function nipgl_inject_github_auth($args, $url) {
+    $token = get_option('nipgl_github_token', '');
+    if (!$token) return $args;
+    if (strpos($url, 'github.com/dbinterz/nipgl-division-widget') === false) return $args;
+    if (!isset($args['headers'])) $args['headers'] = array();
+    $args['headers']['Authorization'] = 'token ' . $token;
+    return $args;
 }
 
 add_filter('pre_set_site_transient_update_plugins', 'nipgl_check_for_update');
@@ -246,11 +257,12 @@ function nipgl_enqueue() {
     $club_badges  = get_option('nipgl_club_badges',  array());
     $sponsors     = get_option('nipgl_sponsors',     array());
     wp_localize_script('nipgl-widget', 'nipglData', array(
-        'ajaxUrl'     => admin_url('admin-ajax.php'),
-        'scNonce'     => wp_create_nonce('nipgl_submit_nonce'),
-        'badges'      => $badges,
-        'clubBadges'  => $club_badges,
-        'sponsors'    => $sponsors,
+        'ajaxUrl'        => admin_url('admin-ajax.php'),
+        'scNonce'        => wp_create_nonce('nipgl_submit_nonce'),
+        'badges'         => $badges,
+        'clubBadges'     => $club_badges,
+        'sponsors'       => $sponsors,
+        'scoreOverrides' => get_option('nipgl_score_overrides', array()),
     ));
 }
 
@@ -413,12 +425,48 @@ function nipgl_admin_menu() {
 }
 
 function nipgl_scorecards_admin_page() {
+    // ── Data for Quick Score Entry section ────────────────────────────────────
+    $drive_opts = get_option('nipgl_drive', array());
+    $tabs       = $drive_opts['sheets_tabs'] ?? array();
+    $divisions  = array_values(array_filter($tabs, function($t) {
+        return !empty($t['csv_url']) && !empty($t['division']);
+    }));
+    $overrides  = get_option('nipgl_score_overrides', array());
+    $scores_nonce = wp_create_nonce('nipgl_scores_nonce');
+    $sel_div    = isset($_GET['div']) ? intval($_GET['div']) : 0;
+    $sel        = $divisions[$sel_div] ?? null;
+    $fixtures   = array();
+    $fetch_err  = '';
+    if ($sel) {
+        $resp = wp_remote_get($sel['csv_url'], array('timeout' => 15));
+        if (is_wp_error($resp)) {
+            $fetch_err = $resp->get_error_message();
+        } else {
+            $fixtures = nipgl_scores_parse_fixtures(wp_remote_retrieve_body($resp), $sel['csv_url'], $overrides);
+        }
+    }
+
+    // ── Data for Submitted Scorecards section ─────────────────────────────────
     $posts = get_posts(array('post_type'=>'nipgl_scorecard','posts_per_page'=>100,'post_status'=>'publish','orderby'=>'date','order'=>'DESC'));
-    $nonce = wp_create_nonce('nipgl_admin_nonce');
+    $sc_nonce = wp_create_nonce('nipgl_admin_nonce');
     ?>
     <div class="wrap">
-    <h1>Submitted Scorecards</h1>
+    <h1>📋 Scorecards</h1>
+
     <style>
+    /* ── Collapsible sections ── */
+    .nipgl-section{border:1px solid #c3c4c7;border-radius:4px;margin-bottom:20px;background:#fff}
+    .nipgl-section-header{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;user-select:none;background:#f6f7f7;border-radius:4px;border-bottom:1px solid transparent}
+    .nipgl-section.open .nipgl-section-header{border-bottom-color:#c3c4c7;border-radius:4px 4px 0 0}
+    .nipgl-section-header h2{margin:0;font-size:14px;font-weight:600;color:#1a2e5a;flex:1}
+    .nipgl-section-chevron{font-size:12px;color:#666;transition:transform .2s}
+    .nipgl-section.open .nipgl-section-chevron{transform:rotate(90deg)}
+    .nipgl-section-body{display:none;padding:16px}
+    .nipgl-section.open .nipgl-section-body{display:block}
+    .nipgl-section-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e0e0e0;color:#555}
+    .nipgl-section-badge.has-items{background:#1a2e5a;color:#fff}
+    .nipgl-section-badge.has-warn{background:#c0202a;color:#fff}
+    /* ── Scorecard styles ── */
     .nipgl-sc-status{display:inline-block;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600}
     .nipgl-sc-status.pending{background:#fff3cd;color:#856404}
     .nipgl-sc-status.confirmed{background:#d1e7dd;color:#0a3622}
@@ -432,8 +480,6 @@ function nipgl_scorecards_admin_page() {
     .nipgl-sc-totals{font-weight:600;margin-top:6px;font-size:13px}
     .nipgl-resolve-btns{margin-top:10px}
     .nipgl-resolve-btns .button{margin-right:8px}
-    #nipgl-resolve-msg{padding:8px;margin-top:8px;background:#d1e7dd;color:#0a3622;display:none;border-radius:4px}
-    /* Edit form */
     .nipgl-edit-form{background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:16px;margin-top:12px}
     .nipgl-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
     .nipgl-edit-row{display:flex;flex-direction:column;gap:4px}
@@ -442,7 +488,6 @@ function nipgl_scorecards_admin_page() {
     .nipgl-edit-rinks-table input.large-text{width:100%}
     .nipgl-edit-msg.success{color:#0a3622;background:#d1e7dd;padding:6px 10px;border-radius:3px}
     .nipgl-edit-msg.error{color:#842029;background:#f8d7da;padding:6px 10px;border-radius:3px}
-    /* Audit log */
     .nipgl-audit-log{border:1px solid #ddd;border-radius:4px;overflow:hidden;margin-top:4px}
     .nipgl-audit-entry{padding:10px 12px;border-bottom:1px solid #eee;font-size:12px}
     .nipgl-audit-entry:last-child{border-bottom:none}
@@ -460,8 +505,34 @@ function nipgl_scorecards_admin_page() {
     .nipgl-audit-changes li{margin-bottom:2px}
     .nipgl-sc-amended{font-size:10px;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle}
     .nipgl-sc-div-warn{font-size:10px;background:#f8d7da;color:#842029;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;font-weight:600}
+    /* ── Score entry styles ── */
+    .nipgl-overridden td{background:#fff8f8 !important}
+    .nipgl-overridden input{color:#8f1520 !important;font-weight:700}
+    #nipgl-scores-table input[type=number]{padding:3px 4px}
+    #nipgl-scores-table input:focus{border-color:#2271b1;box-shadow:0 0 0 1px #2271b1;outline:0}
     </style>
+
     <script>
+    // ── Section collapse ──────────────────────────────────────────────────────
+    function nipglToggleSection(id) {
+        var sec = document.getElementById(id);
+        if (!sec) return;
+        sec.classList.toggle('open');
+        try { sessionStorage.setItem('nipgl_sec_' + id, sec.classList.contains('open') ? '1' : '0'); } catch(e) {}
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        // Restore collapse state; default: scores=closed, scorecards=open
+        ['nipgl-sec-scores','nipgl-sec-scorecards'].forEach(function(id) {
+            var sec = document.getElementById(id);
+            if (!sec) return;
+            var stored;
+            try { stored = sessionStorage.getItem('nipgl_sec_' + id); } catch(e) {}
+            var defaultOpen = (id === 'nipgl-sec-scorecards');
+            if (stored === null ? defaultOpen : stored === '1') sec.classList.add('open');
+        });
+    });
+
+    // ── Scorecard panel toggle ────────────────────────────────────────────────
     function nipglResolve(postId, version, nonce){
         if(!confirm('Accept the '+version+' version as the official result?')) return;
         var data=new FormData();
@@ -477,195 +548,341 @@ function nipgl_scorecards_admin_page() {
                     msg.style.display='block';
                     msg.textContent=res.data.message||'Resolved.';
                     setTimeout(function(){location.reload();},1500);
-                } else {
-                    alert('Error: '+(res.data||'unknown'));
-                }
+                } else { alert('Error: '+(res.data||'unknown')); }
             });
     }
     function nipglShowPanel(postId, panel) {
-        // Toggle sub-panels within the sc wrap: 'view', 'edit', 'history'
         var wrap = document.getElementById('sc-'+postId);
         if (!wrap) return;
-        var panels = wrap.querySelectorAll('.nipgl-sc-subpanel');
         var isOpen = wrap.classList.contains('open');
         var current = wrap.dataset.panel || '';
-        if (isOpen && current === panel) {
-            // clicking same panel again closes
-            wrap.classList.remove('open');
-            wrap.dataset.panel = '';
-            return;
-        }
+        if (isOpen && current === panel) { wrap.classList.remove('open'); wrap.dataset.panel = ''; return; }
         wrap.classList.add('open');
         wrap.dataset.panel = panel;
-        panels.forEach(function(p){ p.style.display = p.dataset.panel === panel ? '' : 'none'; });
+        wrap.querySelectorAll('.nipgl-sc-subpanel').forEach(function(p){
+            p.style.display = p.dataset.panel === panel ? '' : 'none';
+        });
     }
     document.addEventListener('DOMContentLoaded', function(){
+        // Scorecard edit save
         document.querySelectorAll('.nipgl-save-edit').forEach(function(btn){
             btn.addEventListener('click', function(){
-                var postId  = btn.dataset.postid;
-                var nonce   = btn.dataset.nonce;
-                var wrap    = document.getElementById('sc-'+postId);
-                var form    = wrap ? wrap.querySelector('.nipgl-edit-form') : null;
-                var msgEl   = form  ? form.querySelector('.nipgl-edit-msg') : null;
-                if (!form) return;
-                var data = new FormData();
+                var postId=btn.dataset.postid, nonce=btn.dataset.nonce;
+                var wrap=document.getElementById('sc-'+postId);
+                var form=wrap?wrap.querySelector('.nipgl-edit-form'):null;
+                var msgEl=form?form.querySelector('.nipgl-edit-msg'):null;
+                if(!form) return;
+                var data=new FormData();
                 data.append('action','nipgl_admin_edit_scorecard');
-                data.append('post_id', postId);
-                data.append('nonce', nonce);
-                // Scalar fields
+                data.append('post_id',postId); data.append('nonce',nonce);
                 ['home_team','away_team','match_date','venue','division','competition',
                  'home_total','away_total','home_points','away_points'].forEach(function(f){
-                    var el = form.querySelector('[name="'+f+'"]');
-                    if (el) data.append(f, el.value);
+                    var el=form.querySelector('[name="'+f+'"]'); if(el) data.append(f,el.value);
                 });
-                // Rink arrays
-                form.querySelectorAll('[name="rink_num[]"]').forEach(function(el,i){
-                    data.append('rink_num[]', el.value);
-                });
-                form.querySelectorAll('[name="rink_home_score[]"]').forEach(function(el){ data.append('rink_home_score[]', el.value); });
-                form.querySelectorAll('[name="rink_away_score[]"]').forEach(function(el){ data.append('rink_away_score[]', el.value); });
-                form.querySelectorAll('[name="rink_home_players[]"]').forEach(function(el){ data.append('rink_home_players[]', el.value); });
-                form.querySelectorAll('[name="rink_away_players[]"]').forEach(function(el){ data.append('rink_away_players[]', el.value); });
-
-                btn.disabled = true;
-                btn.textContent = 'Saving…';
+                form.querySelectorAll('[name="rink_num[]"]').forEach(function(el){ data.append('rink_num[]',el.value); });
+                form.querySelectorAll('[name="rink_home_score[]"]').forEach(function(el){ data.append('rink_home_score[]',el.value); });
+                form.querySelectorAll('[name="rink_away_score[]"]').forEach(function(el){ data.append('rink_away_score[]',el.value); });
+                form.querySelectorAll('[name="rink_home_players[]"]').forEach(function(el){ data.append('rink_home_players[]',el.value); });
+                form.querySelectorAll('[name="rink_away_players[]"]').forEach(function(el){ data.append('rink_away_players[]',el.value); });
+                btn.disabled=true; btn.textContent='Saving…';
                 fetch(ajaxurl,{method:'POST',body:data,credentials:'same-origin'})
-                    .then(function(r){
-                        if (!r.ok) throw new Error('HTTP ' + r.status);
-                        return r.text().then(function(txt){
-                            try { return JSON.parse(txt); }
-                            catch(e) { throw new Error('Bad JSON: ' + txt.slice(0,300)); }
-                        });
-                    })
+                    .then(function(r){ return r.text().then(function(t){ try{return JSON.parse(t);}catch(e){throw new Error('Bad JSON: '+t.slice(0,200));} }); })
                     .then(function(res){
-                        btn.disabled = false;
-                        btn.textContent = '💾 Save Changes';
-                        if (msgEl) {
-                            msgEl.style.display = '';
-                            msgEl.className = 'nipgl-edit-msg ' + (res.success ? 'success' : 'error');
-                            msgEl.textContent = res.success ? (res.data.message||'Saved.') : ('Error: '+(res.data||'unknown'));
-                            if (res.success) setTimeout(function(){ location.reload(); }, 1800);
-                        }
-                    })
-                    .catch(function(err){
-                        btn.disabled = false;
-                        btn.textContent = '💾 Save Changes';
-                        if (msgEl) {
-                            msgEl.style.display = '';
-                            msgEl.className = 'nipgl-edit-msg error';
-                            msgEl.textContent = 'Request failed: ' + err.message;
-                        } else {
-                            alert('Request failed: ' + err.message);
-                        }
+                        btn.disabled=false; btn.textContent='💾 Save Changes';
+                        if(msgEl){ msgEl.style.display=''; msgEl.className='nipgl-edit-msg '+(res.success?'success':'error');
+                            msgEl.textContent=res.success?(res.data.message||'Saved.'):('Error: '+(res.data||'unknown'));
+                            if(res.success) setTimeout(function(){location.reload();},1800); }
+                    }).catch(function(err){
+                        btn.disabled=false; btn.textContent='💾 Save Changes';
+                        if(msgEl){ msgEl.style.display=''; msgEl.className='nipgl-edit-msg error'; msgEl.textContent='Request failed: '+err.message; }
                     });
             });
         });
+
+        // ── Score entry ───────────────────────────────────────────────────────
+        var scoresNonce = <?php echo json_encode($scores_nonce); ?>;
+        var scoresAjax  = <?php echo json_encode(admin_url('admin-ajax.php')); ?>;
+
+        function saveRow(row, sh, sa, ph, pa) {
+            var status = row.querySelector('.nipgl-save-status');
+            status.textContent='Saving…'; status.style.color='#888';
+            var data=new FormData();
+            data.append('action','nipgl_save_score_override'); data.append('nonce',scoresNonce);
+            data.append('csv_url',row.dataset.csv); data.append('date',row.dataset.date);
+            data.append('home',row.dataset.home);   data.append('away',row.dataset.away);
+            data.append('sh',sh); data.append('sa',sa); data.append('ph',ph); data.append('pa',pa);
+            fetch(scoresAjax,{method:'POST',body:data})
+                .then(function(r){return r.json();})
+                .then(function(r){
+                    if(r.success){
+                        var clearing=(sh===''&&sa===''&&ph===''&&pa==='');
+                        var sheet=r.data&&r.data.sheet?r.data.sheet:'';
+                        var sheetLabel={'sheet_ok':' + sheet ✓','sheet_error':' (sheet error)',
+                            'row_not_found':' (row not found)','auth_failed':' (auth failed)',
+                            'fetch_failed':' (sheet fetch failed)','no_tab':' (no tab mapped)'}[sheet]||'';
+                        status.textContent=clearing?'Cleared':('✓ Saved'+sheetLabel);
+                        status.style.color=clearing?'#888':(sheet==='sheet_ok'||sheet==='sheets_disabled')?'#2a7a2a':'#c07000';
+                        row.classList.toggle('nipgl-overridden',!clearing);
+                        var cb=row.querySelector('.nipgl-clear-override');
+                        if(!clearing&&!cb){
+                            cb=document.createElement('button'); cb.type='button';
+                            cb.className='nipgl-clear-override button-link';
+                            cb.style.cssText='color:#c0202a;font-size:11px;display:block';
+                            cb.textContent='✕ clear';
+                            row.querySelector('.nipgl-save-status').parentNode.appendChild(cb);
+                            bindClear(row,cb);
+                        } else if(clearing&&cb){ cb.remove(); }
+                        setTimeout(function(){status.textContent='';},4000);
+                    } else { status.textContent='✗ Error'; status.style.color='#c0202a'; }
+                }).catch(function(){ status.textContent='✗ Error'; status.style.color='#c0202a'; });
+        }
+        function bindClear(row,btn){
+            btn.addEventListener('click',function(){
+                row.querySelectorAll('input').forEach(function(i){i.value='';});
+                saveRow(row,'','','','');
+            });
+        }
+        document.querySelectorAll('.nipgl-score-row').forEach(function(row){
+            row.querySelectorAll('input').forEach(function(inp){
+                inp.addEventListener('blur',function(){
+                    saveRow(row,
+                        row.querySelector('.nipgl-sh').value.trim(),
+                        row.querySelector('.nipgl-sa').value.trim(),
+                        row.querySelector('.nipgl-ph').value.trim(),
+                        row.querySelector('.nipgl-pa').value.trim());
+                });
+            });
+            var cb=row.querySelector('.nipgl-clear-override'); if(cb) bindClear(row,cb);
+        });
+        var clearAll=document.getElementById('nipgl-clear-all');
+        if(clearAll){
+            clearAll.addEventListener('click',function(){
+                if(!confirm('Remove all score overrides for this division?')) return;
+                var data=new FormData();
+                data.append('action','nipgl_clear_score_overrides');
+                data.append('nonce',scoresNonce); data.append('csv_url',clearAll.dataset.csv);
+                fetch(scoresAjax,{method:'POST',body:data}).then(function(r){return r.json();})
+                    .then(function(r){if(r.success) location.reload();});
+            });
+        }
     });
     </script>
-    <?php if (empty($posts)): ?>
-        <p>No scorecards submitted yet.</p>
-    <?php else: ?>
-    <table class="widefat striped">
-    <thead><tr>
-        <th>Match</th><th>Division</th>
-        <th>Result (home v away)</th>
-        <th>Status</th>
-        <th>Submitted</th>
-        <th>Actions</th>
-    </tr></thead>
-    <tbody>
-    <?php foreach ($posts as $p):
-        $sc       = get_post_meta($p->ID, 'nipgl_scorecard_data',  true);
-        $status   = get_post_meta($p->ID, 'nipgl_sc_status',       true) ?: 'pending';
-        $sub_by   = get_post_meta($p->ID, 'nipgl_submitted_by',    true);
-        $con_by   = get_post_meta($p->ID, 'nipgl_confirmed_by',    true);
-        $away_sc  = get_post_meta($p->ID, 'nipgl_away_scorecard',  true);
-        $div_unresolved = get_post_meta($p->ID, 'nipgl_division_unresolved', true);
-        $result   = ($sc && isset($sc['home_total']))
-            ? $sc['home_total'].' ('.$sc['home_points'].'pts) – '.$sc['away_total'].' ('.$sc['away_points'].'pts)'
-            : '—';
-        $status_labels = array('pending'=>'Pending','confirmed'=>'Confirmed','disputed'=>'Disputed');
+
+    <?php
+    // Badge counts for section headers
+    $disputed_count = 0;
+    $pending_count  = 0;
+    foreach ($posts as $p) {
+        $st = get_post_meta($p->ID, 'nipgl_sc_status', true) ?: 'pending';
+        if ($st === 'disputed') $disputed_count++;
+        elseif ($st === 'pending') $pending_count++;
+    }
+    $override_count = count(array_filter($overrides, function($v) use ($divisions) {
+        foreach ($divisions as $d) { if (($v['csv_url']??'') === $d['csv_url']) return true; }
+        return false;
+    }));
     ?>
-    <tr>
-        <td>
-            <strong><?php echo esc_html($p->post_title); ?></strong>
-            <?php if (get_post_meta($p->ID, 'nipgl_admin_edited', true)): ?>
-                <span class="nipgl-sc-amended" title="Amended by admin">Amended</span>
-            <?php endif; ?>
-        </td>
-        <td>
-            <?php echo esc_html($sc['division'] ?? '—'); ?>
-            <?php if ($div_unresolved): ?>
-                <span class="nipgl-sc-div-warn" title="Division not matched to a sheet tab — sheet writeback will be skipped until corrected">⚠️ Unresolved</span>
-            <?php endif; ?>
-        </td>
-        <td><?php echo esc_html($result); ?></td>
-        <td><span class="nipgl-sc-status <?php echo esc_attr($status); ?>"><?php echo $status_labels[$status] ?? $status; ?></span></td>
-        <td><?php echo get_the_date('d M Y H:i', $p); ?><br><small>by <?php echo esc_html($sub_by ?: '—'); ?></small></td>
-        <td style="white-space:nowrap">
-            <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'view')">View</button>
-            <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'edit')">✏️ Edit</button>
-            <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'history')">📋 History</button>
-            <a href="<?php echo get_delete_post_link($p->ID); ?>" class="button button-small button-link-delete" onclick="return confirm('Delete this scorecard?')">Delete</a>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="6" style="padding:0">
-        <div class="nipgl-admin-sc-wrap" id="sc-<?php echo $p->ID; ?>">
 
-        <?php // ── View sub-panel ── ?>
-        <div class="nipgl-sc-subpanel" data-panel="view">
-        <?php if ($status === 'disputed' && $away_sc): ?>
-            <p><strong>⚠️ Disputed result</strong> — <?php echo esc_html($sub_by); ?> submitted first, <?php echo esc_html($con_by); ?> submitted a different result. Choose which version to accept as official:</p>
-            <div class="nipgl-sc-compare">
-                <div class="nipgl-sc-version">
-                    <h4>Version A — submitted by <?php echo esc_html($sub_by); ?></h4>
-                    <?php nipgl_admin_render_sc_summary($sc); ?>
-                </div>
-                <div class="nipgl-sc-version">
-                    <h4>Version B — submitted by <?php echo esc_html($con_by); ?></h4>
-                    <?php nipgl_admin_render_sc_summary($away_sc); ?>
-                </div>
-            </div>
-            <div class="nipgl-resolve-btns">
-                <button class="button button-primary" onclick="nipglResolve(<?php echo $p->ID; ?>,'home','<?php echo $nonce; ?>')">✅ Accept Version A (<?php echo esc_html($sub_by); ?>)</button>
-                <button class="button button-primary" onclick="nipglResolve(<?php echo $p->ID; ?>,'away','<?php echo $nonce; ?>')">✅ Accept Version B (<?php echo esc_html($con_by); ?>)</button>
-            </div>
-            <div id="nipgl-resolve-msg-<?php echo $p->ID; ?>" style="display:none;margin-top:8px;padding:8px;background:#d1e7dd;color:#0a3622;border-radius:4px"></div>
+    <!-- ── Quick Score Entry section ── -->
+    <div class="nipgl-section" id="nipgl-sec-scores">
+        <div class="nipgl-section-header" onclick="nipglToggleSection('nipgl-sec-scores')">
+            <span class="nipgl-section-chevron">&#9654;</span>
+            <h2>📝 Quick Score Entry</h2>
+            <?php if ($override_count > 0): ?>
+                <span class="nipgl-section-badge has-items"><?php echo $override_count; ?> override<?php echo $override_count !== 1 ? 's' : ''; ?> active</span>
+            <?php endif; ?>
+        </div>
+        <div class="nipgl-section-body">
+        <?php if (empty($divisions)): ?>
+            <div class="notice notice-warning inline"><p>No divisions with CSV URLs configured. Go to <a href="<?php echo admin_url('admin.php?page=nipgl-league-setup'); ?>">League Setup</a> and scroll down to <strong>Google Sheets Writeback</strong>.</p></div>
         <?php else: ?>
-            <div class="nipgl-sc-version">
-                <?php nipgl_admin_render_sc_summary($sc); ?>
-                <?php if ($status === 'confirmed'): ?>
-                    <p style="color:#0a3622;font-size:12px">✅ Confirmed by <?php echo esc_html($con_by); ?></p>
-                <?php elseif ($status === 'pending'): ?>
-                    <p style="color:#856404;font-size:12px">⏳ Awaiting confirmation from the other club</p>
-                <?php endif; ?>
+            <p style="color:#666;font-size:13px;margin-top:0">Enter or correct scores before full scorecards are submitted. Saves directly to Google Sheets. Leave all fields blank to remove an override.</p>
+            <div style="margin-bottom:12px">
+                <strong>Division:</strong>
+                <?php foreach ($divisions as $i => $d): ?>
+                    <a href="<?php echo admin_url('admin.php?page=nipgl-scorecards&div=' . $i); ?>"
+                       class="button<?php echo $i === $sel_div ? ' button-primary' : ''; ?>"
+                       style="margin-left:6px"><?php echo esc_html($d['division']); ?></a>
+                <?php endforeach; ?>
             </div>
+            <?php if ($fetch_err): ?>
+                <div class="notice notice-error inline"><p>Could not fetch CSV: <?php echo esc_html($fetch_err); ?></p></div>
+            <?php elseif ($sel && empty($fixtures)): ?>
+                <div class="notice notice-warning inline"><p>No fixtures found in CSV for this division.</p></div>
+            <?php elseif ($sel): ?>
+            <table class="widefat striped" id="nipgl-scores-table" style="font-size:13px;max-width:900px">
+                <thead><tr>
+                    <th style="width:130px">Date</th>
+                    <th style="text-align:right">Home</th>
+                    <th style="text-align:center;width:130px">Score</th>
+                    <th>Away</th>
+                    <th style="text-align:center;width:90px">Pts</th>
+                    <th style="width:80px">Status</th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ($fixtures as $fx): ?>
+                <?php $has_override = $fx['overridden']; ?>
+                <tr class="nipgl-score-row<?php echo $has_override ? ' nipgl-overridden' : ''; ?>"
+                    data-csv="<?php echo esc_attr($sel['csv_url']); ?>"
+                    data-date="<?php echo esc_attr($fx['date']); ?>"
+                    data-home="<?php echo esc_attr($fx['home']); ?>"
+                    data-away="<?php echo esc_attr($fx['away']); ?>">
+                    <td style="font-size:12px;color:#666"><?php echo esc_html($fx['date']); ?></td>
+                    <td style="text-align:right;font-weight:600"><?php echo esc_html($fx['home']); ?></td>
+                    <td style="text-align:center">
+                        <div style="display:flex;align-items:center;justify-content:center;gap:4px">
+                            <input type="number" class="nipgl-sh small-text" value="<?php echo esc_attr($fx['sh']); ?>"
+                                   placeholder="<?php echo esc_attr($fx['sh_orig']); ?>" min="0" style="width:48px;text-align:center">
+                            <span>–</span>
+                            <input type="number" class="nipgl-sa small-text" value="<?php echo esc_attr($fx['sa']); ?>"
+                                   placeholder="<?php echo esc_attr($fx['sa_orig']); ?>" min="0" style="width:48px;text-align:center">
+                        </div>
+                    </td>
+                    <td style="font-weight:600"><?php echo esc_html($fx['away']); ?></td>
+                    <td style="text-align:center">
+                        <div style="display:flex;align-items:center;justify-content:center;gap:2px">
+                            <input type="number" class="nipgl-ph small-text" value="<?php echo esc_attr($fx['ph']); ?>"
+                                   placeholder="<?php echo esc_attr($fx['ph_orig']); ?>" min="0" max="7" style="width:38px;text-align:center">
+                            <span>–</span>
+                            <input type="number" class="nipgl-pa small-text" value="<?php echo esc_attr($fx['pa']); ?>"
+                                   placeholder="<?php echo esc_attr($fx['pa_orig']); ?>" min="0" max="7" style="width:38px;text-align:center">
+                        </div>
+                    </td>
+                    <td style="text-align:center">
+                        <span class="nipgl-save-status" style="font-size:11px"></span>
+                        <?php if ($has_override): ?>
+                            <button type="button" class="nipgl-clear-override button-link" style="color:#c0202a;font-size:11px;display:block">✕ clear</button>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p style="margin-top:12px">
+                <button type="button" id="nipgl-clear-all" class="button button-secondary" style="color:#c0202a"
+                        data-csv="<?php echo esc_attr($sel['csv_url']); ?>">Clear all overrides for this division</button>
+            </p>
+            <?php endif; ?>
         <?php endif; ?>
-        </div>
+        </div><!-- /.nipgl-section-body -->
+    </div><!-- /#nipgl-sec-scores -->
 
-        <?php // ── Edit sub-panel ── ?>
-        <div class="nipgl-sc-subpanel" data-panel="edit" style="display:none">
-            <?php nipgl_render_admin_edit_form($p->ID, $sc); ?>
+    <!-- ── Submitted Scorecards section ── -->
+    <?php
+    $sc_badge_cls = $disputed_count > 0 ? 'has-warn' : ($pending_count > 0 ? 'has-items' : '');
+    $sc_badge_txt = $disputed_count > 0
+        ? $disputed_count . ' disputed'
+        : ($pending_count > 0 ? $pending_count . ' pending' : count($posts) . ' total');
+    ?>
+    <div class="nipgl-section" id="nipgl-sec-scorecards">
+        <div class="nipgl-section-header" onclick="nipglToggleSection('nipgl-sec-scorecards')">
+            <span class="nipgl-section-chevron">&#9654;</span>
+            <h2>📋 Submitted Scorecards</h2>
+            <?php if (!empty($posts)): ?>
+                <span class="nipgl-section-badge <?php echo esc_attr($sc_badge_cls); ?>"><?php echo esc_html($sc_badge_txt); ?></span>
+            <?php endif; ?>
         </div>
+        <div class="nipgl-section-body">
+        <?php if (empty($posts)): ?>
+            <p>No scorecards submitted yet.</p>
+        <?php else: ?>
+        <table class="widefat striped">
+        <thead><tr>
+            <th>Match</th><th>Division</th>
+            <th>Result (home v away)</th>
+            <th>Status</th>
+            <th>Submitted</th>
+            <th>Actions</th>
+        </tr></thead>
+        <tbody>
+        <?php foreach ($posts as $p):
+            $sc       = get_post_meta($p->ID, 'nipgl_scorecard_data',  true);
+            $status   = get_post_meta($p->ID, 'nipgl_sc_status',       true) ?: 'pending';
+            $sub_by   = get_post_meta($p->ID, 'nipgl_submitted_by',    true);
+            $con_by   = get_post_meta($p->ID, 'nipgl_confirmed_by',    true);
+            $away_sc  = get_post_meta($p->ID, 'nipgl_away_scorecard',  true);
+            $div_unresolved = get_post_meta($p->ID, 'nipgl_division_unresolved', true);
+            $result   = ($sc && isset($sc['home_total']))
+                ? $sc['home_total'].' ('.$sc['home_points'].'pts) – '.$sc['away_total'].' ('.$sc['away_points'].'pts)'
+                : '—';
+            $status_labels = array('pending'=>'Pending','confirmed'=>'Confirmed','disputed'=>'Disputed');
+        ?>
+        <tr>
+            <td>
+                <strong><?php echo esc_html($p->post_title); ?></strong>
+                <?php if (get_post_meta($p->ID, 'nipgl_admin_edited', true)): ?>
+                    <span class="nipgl-sc-amended" title="Amended by admin">Amended</span>
+                <?php endif; ?>
+            </td>
+            <td>
+                <?php echo esc_html($sc['division'] ?? '—'); ?>
+                <?php if ($div_unresolved): ?>
+                    <span class="nipgl-sc-div-warn" title="Division not matched to a sheet tab — sheet writeback will be skipped until corrected">⚠️ Unresolved</span>
+                <?php endif; ?>
+            </td>
+            <td><?php echo esc_html($result); ?></td>
+            <td><span class="nipgl-sc-status <?php echo esc_attr($status); ?>"><?php echo $status_labels[$status] ?? $status; ?></span></td>
+            <td><?php echo get_the_date('d M Y H:i', $p); ?><br><small>by <?php echo esc_html($sub_by ?: '—'); ?></small></td>
+            <td style="white-space:nowrap">
+                <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'view')">View</button>
+                <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'edit')">✏️ Edit</button>
+                <button class="button button-small" onclick="nipglShowPanel(<?php echo $p->ID; ?>,'history')">📋 History</button>
+                <a href="<?php echo get_delete_post_link($p->ID); ?>" class="button button-small button-link-delete" onclick="return confirm('Delete this scorecard?')">Delete</a>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="6" style="padding:0">
+            <div class="nipgl-admin-sc-wrap" id="sc-<?php echo $p->ID; ?>">
+                <div class="nipgl-sc-subpanel" data-panel="view">
+                <?php if ($status === 'disputed' && $away_sc): ?>
+                    <p><strong>⚠️ Disputed result</strong> — <?php echo esc_html($sub_by); ?> submitted first, <?php echo esc_html($con_by); ?> submitted a different result.</p>
+                    <div class="nipgl-sc-compare">
+                        <div class="nipgl-sc-version">
+                            <h4>Version A — submitted by <?php echo esc_html($sub_by); ?></h4>
+                            <?php nipgl_admin_render_sc_summary($sc); ?>
+                        </div>
+                        <div class="nipgl-sc-version">
+                            <h4>Version B — submitted by <?php echo esc_html($con_by); ?></h4>
+                            <?php nipgl_admin_render_sc_summary($away_sc); ?>
+                        </div>
+                    </div>
+                    <div class="nipgl-resolve-btns">
+                        <button class="button button-primary" onclick="nipglResolve(<?php echo $p->ID; ?>,'home','<?php echo $sc_nonce; ?>')">✅ Accept Version A</button>
+                        <button class="button button-primary" onclick="nipglResolve(<?php echo $p->ID; ?>,'away','<?php echo $sc_nonce; ?>')">✅ Accept Version B</button>
+                    </div>
+                    <div id="nipgl-resolve-msg-<?php echo $p->ID; ?>" style="display:none;margin-top:8px;padding:8px;background:#d1e7dd;color:#0a3622;border-radius:4px"></div>
+                <?php else: ?>
+                    <div class="nipgl-sc-version">
+                        <?php nipgl_admin_render_sc_summary($sc); ?>
+                        <?php if ($status === 'confirmed'): ?>
+                            <p style="color:#0a3622;font-size:12px">✅ Confirmed by <?php echo esc_html($con_by); ?></p>
+                        <?php elseif ($status === 'pending'): ?>
+                            <p style="color:#856404;font-size:12px">⏳ Awaiting confirmation from the other club</p>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+                </div>
+                <div class="nipgl-sc-subpanel" data-panel="edit" style="display:none">
+                    <?php nipgl_render_admin_edit_form($p->ID, $sc); ?>
+                </div>
+                <div class="nipgl-sc-subpanel" data-panel="history" style="display:none">
+                    <h4 style="margin:0 0 10px;color:#1a2e5a">📋 Audit History</h4>
+                    <?php nipgl_render_audit_log($p->ID); ?>
+                    <h4 style="margin:14px 0 6px;color:#1a2e5a">☁️ Google Drive Log</h4>
+                    <?php nipgl_render_drive_log($p->ID); ?>
+                    <?php nipgl_render_sheets_log($p->ID); ?>
+                </div>
+            </div>
+            </td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+        </table>
+        <?php endif; ?>
+        </div><!-- /.nipgl-section-body -->
+    </div><!-- /#nipgl-sec-scorecards -->
 
-        <?php // ── History sub-panel ── ?>
-        <div class="nipgl-sc-subpanel" data-panel="history" style="display:none">
-            <h4 style="margin:0 0 10px;color:#1a2e5a">📋 Audit History</h4>
-            <?php nipgl_render_audit_log($p->ID); ?>
-            <h4 style="margin:14px 0 6px;color:#1a2e5a">☁️ Google Drive Log</h4>
-            <?php nipgl_render_drive_log($p->ID); ?>
-            <?php nipgl_render_sheets_log($p->ID); ?>
-        </div>
-
-        </div>
-        </td>
-    </tr>
-    <?php endforeach; ?>
-    </tbody>
-    </table>
-    <?php endif; ?>
-    </div>
+    </div><!-- /.wrap -->
     <?php
 }
 
@@ -1063,8 +1280,6 @@ function nipgl_settings_page() {
         $github_user = 'dbinterz';
         $github_repo = 'nipgl-division-widget';
         $plugin_slug = plugin_basename(NIPGL_PLUGIN_FILE);
-
-        // Hit GitHub API fresh (bypass transient) for the diagnostic
         $api_response = wp_remote_get(
             "https://api.github.com/repos/{$github_user}/{$github_repo}/releases/latest",
             nipgl_github_request_args()
@@ -1073,85 +1288,50 @@ function nipgl_settings_page() {
         $release     = $api_ok ? json_decode(wp_remote_retrieve_body($api_response)) : null;
         $latest_tag  = $release->tag_name ?? null;
         $latest_ver  = $latest_tag ? ltrim($latest_tag, 'v') : null;
-        $pkg_url     = $latest_tag
-            ? "https://github.com/{$github_user}/{$github_repo}/releases/download/{$latest_tag}/{$github_repo}-{$latest_tag}.zip"
-            : null;
-
-        // Check what WP's update transient currently holds for this plugin
+        $pkg_url     = $latest_tag ? "https://github.com/{$github_user}/{$github_repo}/releases/download/{$latest_tag}/{$github_repo}-{$latest_tag}.zip" : null;
         $wp_transient    = get_site_transient('update_plugins');
         $wp_update_entry = $wp_transient->response[$plugin_slug] ?? null;
         $wp_no_update    = $wp_transient->no_update[$plugin_slug] ?? null;
+        $has_token       = (bool) get_option('nipgl_github_token', '');
         ?>
         <table class="form-table" style="max-width:700px">
-            <tr>
-                <th style="width:200px">Installed version</th>
-                <td><code><?php echo NIPGL_VERSION; ?></code></td>
-            </tr>
-            <tr>
-                <th>GitHub API</th>
-                <td>
-                <?php
-                $diag_code = !is_wp_error($api_response) ? wp_remote_retrieve_response_code($api_response) : 0;
-                $has_token = (bool) get_option('nipgl_github_token', '');
-                if (!$api_ok): ?>
-                    <span style="color:#c0202a">&#10007; Could not reach GitHub API —
-                    <?php if (is_wp_error($api_response)): ?>
-                        <?php echo esc_html($api_response->get_error_message()); ?>
-                    <?php else: ?>
-                        HTTP <?php echo $diag_code; ?>
-                        <?php if ($diag_code === 404 && !$has_token): ?>
-                            <strong>— repo is likely private. Add a GitHub Personal Access Token above.</strong>
-                        <?php elseif ($diag_code === 401): ?>
-                            — token rejected (check it has <code>repo</code> scope and hasn't expired)
-                        <?php endif; ?>
-                    <?php endif; ?>
-                    </span>
+            <tr><th style="width:200px">Installed version</th><td><code><?php echo NIPGL_VERSION; ?></code></td></tr>
+            <tr><th>GitHub API</th><td>
+                <?php $diag_code = !is_wp_error($api_response) ? wp_remote_retrieve_response_code($api_response) : 0; ?>
+                <?php if (!$api_ok): ?>
+                    <span style="color:#c0202a">&#10007; Could not reach GitHub API — HTTP <?php echo $diag_code; ?>
+                    <?php if ($diag_code === 404 && !$has_token): ?>
+                        <strong>— repo is likely private. Add a GitHub Personal Access Token above.</strong>
+                    <?php elseif ($diag_code === 401): ?>
+                        — token rejected (check it has <code>repo</code> scope and hasn't expired)
+                    <?php endif; ?></span>
                 <?php else: ?>
-                    <span style="color:#2a7a2a">&#10003; Reachable</span>
-                    <?php if ($has_token): ?><span style="color:#666;font-size:12px"> (authenticated)</span><?php endif; ?>
+                    <span style="color:#2a7a2a">&#10003; Reachable<?php if ($has_token): ?> (authenticated)<?php endif; ?></span>
                 <?php endif; ?>
-                </td>
-            </tr>
+            </td></tr>
             <?php if ($latest_tag): ?>
-            <tr>
-                <th>Latest release tag</th>
-                <td><code><?php echo esc_html($latest_tag); ?></code>
-                <?php if ($latest_ver && version_compare($latest_ver, NIPGL_VERSION, '>') ): ?>
+            <tr><th>Latest release tag</th><td><code><?php echo esc_html($latest_tag); ?></code>
+                <?php if ($latest_ver && version_compare($latest_ver, NIPGL_VERSION, '>')): ?>
                     <span style="color:#2a7a2a;font-weight:600"> &#8593; Newer than installed</span>
                 <?php elseif ($latest_ver && version_compare($latest_ver, NIPGL_VERSION, '==')): ?>
                     <span style="color:#888"> = Up to date</span>
-                <?php else: ?>
-                    <span style="color:#c07000"> &#8595; Older than installed?</span>
                 <?php endif; ?>
-                </td>
-            </tr>
-            <tr>
-                <th>Download URL</th>
-                <td><a href="<?php echo esc_url($pkg_url); ?>" target="_blank" style="word-break:break-all;font-size:12px"><?php echo esc_html($pkg_url); ?></a><br>
-                <em style="font-size:11px;color:#666">Click to verify the zip exists. WP will download this to perform the update.</em></td>
-            </tr>
+            </td></tr>
+            <tr><th>Download URL</th><td><a href="<?php echo esc_url($pkg_url); ?>" target="_blank" style="word-break:break-all;font-size:12px"><?php echo esc_html($pkg_url); ?></a></td></tr>
             <?php endif; ?>
-            <tr>
-                <th>Plugin slug (on disk)</th>
-                <td><code><?php echo esc_html($plugin_slug); ?></code><br>
-                <em style="font-size:11px;color:#666">The folder inside the zip must be named <code><?php echo esc_html(dirname($plugin_slug)); ?></code> for WP to recognise it as an update.</em></td>
-            </tr>
-            <tr>
-                <th>WP update transient</th>
-                <td>
+            <tr><th>Plugin slug (on disk)</th><td><code><?php echo esc_html($plugin_slug); ?></code><br>
+                <em style="font-size:11px;color:#666">The folder inside the zip must be named <code><?php echo esc_html(dirname($plugin_slug)); ?></code> for WP to recognise it as an update.</em></td></tr>
+            <tr><th>WP update transient</th><td>
                 <?php if ($wp_update_entry): ?>
-                    <span style="color:#2a7a2a;font-weight:600">&#10003; Update queued</span> — WP thinks v<code><?php echo esc_html($wp_update_entry->new_version); ?></code> is available<br>
-                    <span style="font-size:11px;color:#666">Package: <?php echo esc_html($wp_update_entry->package ?? '(none)'); ?></span>
+                    <span style="color:#2a7a2a;font-weight:600">&#10003; Update queued</span> — WP thinks v<code><?php echo esc_html($wp_update_entry->new_version); ?></code> is available
                 <?php elseif ($wp_no_update): ?>
-                    <span style="color:#888">No update — WP recorded this plugin at v<code><?php echo esc_html($wp_no_update->new_version ?? NIPGL_VERSION); ?></code> as current</span>
+                    <span style="color:#888">No update — WP sees this as current</span>
                 <?php else: ?>
-                    <span style="color:#c07000">Not in transient — WP has not checked yet, or the transient was cleared</span>
+                    <span style="color:#c07000">Not in transient — WP has not checked yet</span>
                 <?php endif; ?>
-                </td>
-            </tr>
+            </td></tr>
         </table>
-
-        <p style="margin-top:12px">
+        <p>
         <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" style="display:inline">
             <?php wp_nonce_field('nipgl_check_updates_nonce'); ?>
             <input type="hidden" name="action" value="nipgl_check_updates">
@@ -1443,4 +1623,149 @@ function nipgl_import_passphrases_page() {
         </form>
     </div>
     <?php
+}
+
+// ── Quick Score Entry — AJAX: save a single fixture override ─────────────────
+add_action('wp_ajax_nipgl_save_score_override', 'nipgl_ajax_save_score_override');
+function nipgl_ajax_save_score_override() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    check_ajax_referer('nipgl_scores_nonce', 'nonce');
+
+    $csv_url = esc_url_raw($_POST['csv_url'] ?? '');
+    $date    = sanitize_text_field($_POST['date'] ?? '');
+    $home    = sanitize_text_field($_POST['home'] ?? '');
+    $away    = sanitize_text_field($_POST['away'] ?? '');
+    $sh      = sanitize_text_field($_POST['sh']   ?? '');
+    $sa      = sanitize_text_field($_POST['sa']   ?? '');
+    $ph      = sanitize_text_field($_POST['ph']   ?? '');
+    $pa      = sanitize_text_field($_POST['pa']   ?? '');
+
+    if (!$csv_url || !$date || !$home || !$away) wp_send_json_error('Missing fields');
+
+    $clearing = ($sh === '' && $sa === '' && $ph === '' && $pa === '');
+
+    // 1. Update WP option immediately (front end sees this until CSV cache refreshes)
+    $key       = $csv_url . '||' . $date . '||' . $home . '||' . $away;
+    $overrides = get_option('nipgl_score_overrides', array());
+    if ($clearing) {
+        unset($overrides[$key]);
+    } else {
+        $overrides[$key] = compact('csv_url','date','home','away','sh','sa','ph','pa');
+    }
+    update_option('nipgl_score_overrides', $overrides);
+
+    // 2. Write through to Google Sheet if Sheets writeback is configured
+    $sheet_msg = 'sheets_disabled';
+    $opts = get_option('nipgl_drive', []);
+    if (!empty($opts['sheets_enabled']) && !empty($opts['sheets_id'])) {
+        $spreadsheet = trim($opts['sheets_id']);
+        $tab = '';
+        foreach (($opts['sheets_tabs'] ?? []) as $entry) {
+            if (esc_url_raw($entry['csv_url'] ?? '') === $csv_url) {
+                $tab = trim($entry['tab'] ?? '');
+                break;
+            }
+        }
+        if ($tab) {
+            $token = nipgl_drive_get_access_token();
+            if ($token) {
+                $sheet_data = nipgl_sheets_fetch($token, $spreadsheet, $tab);
+                if ($sheet_data !== false) {
+                    $cols  = nipgl_sheets_detect_cols($sheet_data);
+                    $match = nipgl_sheets_find_row($sheet_data, $cols, $home, $away, $date);
+                    if ($match !== false) {
+                        list($row_index) = $match;
+                        $values = $clearing
+                            ? ['home_score'=>'','away_score'=>'','home_pts'=>'','away_pts'=>'']
+                            : ['home_score'=>$sh,'away_score'=>$sa,'home_pts'=>$ph,'away_pts'=>$pa];
+                        $requests = nipgl_sheets_build_update($spreadsheet, $tab, $row_index, $cols, $values);
+                        $ok = nipgl_sheets_batch_update($token, $spreadsheet, $requests);
+                        if ($ok) {
+                            delete_transient('nipgl_csv_' . md5($csv_url));
+                            $sheet_msg = 'sheet_ok';
+                        } else {
+                            $sheet_msg = 'sheet_error';
+                        }
+                    } else {
+                        $sheet_msg = 'row_not_found';
+                    }
+                } else {
+                    $sheet_msg = 'fetch_failed';
+                }
+            } else {
+                $sheet_msg = 'auth_failed';
+            }
+        } else {
+            $sheet_msg = 'no_tab';
+        }
+    }
+
+    wp_send_json_success(array('sheet' => $sheet_msg));
+}
+
+// ── Quick Score Entry — AJAX: clear all overrides for a CSV URL ──────────────
+add_action('wp_ajax_nipgl_clear_score_overrides', 'nipgl_ajax_clear_score_overrides');
+function nipgl_ajax_clear_score_overrides() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    check_ajax_referer('nipgl_scores_nonce', 'nonce');
+    $csv_url = esc_url_raw($_POST['csv_url'] ?? '');
+    if (!$csv_url) {
+        update_option('nipgl_score_overrides', array());
+    } else {
+        $overrides = get_option('nipgl_score_overrides', array());
+        foreach ($overrides as $k => $v) {
+            if (($v['csv_url'] ?? '') === $csv_url) unset($overrides[$k]);
+        }
+        update_option('nipgl_score_overrides', $overrides);
+    }
+    wp_send_json_success('Cleared');
+}
+
+// ── Quick Score Entry — parse fixtures from CSV ──────────────────────────────
+function nipgl_scores_parse_fixtures($csv_body, $csv_url, $overrides) {
+    $rows  = array_map('str_getcsv', explode("\n", str_replace("\r",'',$csv_body)));
+    $start = -1;
+    foreach ($rows as $i => $r) {
+        if (stripos(implode('',$r),'FIXTURES') !== false) { $start = $i+1; break; }
+    }
+    if ($start < 0) return array();
+
+    $colPtsH=0;$colHTeam=2;$colHScore=7;$colAScore=9;$colATeam=10;$colPtsA=15;
+    for ($h=$start; $h<min($start+5,count($rows)); $h++) {
+        if (stripos(implode('',$rows[$h]),'HPts') !== false) {
+            foreach ($rows[$h] as $c => $v) {
+                $v=trim($v);
+                if($v==='HPts')                     $colPtsH=$c;
+                if($v==='HTeam')                    $colHTeam=$c;
+                if($v==='HScore')                   $colHScore=$c;
+                if(in_array($v,['AScore','Ascore'])) $colAScore=$c;
+                if($v==='ATeam')                    $colATeam=$c;
+                if($v==='APts')                     $colPtsA=$c;
+            }
+            $start=$h+1; break;
+        }
+    }
+
+    $dateRe='/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}-[A-Za-z]+-\d{4}$/';
+    $fixtures=array(); $curDate='';
+    for ($i=$start; $i<count($rows); $i++) {
+        $r=$rows[$i]; $first=trim($r[0]??$r[1]??'');
+        if (preg_match($dateRe,$first)) { $curDate=$first; continue; }
+        if (!$curDate) continue;
+        $home=trim($r[$colHTeam]??''); $away=trim($r[$colATeam]??'');
+        if (!$home||!$away) continue;
+        $sh_orig=trim($r[$colHScore]??''); $sa_orig=trim($r[$colAScore]??'');
+        $ph_orig=trim($r[$colPtsH]??'');   $pa_orig=trim($r[$colPtsA]??'');
+        $key=$csv_url.'||'.$curDate.'||'.$home.'||'.$away;
+        $ov=$overrides[$key]??null;
+        $fixtures[]=array(
+            'date'=>$curDate,'home'=>$home,'away'=>$away,
+            'sh'=>$ov?$ov['sh']:'','sa'=>$ov?$ov['sa']:'',
+            'ph'=>$ov?$ov['ph']:'','pa'=>$ov?$ov['pa']:'',
+            'sh_orig'=>$sh_orig,'sa_orig'=>$sa_orig,
+            'ph_orig'=>$ph_orig,'pa_orig'=>$pa_orig,
+            'overridden'=>$ov!==null,
+        );
+    }
+    return $fixtures;
 }
