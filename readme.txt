@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.1
+Stable tag: 7.1.3
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,14 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.3 =
+* GitHub Personal Access Token and Plugin Updates diagnostic moved from League Setup to Settings page
+* League Setup form no longer redirects to Settings on save
+* Force Update Check button now correctly stays on Settings page
+
+= 7.1.2 =
+* Fixed: GitHub PAT auth header was dropped when WordPress followed GitHub's CDN redirect during plugin zip download, causing "Not Found" on update; filter now also matches objects.githubusercontent.com and codeload.github.com
 
 = 7.1.1 =
 * Fixed: editing round dates after a draw now correctly updates the displayed dates on the live bracket page (bracket dates were previously frozen at draw time)

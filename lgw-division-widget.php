@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.1.1
+ * Version: 7.1.3
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.1.1');
+define('LGW_VERSION', '7.1.3');
 
 // ── One-time migration: nipgl_* options → lgw_* (originals kept for rollback) ─
 function lgw_migrate_options() {
@@ -68,7 +68,11 @@ add_filter('http_request_args', 'lgw_inject_github_auth', 10, 2);
 function lgw_inject_github_auth($args, $url) {
     $token = get_option('lgw_github_token', '');
     if (!$token) return $args;
-    if (strpos($url, 'github.com/dbinterz/lgw-division-widget') === false) return $args;
+    // Match both the GitHub API/release URL and CDN redirect domains used for asset downloads
+    $is_github = strpos($url, 'github.com/dbinterz/lgw-division-widget') !== false
+              || strpos($url, 'objects.githubusercontent.com') !== false
+              || strpos($url, 'codeload.github.com') !== false;
+    if (!$is_github) return $args;
     if (!isset($args['headers'])) $args['headers'] = array();
     $args['headers']['Authorization'] = 'token ' . $token;
     return $args;
@@ -1010,6 +1014,11 @@ function lgw_save_settings() {
     }
     update_option('lgw_clubs', $clubs);
 
+    // GitHub Personal Access Token (for private repo auto-updates)
+    if (isset($_POST['lgw_github_token'])) {
+        update_option('lgw_github_token', sanitize_text_field($_POST['lgw_github_token']));
+    }
+
     wp_redirect(admin_url('admin.php?page=lgw-settings&saved=1'));
     exit;
 }
@@ -1038,11 +1047,6 @@ function lgw_save_league_setup() {
     // Anthropic API key
     if (isset($_POST['lgw_anthropic_key'])) {
         update_option('lgw_anthropic_key', sanitize_text_field($_POST['lgw_anthropic_key']));
-    }
-
-    // GitHub Personal Access Token (for private repo auto-updates)
-    if (isset($_POST['lgw_github_token'])) {
-        update_option('lgw_github_token', sanitize_text_field($_POST['lgw_github_token']));
     }
 
     // Drive + Sheets (only save if Google Sheets is the data source)
@@ -1311,8 +1315,87 @@ function lgw_settings_page() {
             </table>
             <p><button type="button" class="button" id="lgw-add-sponsor">+ Add Sponsor</button></p>
 
+            <hr>
+            <h2>🔧 Plugin Updates</h2>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="lgw_github_token">GitHub Personal Access Token</label></th>
+                    <td>
+                        <?php $gh_token = get_option('lgw_github_token', ''); ?>
+                        <input type="password" id="lgw_github_token" name="lgw_github_token" value="<?php echo esc_attr($gh_token); ?>" placeholder="ghp_…" style="width:380px">
+                        <p class="description">
+                            Required only if the plugin GitHub repo is <strong>private</strong>. Allows WordPress to check for and download updates automatically.<br>
+                            Generate a classic token at <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a> with the <code>repo</code> scope.
+                        </p>
+                    </td>
+                </tr>
+            </table>
+
             <?php submit_button('Save Settings'); ?>
         </form>
+
+        <hr>
+        <?php
+        $github_user = 'dbinterz';
+        $github_repo = 'lgw-division-widget';
+        $plugin_slug = plugin_basename(LGW_PLUGIN_FILE);
+        $api_response = wp_remote_get(
+            "https://api.github.com/repos/{$github_user}/{$github_repo}/releases/latest",
+            lgw_github_request_args()
+        );
+        $api_ok      = !is_wp_error($api_response) && wp_remote_retrieve_response_code($api_response) === 200;
+        $release     = $api_ok ? json_decode(wp_remote_retrieve_body($api_response)) : null;
+        $latest_tag  = $release->tag_name ?? null;
+        $latest_ver  = $latest_tag ? ltrim($latest_tag, 'v') : null;
+        $wp_transient    = get_site_transient('update_plugins');
+        $wp_update_entry = $wp_transient->response[$plugin_slug] ?? null;
+        $wp_no_update    = $wp_transient->no_update[$plugin_slug] ?? null;
+        $has_token       = (bool) get_option('lgw_github_token', '');
+        ?>
+        <table class="form-table" style="max-width:700px">
+            <tr><th style="width:200px">Installed version</th><td><code><?php echo LGW_VERSION; ?></code></td></tr>
+            <tr><th>GitHub API</th><td>
+                <?php $diag_code = !is_wp_error($api_response) ? wp_remote_retrieve_response_code($api_response) : 0; ?>
+                <?php if (!$api_ok): ?>
+                    <span style="color:#c0202a">&#10007; Could not reach GitHub API — HTTP <?php echo $diag_code; ?>
+                    <?php if ($diag_code === 404 && !$has_token): ?>
+                        <strong>— repo may be private. Add a GitHub Personal Access Token above.</strong>
+                    <?php elseif ($diag_code === 401): ?>
+                        — token rejected (check it has <code>repo</code> scope and hasn't expired)
+                    <?php endif; ?></span>
+                <?php else: ?>
+                    <span style="color:#2a7a2a">&#10003; Reachable<?php if ($has_token): ?> (authenticated)<?php endif; ?></span>
+                <?php endif; ?>
+            </td></tr>
+            <?php if ($latest_tag): ?>
+            <tr><th>Latest release</th><td><code><?php echo esc_html($latest_tag); ?></code>
+                <?php if ($latest_ver && version_compare($latest_ver, LGW_VERSION, '>')): ?>
+                    <span style="color:#2a7a2a;font-weight:600"> &#8593; Newer than installed</span>
+                <?php elseif ($latest_ver && version_compare($latest_ver, LGW_VERSION, '==')): ?>
+                    <span style="color:#888"> = Up to date</span>
+                <?php endif; ?>
+            </td></tr>
+            <?php endif; ?>
+            <tr><th>WP update transient</th><td>
+                <?php if ($wp_update_entry): ?>
+                    <span style="color:#2a7a2a;font-weight:600">&#10003; Update queued</span> — WP sees v<code><?php echo esc_html($wp_update_entry->new_version); ?></code> available
+                <?php elseif ($wp_no_update): ?>
+                    <span style="color:#888">No update — WP sees this as current</span>
+                <?php else: ?>
+                    <span style="color:#c07000">Not in transient — WP has not checked yet</span>
+                <?php endif; ?>
+            </td></tr>
+        </table>
+        <p>
+        <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" style="display:inline">
+            <?php wp_nonce_field('lgw_check_updates_nonce'); ?>
+            <input type="hidden" name="action" value="lgw_check_updates">
+            <input type="submit" class="button button-secondary" value="Force Update Check Now">
+        </form>
+        <?php if ($wp_update_entry): ?>
+        &nbsp;<a href="<?php echo admin_url('plugins.php'); ?>" class="button button-primary">Go to Plugins page to update</a>
+        <?php endif; ?>
+        </p>
 
     </div>
     <script>
@@ -1558,91 +1641,8 @@ function lgw_league_setup_page() {
                 </table>
             </div>
 
-            <hr>
-            <!-- ── 4. Plugin ── -->
-            <h2>🔧 Plugin</h2>
-            <table class="form-table">
-                <tr>
-                    <th scope="row"><label for="lgw_github_token">GitHub Personal Access Token</label></th>
-                    <td>
-                        <?php $gh_token = get_option('lgw_github_token', ''); ?>
-                        <input type="password" id="lgw_github_token" name="lgw_github_token" value="<?php echo esc_attr($gh_token); ?>" placeholder="ghp_…" style="width:380px">
-                        <p class="description">
-                            Required only if the plugin GitHub repo is <strong>private</strong>. Allows WordPress to check for and download updates automatically.<br>
-                            Generate a classic token at <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a> with the <code>repo</code> scope.
-                        </p>
-                    </td>
-                </tr>
-            </table>
-
-            <?php submit_button('Save Settings'); ?>
+            <?php submit_button('Save League Setup'); ?>
         </form>
-
-        <hr>
-        <!-- ── Plugin Updates (read-only diagnostic) ── -->
-        <h2>Plugin Updates</h2>
-        <?php
-        $github_user = 'dbinterz';
-        $github_repo = 'lgw-division-widget';
-        $plugin_slug = plugin_basename(LGW_PLUGIN_FILE);
-        $api_response = wp_remote_get(
-            "https://api.github.com/repos/{$github_user}/{$github_repo}/releases/latest",
-            lgw_github_request_args()
-        );
-        $api_ok      = !is_wp_error($api_response) && wp_remote_retrieve_response_code($api_response) === 200;
-        $release     = $api_ok ? json_decode(wp_remote_retrieve_body($api_response)) : null;
-        $latest_tag  = $release->tag_name ?? null;
-        $latest_ver  = $latest_tag ? ltrim($latest_tag, 'v') : null;
-        $pkg_url     = $latest_tag ? "https://github.com/{$github_user}/{$github_repo}/releases/download/{$latest_tag}/{$github_repo}-{$latest_tag}.zip" : null;
-        $wp_transient    = get_site_transient('update_plugins');
-        $wp_update_entry = $wp_transient->response[$plugin_slug] ?? null;
-        $wp_no_update    = $wp_transient->no_update[$plugin_slug] ?? null;
-        $has_token       = (bool) get_option('lgw_github_token', '');
-        ?>
-        <table class="form-table" style="max-width:700px">
-            <tr><th style="width:200px">Installed version</th><td><code><?php echo LGW_VERSION; ?></code></td></tr>
-            <tr><th>GitHub API</th><td>
-                <?php $diag_code = !is_wp_error($api_response) ? wp_remote_retrieve_response_code($api_response) : 0; ?>
-                <?php if (!$api_ok): ?>
-                    <span style="color:#c0202a">&#10007; Could not reach GitHub API — HTTP <?php echo $diag_code; ?>
-                    <?php if ($diag_code === 404 && !$has_token): ?>
-                        <strong>— repo may be private. Add a GitHub Personal Access Token above.</strong>
-                    <?php elseif ($diag_code === 401): ?>
-                        — token rejected (check it has <code>repo</code> scope and hasn't expired)
-                    <?php endif; ?></span>
-                <?php else: ?>
-                    <span style="color:#2a7a2a">&#10003; Reachable<?php if ($has_token): ?> (authenticated)<?php endif; ?></span>
-                <?php endif; ?>
-            </td></tr>
-            <?php if ($latest_tag): ?>
-            <tr><th>Latest release</th><td><code><?php echo esc_html($latest_tag); ?></code>
-                <?php if ($latest_ver && version_compare($latest_ver, LGW_VERSION, '>')): ?>
-                    <span style="color:#2a7a2a;font-weight:600"> &#8593; Newer than installed</span>
-                <?php elseif ($latest_ver && version_compare($latest_ver, LGW_VERSION, '==')): ?>
-                    <span style="color:#888"> = Up to date</span>
-                <?php endif; ?>
-            </td></tr>
-            <?php endif; ?>
-            <tr><th>WP update transient</th><td>
-                <?php if ($wp_update_entry): ?>
-                    <span style="color:#2a7a2a;font-weight:600">&#10003; Update queued</span> — WP sees v<code><?php echo esc_html($wp_update_entry->new_version); ?></code> available
-                <?php elseif ($wp_no_update): ?>
-                    <span style="color:#888">No update — WP sees this as current</span>
-                <?php else: ?>
-                    <span style="color:#c07000">Not in transient — WP has not checked yet</span>
-                <?php endif; ?>
-            </td></tr>
-        </table>
-        <p>
-        <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" style="display:inline">
-            <?php wp_nonce_field('lgw_check_updates_nonce'); ?>
-            <input type="hidden" name="action" value="lgw_check_updates">
-            <input type="submit" class="button button-secondary" value="Force Update Check Now">
-        </form>
-        <?php if ($wp_update_entry): ?>
-        &nbsp;<a href="<?php echo admin_url('plugins.php'); ?>" class="button button-primary">Go to Plugins page to update</a>
-        <?php endif; ?>
-        </p>
 
         <hr>
         <!-- ── Shortcode Reference ── -->
