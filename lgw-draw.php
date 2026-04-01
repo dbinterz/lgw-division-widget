@@ -132,8 +132,8 @@ function lgw_draw_build_bracket( array $numbered, array $opts ) {
             $cb = call_user_func( $get_club, $b['name'] );
             // Swap home/away if $a's club is at its limit and $b's is not
             if (
-                call_user_func( $home_at_limit, $ca, $home_counts_r1 ) &&
-                ! call_user_func( $home_at_limit, $cb, $home_counts_r1 ) &&
+                call_user_func( $home_at_limit, $ca, $home_counts_r1, 0 ) &&
+                ! call_user_func( $home_at_limit, $cb, $home_counts_r1, 0 ) &&
                 $ca !== $cb
             ) {
                 list( $a, $b )   = array( $b, $a );
@@ -205,8 +205,8 @@ function lgw_draw_build_bracket( array $numbered, array $opts ) {
             $ca = call_user_func( $get_club, $a['name'] );
             $cb = call_user_func( $get_club, $b['name'] );
             if (
-                call_user_func( $home_at_limit, $ca, $home_counts_r2 ) &&
-                ! call_user_func( $home_at_limit, $cb, $home_counts_r2 ) &&
+                call_user_func( $home_at_limit, $ca, $home_counts_r2, 1 ) &&
+                ! call_user_func( $home_at_limit, $cb, $home_counts_r2, 1 ) &&
                 $ca !== $cb
             ) {
                 list( $a, $b )   = array( $b, $a );

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.4
+Stable tag: 7.1.8
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,29 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.8 =
+* Fixed: Green Usage table date sort was sorting lexicographically (12/5 before 28/4); dates now parsed from DD/MM/YY or DD/MM/YYYY format before comparison
+
+= 7.1.7 =
+* Green Usage table: sort by Date or Club via link controls
+* Rows merged by primary sort key (date or club) using rowspan so each group appears once
+* Championship titles merged into a single cell per club/date group when multiple competitions share the same date
+* Full indicator shown in red when a club's green is at capacity
+
+= 7.1.6 =
+* Green bookings backfill: lgw_rebuild_green_bookings() scans all existing drawn brackets and rebuilds the cross-championship green bookings register from scratch
+* Auto-backfill runs on init if lgw_green_bookings has never been built — upgrades from pre-7.1.5 are handled silently
+* Manual "Recalculate from All Drawn Brackets" button added to Championship Management page for resyncing if bookings get out of step
+
+= 7.1.5 =
+* Cross-championship green capacity: when multiple championships share the same round date, home green slots are shared and allocated by priority
+* Draw priority order — drag-to-reorder list on Championship Management page; manual order takes precedence, unordered championships fall back to draw timestamp order
+* Hard-block enforcement: lower-priority championships cannot exceed remaining green slots on a date already partially booked by a higher-priority championship
+* Green usage table on Championship Management page shows home slots used per date and club across all championships
+* Capacity warning shown on edit page before drawing a section if another higher-priority championship has reduced available slots on the same dates
+* Draw timestamp stamped on first draw for tiebreaking
+* Reset draw now releases green bookings for that championship
 
 = 7.1.4 =
 * Added League Game Widget logo — hexagon badge in brand colours (#072a82 blue, #138211 green)

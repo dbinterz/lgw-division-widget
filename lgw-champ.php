@@ -407,6 +407,214 @@ function lgw_champ_separate_r2_slots(&$slots, &$from_game) {
  * championships allow up to 6 home matches per club per round.
  * We count home assignments and swap home/away only when a club would exceed 6.
  */
+// ── Green bookings backfill ───────────────────────────────────────────────────
+
+/**
+ * Rebuild lgw_green_bookings from all existing drawn brackets.
+ * Safe to call multiple times — always rebuilds from scratch.
+ * Called automatically on init if bookings option doesn't exist yet,
+ * and manually via admin button.
+ */
+function lgw_rebuild_green_bookings() {
+    global $wpdb;
+    $rows = $wpdb->get_results(
+        "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'lgw_champ_%' ORDER BY option_name",
+        ARRAY_A
+    );
+
+    $bookings = array();
+
+    foreach ($rows as $row) {
+        $champ_id = substr($row['option_name'], strlen('lgw_champ_'));
+        $champ    = maybe_unserialize($row['option_value']);
+        if (!is_array($champ) || !isset($champ['title'])) continue;
+
+        $sections = $champ['sections'] ?? array();
+
+        // Section brackets
+        foreach ($sections as $idx => $sec) {
+            $bracket_key = 'section_' . $idx . '_bracket';
+            $bracket     = $champ[$bracket_key] ?? null;
+            if (!$bracket) continue;
+
+            $sec_dates_key = 'section_' . $idx . '_dates';
+            $dates = !empty($champ[$sec_dates_key])
+                ? array_values(array_filter(array_map('trim', explode("
+", $champ[$sec_dates_key]))))
+                : ($champ['dates'] ?? array());
+
+            foreach ($bracket['matches'] as $ri => $round_matches) {
+                $date = $dates[$ri] ?? null;
+                if (!$date) continue;
+                foreach ($round_matches as $m) {
+                    if (empty($m['home'])) continue;
+                    $club = lgw_champ_entry_club($m['home']);
+                    if (!$club) continue;
+                    if (!isset($bookings[$date][$club])) {
+                        $bookings[$date][$club] = array('count' => 0, 'champ_id' => $champ_id);
+                    } elseif ($bookings[$date][$club]['champ_id'] !== $champ_id) {
+                        // Slot contested — award to higher priority championship
+                        $existing_rank = lgw_champ_priority_rank(
+                            $bookings[$date][$club]['champ_id'],
+                            get_option('lgw_champ_' . $bookings[$date][$club]['champ_id'], array())
+                        );
+                        $my_rank = lgw_champ_priority_rank($champ_id, $champ);
+                        if ($my_rank >= $existing_rank) continue; // existing champ keeps it
+                        $bookings[$date][$club] = array('count' => 0, 'champ_id' => $champ_id);
+                    }
+                    $bookings[$date][$club]['count']++;
+                }
+            }
+        }
+
+        // Final bracket (dates usually empty but handle if set)
+        $final = $champ['final_bracket'] ?? null;
+        if ($final) {
+            $dates = $final['dates'] ?? array();
+            foreach ($final['matches'] as $ri => $round_matches) {
+                $date = $dates[$ri] ?? null;
+                if (!$date) continue;
+                foreach ($round_matches as $m) {
+                    if (empty($m['home'])) continue;
+                    $club = lgw_champ_entry_club($m['home']);
+                    if (!$club) continue;
+                    if (!isset($bookings[$date][$club])) {
+                        $bookings[$date][$club] = array('count' => 0, 'champ_id' => $champ_id);
+                    }
+                    $bookings[$date][$club]['count']++;
+                }
+            }
+        }
+    }
+
+    update_option('lgw_green_bookings', $bookings);
+    update_option('lgw_green_bookings_built', LGW_VERSION);
+    return $bookings;
+}
+
+/**
+ * Auto-backfill on init if bookings have never been built,
+ * or if the plugin has been updated since they were last built.
+ */
+function lgw_maybe_backfill_green_bookings() {
+    $built = get_option('lgw_green_bookings_built', '');
+    if (!$built) {
+        lgw_rebuild_green_bookings();
+    }
+}
+add_action('init', 'lgw_maybe_backfill_green_bookings');
+
+// ── Cross-championship green capacity helpers ─────────────────────────────────
+
+/**
+ * Get the draw priority rank for a championship.
+ * Manual priority list (lgw_champ_priority) takes precedence.
+ * Uncheduled championships fall after all listed ones, ordered by draw timestamp.
+ */
+function lgw_champ_priority_rank($champ_id, $champ) {
+    $order = get_option('lgw_champ_priority', array());
+    $pos   = array_search($champ_id, $order);
+    if ($pos !== false) return intval($pos);
+    // Not in manual list — rank after all listed ones by draw timestamp (earlier = higher priority)
+    $ts = intval($champ['draw_timestamp'] ?? 0);
+    return 10000 + ($ts > 0 ? $ts : PHP_INT_MAX);
+}
+
+/**
+ * Return available home slots for a club on a given date for a given championship.
+ * Takes into account bookings from higher-priority championships.
+ */
+function lgw_champ_available_slots($champ_id, $champ, $club, $date) {
+    $multi_green = array_filter(array_map('trim', explode("\n", $champ['multi_green'] ?? '')));
+    $total_limit = lgw_champ_home_limit($club, $multi_green);
+    $my_rank     = lgw_champ_priority_rank($champ_id, $champ);
+    $bookings    = get_option('lgw_green_bookings', array());
+    $date_book   = $bookings[$date] ?? array();
+    $used = 0;
+    foreach ($date_book as $club_key => $entry) {
+        if (strtolower($club_key) !== strtolower($club)) continue;
+        // Only count bookings from higher-priority championships
+        $other_rank = lgw_champ_priority_rank($entry['champ_id'], get_option('lgw_champ_' . $entry['champ_id'], array()));
+        if ($other_rank < $my_rank) {
+            $used += intval($entry['count']);
+        }
+    }
+    return max(0, $total_limit - $used);
+}
+
+/**
+ * Write this championship's home assignments into lgw_green_bookings.
+ * Called after a successful draw.
+ */
+function lgw_champ_write_bookings($champ_id, $bracket, $dates) {
+    $bookings = get_option('lgw_green_bookings', array());
+    // Remove any existing bookings for this champ_id + section key
+    foreach ($bookings as $date => $clubs) {
+        foreach ($clubs as $club => $entry) {
+            if (($entry['champ_id'] ?? '') === $champ_id) {
+                $bookings[$date][$club]['count'] -= $entry['count'];
+                if ($bookings[$date][$club]['count'] <= 0) {
+                    unset($bookings[$date][$club]);
+                }
+                if (empty($bookings[$date])) unset($bookings[$date]);
+            }
+        }
+    }
+    // Count home matches per date per club from this bracket
+    foreach ($bracket['matches'] as $ri => $round_matches) {
+        $date = $dates[$ri] ?? null;
+        if (!$date) continue;
+        foreach ($round_matches as $m) {
+            if (empty($m['home'])) continue;
+            $club = lgw_champ_entry_club($m['home']);
+            if (!$club) continue;
+            if (!isset($bookings[$date][$club])) {
+                $bookings[$date][$club] = array('count' => 0, 'champ_id' => $champ_id);
+            }
+            $bookings[$date][$club]['count']++;
+        }
+    }
+    update_option('lgw_green_bookings', $bookings);
+}
+
+/**
+ * Release all green bookings for a given championship (called on draw reset).
+ */
+function lgw_champ_release_bookings($champ_id) {
+    $bookings = get_option('lgw_green_bookings', array());
+    foreach ($bookings as $date => $clubs) {
+        foreach ($clubs as $club => $entry) {
+            if (($entry['champ_id'] ?? '') === $champ_id) {
+                unset($bookings[$date][$club]);
+            }
+        }
+        if (empty($bookings[$date])) unset($bookings[$date]);
+    }
+    update_option('lgw_green_bookings', $bookings);
+}
+
+/**
+ * Get a summary of green usage across all championships for a given date.
+ * Returns array keyed by club => array('used' => n, 'limit' => n, 'champs' => [...])
+ */
+function lgw_green_usage_by_date($date) {
+    $bookings  = get_option('lgw_green_bookings', array());
+    $date_book = $bookings[$date] ?? array();
+    $usage     = array();
+    foreach ($date_book as $club => $entry) {
+        $champ    = get_option('lgw_champ_' . $entry['champ_id'], array());
+        $multi_green = array_filter(array_map('trim', explode("\n", $champ['multi_green'] ?? '')));
+        $limit    = lgw_champ_home_limit($club, $multi_green);
+        $usage[$club] = array(
+            'used'     => intval($entry['count']),
+            'limit'    => $limit,
+            'champ_id' => $entry['champ_id'],
+            'title'    => $champ['title'] ?? $entry['champ_id'],
+        );
+    }
+    return $usage;
+}
+
 function lgw_champ_perform_draw($champ_id, $champ, $section = '0') {
     if ($section === 'final') {
         return lgw_champ_perform_final_draw($champ_id, $champ);
@@ -435,10 +643,26 @@ function lgw_champ_perform_draw($champ_id, $champ, $section = '0') {
     $stored_rounds = $champ['rounds'] ?? array();
     $r2_label      = $stored_rounds[1] ?? 'Round 1 Draw';
 
+    // Build per-date available slots for cross-championship capacity check
+    $date_slots = array();
+    foreach ($dates as $ri => $date) {
+        $date_slots[$ri] = array();
+        foreach ($raw_entries as $entry) {
+            $club = lgw_champ_entry_club($entry);
+            if ($club && !isset($date_slots[$ri][$club])) {
+                $date_slots[$ri][$club] = lgw_champ_available_slots($champ_id, $champ, $club, $date);
+            }
+        }
+    }
+
     $result = lgw_draw_build_bracket($numbered, array(
         'get_club'      => 'lgw_champ_entry_club',
-        // Champ rule: max 6 (or multi-green override) home matches per club per round
-        'home_at_limit' => function($club, $counts) use ($multi_green) {
+        // Champ rule: max available slots (cross-championship capacity aware)
+        'home_at_limit' => function($club, $counts, $round_idx) use ($multi_green, $champ_id, $champ, $dates, $date_slots) {
+            $date = $dates[$round_idx] ?? null;
+            if ($date && isset($date_slots[$round_idx][$club])) {
+                return ($counts[$club] ?? 0) >= $date_slots[$round_idx][$club];
+            }
             return ($counts[$club] ?? 0) >= lgw_champ_home_limit($club, $multi_green);
         },
         'separate_prelim' => 'lgw_champ_separate_clubs',
@@ -452,16 +676,22 @@ function lgw_champ_perform_draw($champ_id, $champ, $section = '0') {
     if (!$result) return new WP_Error('too_few', 'At least 2 entries required.');
 
     $bracket_key = 'section_' . $section_idx . '_bracket';
-    $champ[$bracket_key] = array(
+    $bracket_data = array(
         'title'   => ($champ['title'] ?? 'Championship') . ' — Section ' . ($sections[$section_idx]['label'] ?? ($section_idx + 1)),
         'rounds'  => $result['rounds'],
         'dates'   => $dates,
         'matches' => $result['matches'],
     );
+    $champ[$bracket_key] = $bracket_data;
     $champ['section_' . $section_idx . '_draw_pairs']       = $result['pairs'];
     $champ['section_' . $section_idx . '_draw_version']     = intval($champ['section_' . $section_idx . '_draw_version'] ?? 0) + 1;
     $champ['section_' . $section_idx . '_pairs_cursor']     = 0;
     $champ['section_' . $section_idx . '_draw_in_progress'] = true;
+
+    // Stamp draw timestamp for priority fallback ordering
+    if (empty($champ['draw_timestamp'])) {
+        $champ['draw_timestamp'] = time();
+    }
 
     // Integrity check — bail if the option would exceed safe WP option size (~800KB)
     if (strlen(serialize($champ)) > 800000) {
@@ -469,6 +699,10 @@ function lgw_champ_perform_draw($champ_id, $champ, $section = '0') {
     }
 
     update_option('lgw_champ_' . $champ_id, $champ);
+
+    // Write green bookings for this section
+    lgw_champ_write_bookings($champ_id, $bracket_data, $dates);
+
     return true;
 }
 
@@ -646,7 +880,13 @@ function lgw_champ_handle_admin_actions() {
             if (!empty($champ['entries'])) {
                 $champ['sections'] = lgw_champ_build_sections($champ['entries']);
             }
+            // Clear draw timestamp so priority falls back to draw order on redraw
+            unset($champ['draw_timestamp']);
             update_option('lgw_champ_' . $champ_id, $champ);
+
+            // Release all green bookings for this championship
+            lgw_champ_release_bookings($champ_id);
+
             wp_redirect(admin_url('admin.php?page=lgw-champs&edit=' . $champ_id . '&saved=1'));
             exit;
         }
@@ -661,6 +901,27 @@ function lgw_champ_handle_admin_actions() {
             exit;
         }
     }
+}
+
+// ── Manual green bookings rebuild ────────────────────────────────────────────
+add_action('admin_post_lgw_rebuild_green_bookings', 'lgw_admin_rebuild_green_bookings');
+function lgw_admin_rebuild_green_bookings() {
+    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+    check_admin_referer('lgw_rebuild_bookings_nonce');
+    lgw_rebuild_green_bookings();
+    wp_redirect(admin_url('admin.php?page=lgw-champs&bookings_rebuilt=1'));
+    exit;
+}
+
+// ── Save championship priority order ─────────────────────────────────────────
+add_action('admin_post_lgw_save_champ_priority', 'lgw_save_champ_priority');
+function lgw_save_champ_priority() {
+    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+    check_admin_referer('lgw_champ_priority_nonce');
+    $order = isset($_POST['lgw_champ_priority']) ? array_map('sanitize_key', $_POST['lgw_champ_priority']) : array();
+    update_option('lgw_champ_priority', array_values(array_filter($order)));
+    wp_redirect(admin_url('admin.php?page=lgw-champs&priority_saved=1'));
+    exit;
 }
 
 // ── Admin menu ─────────────────────────────────────────────────────────────────
@@ -694,6 +955,10 @@ function lgw_champs_list_page() {
     <h2 style="display:flex;align-items:center;gap:16px">Championships
       <a href="<?php echo admin_url('admin.php?page=lgw-champs&action=new'); ?>" class="button button-primary">+ New Championship</a>
     </h2>
+    <?php if (isset($_GET['priority_saved'])): ?>
+      <div class="notice notice-success is-dismissible"><p>Priority order saved.</p></div>
+    <?php endif; ?>
+
     <?php if (empty($champs)): ?>
       <p>No championships yet. <a href="<?php echo admin_url('admin.php?page=lgw-champs&action=new'); ?>">Create one →</a></p>
     <?php else: ?>
@@ -723,8 +988,238 @@ function lgw_champs_list_page() {
       <?php endforeach; ?>
       </tbody>
     </table>
+
+    <hr>
+    <h2>Draw Priority Order</h2>
+    <p>Championships drawn first get priority for home green slots. Drag to set the order — championships higher in the list take precedence when multiple competitions share the same date. Any championship not listed here falls below all listed ones, ordered by draw time.</p>
+
+    <?php $priority = get_option('lgw_champ_priority', array()); ?>
+    <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+      <?php wp_nonce_field('lgw_champ_priority_nonce'); ?>
+      <input type="hidden" name="action" value="lgw_save_champ_priority">
+      <ul id="lgw-priority-list" style="list-style:none;margin:0 0 12px;padding:0;max-width:500px">
+        <?php
+        // Show listed champs first in priority order, then unlisted ones
+        $listed   = array_filter($priority, fn($id) => isset($champs[$id]));
+        $unlisted = array_diff(array_keys($champs), $listed);
+        $ordered  = array_merge($listed, array_values($unlisted));
+        foreach ($ordered as $id):
+            if (!isset($champs[$id])) continue;
+            $rank = array_search($id, $priority);
+        ?>
+        <li data-id="<?php echo esc_attr($id); ?>"
+            style="display:flex;align-items:center;gap:10px;padding:8px 12px;margin-bottom:6px;background:var(--color-background-secondary,#f6f7f7);border:1px solid #ddd;border-radius:4px;cursor:grab">
+          <span style="color:#999;font-size:16px;user-select:none">⠿</span>
+          <span style="flex:1;font-weight:500"><?php echo esc_html($champs[$id]['title'] ?? $id); ?></span>
+          <?php if ($rank !== false): ?>
+            <span style="font-size:11px;color:#138211;font-weight:600">Priority <?php echo $rank + 1; ?></span>
+          <?php else: ?>
+            <span style="font-size:11px;color:#888">Draw order</span>
+          <?php endif; ?>
+          <input type="hidden" name="lgw_champ_priority[]" value="<?php echo esc_attr($id); ?>">
+        </li>
+        <?php endforeach; ?>
+      </ul>
+      <?php submit_button('Save Priority Order', 'secondary', 'lgw_save_priority', false); ?>
+    </form>
+
+    <hr>
+    <h2>Green Usage by Date</h2>
+    <p>Home green slots used across all championships, grouped by round date. Amber = at capacity.</p>
+
+    <?php if (isset($_GET['bookings_rebuilt'])): ?>
+      <div class="notice notice-success is-dismissible"><p>Green bookings recalculated from all drawn brackets.</p></div>
+    <?php endif; ?>
+
+    <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" style="margin-bottom:12px">
+      <?php wp_nonce_field('lgw_rebuild_bookings_nonce'); ?>
+      <input type="hidden" name="action" value="lgw_rebuild_green_bookings">
+      <button type="submit" class="button button-secondary"
+              onclick="return confirm('Recalculate green bookings from all drawn brackets? This will overwrite any manually adjusted data.')">
+        🔄 Recalculate from All Drawn Brackets
+      </button>
+      <span style="margin-left:8px;font-size:12px;color:#666">
+        Use this after upgrading from a version before v7.1.5, or if bookings appear out of sync.
+      </span>
+    </form>
+
+
+    <?php
+    $bookings = get_option('lgw_green_bookings', array());
+    if (empty($bookings)):
+    ?>
+      <p style="color:#888">No draws performed yet — green usage will appear here after the first draw.</p>
+    <?php else:
+      $usage_rows = array();
+      foreach ($bookings as $date => $clubs) {
+          foreach ($clubs as $club => $entry) {
+              $champ_data  = get_option('lgw_champ_' . $entry['champ_id'], array());
+              $multi_green = array_filter(array_map('trim', explode("\n", $champ_data['multi_green'] ?? '')));
+              $limit       = lgw_champ_home_limit($club, $multi_green);
+              $usage_rows[] = array(
+                  'date'     => $date,
+                  'club'     => $club,
+                  'count'    => intval($entry['count']),
+                  'limit'    => $limit,
+                  'title'    => $champ_data['title'] ?? $entry['champ_id'],
+                  'full'     => intval($entry['count']) >= $limit,
+              );
+          }
+      }
+      $sort    = in_array($_GET['gu_sort'] ?? '', array('date','club')) ? sanitize_key($_GET['gu_sort']) : 'date';
+      $sec_key = $sort === 'date' ? 'club' : 'date';
+
+      // Parse DD/MM/YY or DD/MM/YYYY into a comparable timestamp
+      $parse_date = function($str) {
+          $parts = explode('/', trim($str));
+          if (count($parts) === 3) {
+              $year = strlen($parts[2]) === 2 ? '20' . $parts[2] : $parts[2];
+              return mktime(0, 0, 0, intval($parts[1]), intval($parts[0]), intval($year));
+          }
+          return strtotime($str) ?: 0;
+      };
+
+      usort($usage_rows, function($a, $b) use ($sort, $sec_key, $parse_date) {
+          if ($sort === 'date') {
+              $p = $parse_date($a['date']) - $parse_date($b['date']);
+          } else {
+              $p = strcmp($a[$sort], $b[$sort]);
+          }
+          if ($p !== 0) return $p;
+          // Secondary sort: always parse dates when sec_key is date
+          if ($sec_key === 'date') {
+              return $parse_date($a['date']) - $parse_date($b['date']);
+          }
+          return strcmp($a[$sec_key], $b[$sec_key]);
+      });
+      $base_url = admin_url('admin.php?page=lgw-champs');
+    ?>
+    <div style="margin-bottom:10px;font-size:13px">
+      Sort by:
+      <a href="<?php echo esc_url($base_url . '&gu_sort=date'); ?>" style="font-weight:<?php echo $sort==='date'?'700':'400';?>">Date</a>
+      &nbsp;|&nbsp;
+      <a href="<?php echo esc_url($base_url . '&gu_sort=club'); ?>" style="font-weight:<?php echo $sort==='club'?'700':'400';?>">Club</a>
+    </div>
+    <table class="widefat" style="max-width:820px;border-collapse:collapse">
+      <thead>
+        <tr style="background:var(--color-background-secondary,#f6f7f7)">
+          <th style="padding:8px 12px;border-bottom:2px solid #ddd;width:110px"><?php echo $sort==='date'?'&#128197; Date':'Date';?></th>
+          <th style="padding:8px 12px;border-bottom:2px solid #ddd"><?php echo $sort==='club'?'&#127968; Club':'Club';?></th>
+          <th style="padding:8px 12px;text-align:center;border-bottom:2px solid #ddd;width:90px">Used / Limit</th>
+          <th style="padding:8px 12px;border-bottom:2px solid #ddd">Championships on this date</th>
+        </tr>
+      </thead>
+      <tbody>
+      <?php
+        $n = count($usage_rows);
+        $pspans = array_fill(0, $n, 0);
+        $sspans = array_fill(0, $n, 0);
+        $prim_seen = array();
+        $pair_seen = array();
+        for ($i = 0; $i < $n; $i++) {
+            $pv = $usage_rows[$i][$sort];
+            $sv = $usage_rows[$i][$sec_key];
+            $pk = $pv . '||' . $sv;
+            if (!isset($prim_seen[$pv])) {
+                $prim_seen[$pv] = true;
+                $c = 0;
+                for ($j = $i; $j < $n && $usage_rows[$j][$sort] === $pv; $j++) $c++;
+                $pspans[$i] = $c;
+            }
+            if (!isset($pair_seen[$pk])) {
+                $pair_seen[$pk] = true;
+                $c = 0;
+                for ($j = $i; $j < $n && $usage_rows[$j][$sort] === $pv && $usage_rows[$j][$sec_key] === $sv; $j++) $c++;
+                $sspans[$i] = $c;
+            }
+        }
+        $pair_titles = array();
+        foreach ($usage_rows as $row) {
+            $pk = $row[$sort] . '||' . $row[$sec_key];
+            if (!in_array($row['title'], $pair_titles[$pk] ?? array()))
+                $pair_titles[$pk][] = $row['title'];
+        }
+        $prev_prim = null;
+        foreach ($usage_rows as $i => $row):
+            $pv = $row[$sort];
+            $sv = $row[$sec_key];
+            $pk = $pv . '||' . $sv;
+            $border_top = ($pspans[$i] > 0 && $prev_prim !== null) ? 'border-top:2px solid #ccc;' : '';
+            $bg = $row['full'] ? 'background:#fff3cd;' : '';
+      ?>
+        <tr style="border-bottom:1px solid #eee;<?php echo $bg;?>">
+          <?php if ($pspans[$i] > 0): ?>
+          <td rowspan="<?php echo $pspans[$i];?>" style="padding:8px 12px;vertical-align:top;font-weight:600;border-right:2px solid #ddd;<?php echo $border_top;?>">
+            <?php echo esc_html($pv);?>
+          </td>
+          <?php endif; ?>
+          <?php if ($sspans[$i] > 0):
+            $titles = $pair_titles[$pk] ?? array();
+          ?>
+          <td rowspan="<?php echo $sspans[$i];?>" style="padding:8px 12px;vertical-align:middle"><?php echo esc_html($sv);?></td>
+          <td rowspan="<?php echo $sspans[$i];?>" style="padding:8px 12px;text-align:center;vertical-align:middle;font-weight:600;color:<?php echo $row['full']?'#c0202a':'#138211';?>">
+            <?php echo $row['count'];?>/<?php echo $row['limit'];?>
+            <?php if ($row['full']): ?><br><span style="font-size:10px;font-weight:400;color:#c0202a">FULL</span><?php endif;?>
+          </td>
+          <td rowspan="<?php echo $sspans[$i];?>" style="padding:8px 12px;vertical-align:middle;font-size:13px;color:#555">
+            <?php echo implode('<br>', array_map('esc_html', $titles));?>
+          </td>
+          <?php endif;?>
+        </tr>
+      <?php
+          if ($pspans[$i] > 0) $prev_prim = $pv;
+        endforeach;
+      ?>
+      </tbody>
+    </table>
+    <?php endif; ?>
     <?php endif; ?>
     </div>
+    <script>
+    // Simple drag-to-reorder for priority list
+    (function() {
+        var list = document.getElementById('lgw-priority-list');
+        if (!list) return;
+        var dragging = null;
+        list.querySelectorAll('li').forEach(function(li) {
+            li.addEventListener('dragstart', function(e) {
+                dragging = li;
+                setTimeout(function() { li.style.opacity = '0.4'; }, 0);
+            });
+            li.addEventListener('dragend', function() {
+                li.style.opacity = '';
+                dragging = null;
+                updateRankLabels();
+            });
+            li.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                if (!dragging || dragging === li) return;
+                var rect = li.getBoundingClientRect();
+                var mid  = rect.top + rect.height / 2;
+                if (e.clientY < mid) {
+                    list.insertBefore(dragging, li);
+                } else {
+                    list.insertBefore(dragging, li.nextSibling);
+                }
+            });
+            li.setAttribute('draggable', 'true');
+        });
+        function updateRankLabels() {
+            list.querySelectorAll('li').forEach(function(li, idx) {
+                var label = li.querySelector('span:last-of-type');
+                if (label) {
+                    label.textContent = 'Priority ' + (idx + 1);
+                    label.style.color = '#138211';
+                    label.style.fontWeight = '600';
+                }
+                var hidden = li.querySelector('input[type=hidden]');
+                if (hidden) {
+                    // order is implicit from DOM position — inputs stay in order
+                }
+            });
+        }
+    })();
+    </script>
     <?php
 }
 
@@ -1082,6 +1577,56 @@ function lgw_champ_edit_page($champ_id) {
       <p>✅ Draw performed.</p>
     <?php else: ?>
       <p>No draw yet.</p>
+      <?php
+      // Show green capacity warning if other championships have taken slots on the same dates
+      $sec_dates_key = 'section_' . $idx . '_dates';
+      $sec_dates = !empty($champ[$sec_dates_key])
+          ? array_values(array_filter(array_map('trim', explode("\n", $champ[$sec_dates_key]))))
+          : ($champ['dates'] ?? array());
+      $bookings = get_option('lgw_green_bookings', array());
+      $capacity_warnings = array();
+      foreach ($sec_dates as $ri => $date) {
+          if (!isset($bookings[$date])) continue;
+          foreach ($bookings[$date] as $club => $entry) {
+              if ($entry['champ_id'] === $champ_id) continue;
+              $other_champ  = get_option('lgw_champ_' . $entry['champ_id'], array());
+              $other_rank   = lgw_champ_priority_rank($entry['champ_id'], $other_champ);
+              $my_rank      = lgw_champ_priority_rank($champ_id, $champ);
+              if ($other_rank < $my_rank) {
+                  $multi_green = array_filter(array_map('trim', explode("\n", $champ['multi_green'] ?? '')));
+                  $limit = lgw_champ_home_limit($club, $multi_green);
+                  $available = max(0, $limit - intval($entry['count']));
+                  $capacity_warnings[] = array(
+                      'date'    => $date,
+                      'club'    => $club,
+                      'used'    => $entry['count'],
+                      'limit'   => $limit,
+                      'avail'   => $available,
+                      'by'      => $other_champ['title'] ?? $entry['champ_id'],
+                  );
+              }
+          }
+      }
+      if (!empty($capacity_warnings)):
+      ?>
+      <div style="margin:8px 0;padding:10px 14px;background:#fff3cd;border-left:4px solid #e8b400;border-radius:0 4px 4px 0;font-size:13px">
+        <strong>⚠ Reduced green capacity for this section:</strong>
+        <ul style="margin:6px 0 0;padding-left:18px">
+        <?php foreach ($capacity_warnings as $w): ?>
+          <li>
+            <strong><?php echo esc_html($w['club']); ?></strong> on <?php echo esc_html($w['date']); ?>
+            — <?php echo intval($w['used']); ?>/<?php echo $w['limit']; ?> slots taken by
+            <em><?php echo esc_html($w['by']); ?></em>
+            <?php if ($w['avail'] > 0): ?>
+              (<?php echo $w['avail']; ?> remaining)
+            <?php else: ?>
+              <strong style="color:#c0202a"> — no home slots available</strong>
+            <?php endif; ?>
+          </li>
+        <?php endforeach; ?>
+        </ul>
+      </div>
+      <?php endif; ?>
       <button class="button button-primary lgw-champ-admin-draw-btn"
               data-champ-id="<?php echo esc_attr($champ_id); ?>"
               data-section="<?php echo $idx; ?>"
