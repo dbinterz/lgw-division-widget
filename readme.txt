@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.9
+Stable tag: 7.1.10
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.10 =
+* Cup bracket: TBD slots in future rounds now show abbreviated predecessor team names (e.g. "Sal A/B'mena B") instead of plain TBD
+* Abbreviation format: first 3 chars of main name + suffix (A/B/etc), e.g. "Ballymena B" -> "B'mena B", "Salisbury A" -> "Sal A"
+* Placeholder text styled in muted italic to distinguish from confirmed teams
 
 = 7.1.9 =
 * Fixed: GitHub release transient was caching stale release data (e.g. v7.1.1) even after newer versions were installed, preventing the auto-updater from offering updates

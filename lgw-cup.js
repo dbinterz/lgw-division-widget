@@ -75,13 +75,42 @@
   //   ]
   // }
 
-  function renderTeamRow(team, score, isWinner, isLoser, drawNum) {
+  // Abbreviate a team name: e.g. "Ballymena B" -> "B'mena B", "Salisbury A" -> "Sal A"
+  function abbrevTeam(name) {
+    if (!name) return '?';
+    var parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 5);
+    var suffix   = parts[parts.length - 1];
+    var mainParts = parts.slice(0, -1);
+    var main = mainParts.join(' ');
+    var abbrev;
+    if (main.length <= 4) {
+      abbrev = main;
+    } else {
+      abbrev = mainParts[0].slice(0, 3);
+      for (var i = 1; i < mainParts.length; i++) abbrev += mainParts[i].slice(0, 1);
+    }
+    return abbrev + ' ' + suffix;
+  }
+
+  // Build predecessor placeholder from a previous round match
+  function buildPlaceholder(prevMatch) {
+    if (!prevMatch || prevMatch.bye) return null;
+    var h = prevMatch.home ? abbrevTeam(prevMatch.home) : '?';
+    var a = prevMatch.away ? abbrevTeam(prevMatch.away) : '?';
+    if (prevMatch.home && prevMatch.away) return h + '/' + a;
+    return null;
+  }
+
+  function renderTeamRow(team, score, isWinner, isLoser, drawNum, placeholder) {
     var cls = 'lgw-cup-team';
     if (isWinner) cls += ' lgw-cup-winner';
     if (isLoser)  cls += ' lgw-cup-loser';
-    var badge = team ? badgeImg(team) : '';
+    var badge   = team ? badgeImg(team) : '';
     var nameCls = 'lgw-cup-team-name' + (team ? '' : ' tbd');
-    var nameStr = team ? escHtml(team) : 'TBD';
+    var nameStr = team ? escHtml(team)
+                : (placeholder ? '<span class="lgw-cup-placeholder">' + escHtml(placeholder) + '</span>'
+                               : 'TBD');
     var scoreStr = (score !== null && score !== undefined && score !== '') ? escHtml(score) : '';
     var dnStr = (drawNum && scoreStr === '') ? '<span class="lgw-cup-draw-num">' + escHtml(drawNum) + '</span>' : '';
     return '<div class="' + cls + '">'
@@ -92,7 +121,7 @@
       + '</div>';
   }
 
-  function renderMatch(match) {
+  function renderMatch(match, homePlaceholder, awayPlaceholder) {
     var home       = match.home  || '';
     var away       = match.away  || '';
     var hs         = match.home_score;
@@ -107,8 +136,8 @@
     if (!home && !away) cls += ' lgw-cup-tbd';
 
     return '<div class="' + cls + '">'
-      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, match.draw_num_home)
-      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, match.draw_num_away)
+      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, match.draw_num_home, home ? null : homePlaceholder)
+      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, match.draw_num_away, away ? null : awayPlaceholder)
       + '</div>';
   }
 
@@ -157,8 +186,20 @@
 
       var slotsEl = qs('.lgw-cup-round-slots', roundEl);
       roundMatches.forEach(function (match, mi) {
+        // Build predecessor placeholders for TBD slots
+        var homePlaceholder = null, awayPlaceholder = null;
+        if (!match.home || !match.away) {
+          var prevRound = matches[ri - 1] || [];
+          // Standard mapping: match mi gets home from prevRound[mi*2], away from prevRound[mi*2+1]
+          // This works for R2+ rounds. For the very first full round (ri===1 with prelims at ri===0),
+          // some slots come from prelim winners — those are already populated as null with draw_num
+          var prevHome = prevRound[mi * 2];
+          var prevAway = prevRound[mi * 2 + 1];
+          if (!match.home && prevHome) homePlaceholder = buildPlaceholder(prevHome);
+          if (!match.away && prevAway) awayPlaceholder = buildPlaceholder(prevAway);
+        }
         var matchEl = document.createElement('div');
-        matchEl.innerHTML = renderMatch(match);
+        matchEl.innerHTML = renderMatch(match, homePlaceholder, awayPlaceholder);
         var card = matchEl.firstElementChild;
         card.dataset.round = ri;
         card.dataset.match = mi;
