@@ -32,8 +32,6 @@ jobs:
           VERSION="${{ steps.version.outputs.VERSION }}"
           ZIPNAME="lgw-division-widget-v${VERSION}.zip"
           mkdir -p lgw-division-widget
-
-          # Copy all plugin files — excludes dev/debug files
           cp lgw-division-widget.php lgw-division-widget/
           cp lgw-scorecards.php      lgw-division-widget/
           cp lgw-scorecard.js        lgw-division-widget/
@@ -44,6 +42,7 @@ jobs:
           cp lgw-champ.php           lgw-division-widget/
           cp lgw-champ.js            lgw-division-widget/
           cp lgw-champ.css           lgw-division-widget/
+          cp lgw-draw.php            lgw-division-widget/
           cp lgw-widget.js           lgw-division-widget/
           cp lgw-widget.css          lgw-division-widget/
           cp lgw-admin.js            lgw-division-widget/
@@ -53,12 +52,25 @@ jobs:
           cp lgw-drive.php           lgw-division-widget/
           cp lgw-sheets.php          lgw-division-widget/
           cp lgw-pdf.php             lgw-division-widget/
-          cp readme.txt                lgw-division-widget/
-          cp README.md                 lgw-division-widget/
-
+          cp lgw-logo.svg            lgw-division-widget/
+          cp readme.txt              lgw-division-widget/
+          cp README.md               lgw-division-widget/
           zip -r "$ZIPNAME" lgw-division-widget/
           echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
           echo "✅ Built $ZIPNAME ($(du -h $ZIPNAME | cut -f1))"
+      - name: Verify zip manifest
+        run: |
+          EXPECTED="lgw-division-widget.php lgw-scorecards.php lgw-scorecard.js lgw-scorecard.css lgw-cup.php lgw-cup.js lgw-cup.css lgw-champ.php lgw-champ.js lgw-champ.css lgw-draw.php lgw-widget.js lgw-widget.css lgw-admin.js lgw-admin.css lgw-sc-admin.php lgw-players.php lgw-drive.php lgw-sheets.php lgw-pdf.php lgw-logo.svg readme.txt README.md"
+          MISSING=0
+          for f in $EXPECTED; do
+            if ! unzip -l "${{ env.ZIPNAME }}" | grep -q "$f"; then
+              echo "❌ Missing from zip: $f"
+              MISSING=1
+            fi
+          done
+          if [ $MISSING -eq 1 ]; then exit 1; fi
+          COUNT=$(unzip -l "${{ env.ZIPNAME }}" | grep "lgw-division-widget/" | grep -v "/$" | wc -l)
+          echo "✅ Zip manifest verified — $COUNT files"
 
       - name: Extract changelog entry
         id: changelog
