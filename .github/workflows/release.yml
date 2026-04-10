@@ -43,6 +43,9 @@ jobs:
           cp lgw-champ.js            lgw-division-widget/
           cp lgw-champ.css           lgw-division-widget/
           cp lgw-draw.php            lgw-division-widget/
+          cp lgw-calendar.php        lgw-division-widget/
+          cp lgw-calendar.js         lgw-division-widget/
+          cp lgw-calendar.css        lgw-division-widget/
           cp lgw-widget.js           lgw-division-widget/
           cp lgw-widget.css          lgw-division-widget/
           cp lgw-admin.js            lgw-division-widget/
