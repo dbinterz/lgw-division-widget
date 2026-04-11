@@ -12,7 +12,7 @@
  * and cached as a WordPress transient (respects the lgw_cache_mins setting).
  * Cell values, horizontal merge spans, and fill colours are all read in one pass.
  *
- * @version 7.1.16
+ * @version 7.1.17
  */
 
 if (!defined('ABSPATH')) exit;
@@ -23,10 +23,11 @@ function lgw_calendar_enqueue() {
     global $post;
     if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'lgw_calendar')) return;
 
+    wp_enqueue_style('lgw-saira', 'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
     wp_enqueue_style(
         'lgw-calendar',
         plugin_dir_url(__FILE__) . 'lgw-calendar.css',
-        array('lgw-widget'),
+        array('lgw-saira'),
         LGW_VERSION
     );
     wp_enqueue_script(

@@ -188,15 +188,43 @@ function lgw_ajax_cup_get_scorecard() {
 add_shortcode('lgw_cup', 'lgw_cup_shortcode');
 function lgw_cup_shortcode($atts) {
     $atts = shortcode_atts(array(
-        'id'           => '',
-        'title'        => '',
-        'sponsor_img'  => '',
-        'sponsor_url'  => '',
-        'sponsor_name' => '',
+        'id'             => '',
+        'title'          => '',
+        'sponsor_img'    => '',
+        'sponsor_url'    => '',
+        'sponsor_name'   => '',
+        'color_primary'  => '',
+        'color_secondary'=> '',
+        'color_bg'       => '',
     ), $atts);
 
     $cup_id = sanitize_key($atts['id']);
     if (!$cup_id) return '<p>No cup ID provided.</p>';
+
+    // Colour theming — same pattern as [lgw_division]
+    $global_theme = get_option('lgw_theme', array());
+    $primary   = sanitize_hex_color($atts['color_primary'])    ?: ($global_theme['color_primary']   ?? '');
+    $secondary = sanitize_hex_color($atts['color_secondary'])  ?: ($global_theme['color_secondary'] ?? '');
+    $bg        = sanitize_hex_color($atts['color_bg'])         ?: ($global_theme['color_bg']        ?? '');
+    $theme_style = '';
+    if ($primary || $secondary || $bg) {
+        $vars = '';
+        if ($primary) {
+            $vars .= '--lgw-navy:'     . $primary . ';';
+            $vars .= '--lgw-navy-mid:' . lgw_theme_lighten($primary, 20) . ';';
+            $vars .= '--lgw-tab-bg:'   . lgw_theme_mix($primary, '#ffffff', 85) . ';';
+        }
+        if ($secondary) {
+            $vars .= '--lgw-gold:'   . $secondary . ';';
+            $vars .= '--lgw-accent:' . $secondary . ';';
+        }
+        if ($bg) {
+            $vars .= '--lgw-bg:'       . $bg . ';';
+            $vars .= '--lgw-bg-alt:'   . lgw_theme_darken($bg, 5) . ';';
+            $vars .= '--lgw-bg-hover:' . lgw_theme_darken($bg, 10) . ';';
+        }
+        $theme_style = '<style>.lgw-cup-wrap[data-cup-id="' . esc_attr($cup_id) . '"]{' . $vars . '}</style>';
+    }
 
     $cup      = get_option('lgw_cup_' . $cup_id, array());
     $title    = !empty($atts['title']) ? $atts['title'] : ($cup['title'] ?? 'Cup');
@@ -229,6 +257,7 @@ function lgw_cup_shortcode($atts) {
     }
 
     ob_start();
+    echo $theme_style;
     ?>
     <div class="lgw-cup-wrap" data-cup-id="<?php echo esc_attr($cup_id); ?>"
          data-draw-version="<?php echo esc_attr($version); ?>"

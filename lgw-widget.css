@@ -1,7 +1,12 @@
 /* NIPGL Division Widget CSS - v4.8 */
 
-/* ── CSS Variables on :root for global elements (modal) ─────────────────────── */
-:root{
+/* ── CSS Variables ───────────────────────────────────────────────────────────── */
+/* Declared on both :root (for the modal overlay which is outside .lgw-w)        */
+/* AND on the widget wrappers themselves, so all colours resolve from the widget  */
+/* scope and are immune to WordPress theme colour inheritance.                   */
+:root,
+.lgw-w,
+.lgw-widget-wrap {
   --lgw-bg:         #ffffff;
   --lgw-bg-alt:     #f0f2f8;
   --lgw-bg-hover:   #e6e9f5;
@@ -25,9 +30,11 @@
   --lgw-shadow:     rgba(0,0,0,.10);
 }
 
-/* Dark mode on :root (OS preference, no manual override) */
+/* Dark mode — OS preference, no manual override */
 @media(prefers-color-scheme:dark){
-  :root:not([data-lgw-theme]):not(.lgw-light-root){
+  :root:not([data-lgw-theme]):not(.lgw-light-root),
+  :root:not([data-lgw-theme]):not(.lgw-light-root) .lgw-w,
+  :root:not([data-lgw-theme]):not(.lgw-light-root) .lgw-widget-wrap {
     --lgw-bg:         #1e1e2e;
     --lgw-bg-alt:     #2a2a3e;
     --lgw-bg-hover:   #32324a;
@@ -53,7 +60,9 @@
 }
 
 /* Manual dark override */
-:root[data-lgw-theme="dark"]{
+:root[data-lgw-theme="dark"],
+:root[data-lgw-theme="dark"] .lgw-w,
+:root[data-lgw-theme="dark"] .lgw-widget-wrap {
   --lgw-bg:         #1e1e2e;
   --lgw-bg-alt:     #2a2a3e;
   --lgw-bg-hover:   #32324a;
@@ -77,8 +86,10 @@
   --lgw-shadow:     rgba(0,0,0,.4);
 }
 
-/* Manual light override (force light even on dark OS) */
-:root[data-lgw-theme="light"]{
+/* Manual light override */
+:root[data-lgw-theme="light"],
+:root[data-lgw-theme="light"] .lgw-w,
+:root[data-lgw-theme="light"] .lgw-widget-wrap {
   --lgw-bg:         #ffffff;
   --lgw-bg-alt:     #f0f2f8;
   --lgw-bg-hover:   #e6e9f5;
@@ -108,7 +119,8 @@
 .lgw-title + .lgw-w{border-radius:0 0 6px 6px;margin-top:0}
 
 /* ── Widget shell ────────────────────────────────────────────────────────────── */
-.lgw-w{font-family:'Saira',Arial,sans-serif;width:100%}
+/* Explicitly declare text colour so WordPress theme inheritance can't bleed in */
+.lgw-w{font-family:'Saira',Arial,sans-serif;width:100%;color:var(--lgw-text)}
 .lgw-w *{box-sizing:border-box;margin:0;padding:0}
 
 /* ── Tabs ────────────────────────────────────────────────────────────────────── */
@@ -119,7 +131,7 @@
 .lgw-darkmode-btn:hover{background:var(--lgw-bg-hover)}
 
 /* ── Panels ──────────────────────────────────────────────────────────────────── */
-.lgw-panel{display:none;background:var(--lgw-bg);border-radius:0 0 6px 6px;box-shadow:0 2px 8px var(--lgw-shadow);overflow:hidden}
+.lgw-panel{display:none;background:var(--lgw-bg);color:var(--lgw-text);border-radius:0 0 6px 6px;box-shadow:0 2px 8px var(--lgw-shadow);overflow:hidden}
 .lgw-panel.active{display:block}
 .lgw-status{font-size:13px;color:var(--lgw-text-muted);padding:20px;text-align:center}
 .lgw-status small{display:block;margin-top:8px;font-family:monospace;background:#f8f0f0;padding:8px;border-radius:4px;text-align:left;word-break:break-all}
@@ -133,16 +145,19 @@
 /* ── League table ────────────────────────────────────────────────────────────── */
 .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 table.lg{width:100%;border-collapse:collapse;font-size:13px}
-table.lg th{background:var(--lgw-navy);color:#fff;padding:7px 6px;font-size:11px;font-weight:700;letter-spacing:.05em;white-space:nowrap;text-align:center}
-table.lg th.ct{text-align:left}
-table.lg td{padding:7px 6px;text-align:center;border-bottom:1px solid var(--lgw-border);white-space:nowrap;color:var(--lgw-text);background:var(--lgw-bg)}
-table.lg td.cp{font-weight:700;color:var(--lgw-pos);width:36px;background:var(--lgw-bg)}
-table.lg td.ct{text-align:left;font-weight:600;padding-left:10px;background:var(--lgw-bg)}
-table.lg td.ck{font-weight:700;color:var(--lgw-pts)}
-table.lg tr:nth-child(even) td{background:var(--lgw-bg-alt)}
-table.lg tr:nth-child(even) td.cp,table.lg tr:nth-child(even) td.ct{background:var(--lgw-bg-alt)}
-table.lg tr:hover td{background:var(--lgw-bg-hover)}
-table.lg tr:hover td.cp,table.lg tr:hover td.ct{background:var(--lgw-bg-hover)}
+/* ── League table ────────────────────────────────────────────────────────────── */
+/* Scoped under .lgw-w to raise specificity above typical WP theme rules         */
+/* (.entry-content table td etc) without needing !important                      */
+.lgw-w table.lg th{background:var(--lgw-navy);color:#fff;padding:7px 6px;font-size:11px;font-weight:700;letter-spacing:.05em;white-space:nowrap;text-align:center}
+.lgw-w table.lg th.ct{text-align:left}
+.lgw-w table.lg td{padding:7px 6px;text-align:center;border-bottom:1px solid var(--lgw-border);white-space:nowrap;color:var(--lgw-text);background:var(--lgw-bg)}
+.lgw-w table.lg td.cp{font-weight:700;color:var(--lgw-pos);width:36px;background:var(--lgw-bg)}
+.lgw-w table.lg td.ct{text-align:left;font-weight:600;padding-left:10px;background:var(--lgw-bg);color:var(--lgw-text)}
+.lgw-w table.lg td.ck{font-weight:700;color:var(--lgw-pts)}
+.lgw-w table.lg tr:nth-child(even) td{background:var(--lgw-bg-alt)}
+.lgw-w table.lg tr:nth-child(even) td.cp,.lgw-w table.lg tr:nth-child(even) td.ct{background:var(--lgw-bg-alt)}
+.lgw-w table.lg tr:hover td{background:var(--lgw-bg-hover)}
+.lgw-w table.lg tr:hover td.cp,.lgw-w table.lg tr:hover td.ct{background:var(--lgw-bg-hover)}
 
 /* ── Sponsor bars ────────────────────────────────────────────────────────────── */
 .lgw-widget-wrap{display:block;width:100%;max-width:960px;margin:0 auto;box-sizing:border-box}
@@ -154,23 +169,23 @@ table.lg tr:hover td.cp,table.lg tr:hover td.ct{background:var(--lgw-bg-hover)}
 .lgw-sponsor-img{max-height:60px;max-width:240px;object-fit:contain;display:inline-block}
 
 /* ── Promotion / relegation zones ───────────────────────────────────────────── */
-table.lg tr.row-promote-zone td{background:var(--lgw-promote-bg)}
-table.lg tr.row-promote-zone td.cp,table.lg tr.row-promote-zone td.ct{background:var(--lgw-promote-bg)}
-table.lg tr.row-promote-zone td:first-child{border-left:4px solid var(--lgw-promote)}
-table.lg tr.row-promoted td{background:var(--lgw-promote-cl) !important}
-table.lg tr.row-promoted td:first-child{border-left:4px solid var(--lgw-promote)}
-table.lg tr.row-relegate-zone td{background:var(--lgw-relegate-bg)}
-table.lg tr.row-relegate-zone td.cp,table.lg tr.row-relegate-zone td.ct{background:var(--lgw-relegate-bg)}
-table.lg tr.row-relegate-zone td:first-child{border-left:4px solid var(--lgw-red)}
-table.lg tr.row-relegated td{background:var(--lgw-relegate-cl) !important}
-table.lg tr.row-relegated td:first-child{border-left:4px solid var(--lgw-red)}
-table.lg tr.zone-border-top td{border-top:2px solid var(--lgw-border)}
+.lgw-w table.lg tr.row-promote-zone td{background:var(--lgw-promote-bg)}
+.lgw-w table.lg tr.row-promote-zone td.cp,.lgw-w table.lg tr.row-promote-zone td.ct{background:var(--lgw-promote-bg)}
+.lgw-w table.lg tr.row-promote-zone td:first-child{border-left:4px solid var(--lgw-promote)}
+.lgw-w table.lg tr.row-promoted td{background:var(--lgw-promote-cl) !important}
+.lgw-w table.lg tr.row-promoted td:first-child{border-left:4px solid var(--lgw-promote)}
+.lgw-w table.lg tr.row-relegate-zone td{background:var(--lgw-relegate-bg)}
+.lgw-w table.lg tr.row-relegate-zone td.cp,.lgw-w table.lg tr.row-relegate-zone td.ct{background:var(--lgw-relegate-bg)}
+.lgw-w table.lg tr.row-relegate-zone td:first-child{border-left:4px solid var(--lgw-red)}
+.lgw-w table.lg tr.row-relegated td{background:var(--lgw-relegate-cl) !important}
+.lgw-w table.lg tr.row-relegated td:first-child{border-left:4px solid var(--lgw-red)}
+.lgw-w table.lg tr.zone-border-top td{border-top:2px solid var(--lgw-border)}
 
 /* Accessibility symbols */
-table.lg tr.row-promote-zone td.cp::before,
-table.lg tr.row-promoted td.cp::before{content:'▲ ';font-size:9px;color:var(--lgw-promote)}
-table.lg tr.row-relegate-zone td.cp::before,
-table.lg tr.row-relegated td.cp::before{content:'▼ ';font-size:9px;color:var(--lgw-red)}
+.lgw-w table.lg tr.row-promote-zone td.cp::before,
+.lgw-w table.lg tr.row-promoted td.cp::before{content:'▲ ';font-size:9px;color:var(--lgw-promote)}
+.lgw-w table.lg tr.row-relegate-zone td.cp::before,
+.lgw-w table.lg tr.row-relegated td.cp::before{content:'▼ ';font-size:9px;color:var(--lgw-red)}
 
 /* ── Legend ──────────────────────────────────────────────────────────────────── */
 .lg-legend{display:flex;gap:16px;padding:8px 10px;font-size:12px;font-family:'Saira',Arial,sans-serif;color:var(--lgw-text-muted);background:var(--lgw-bg);border-top:1px solid var(--lgw-border)}
@@ -209,27 +224,27 @@ table.lg .lgw-badge{width:20px;height:20px}
 /* ── Mobile table ────────────────────────────────────────────────────────────── */
 @media(max-width:600px){
   /* Sticky pos column */
-  table.lg th.cp,table.lg td.cp{position:sticky;left:0;z-index:2}
-  table.lg th.cp{background:var(--lgw-navy) !important}
+  .lgw-w table.lg th.cp,.lgw-w table.lg td.cp{position:sticky;left:0;z-index:2}
+  .lgw-w table.lg th.cp{background:var(--lgw-navy) !important}
   /* Sticky team column */
-  table.lg th.ct,table.lg td.ct{position:sticky;left:36px;z-index:2}
-  table.lg th.ct{background:var(--lgw-navy) !important}
+  .lgw-w table.lg th.ct,.lgw-w table.lg td.ct{position:sticky;left:36px;z-index:2}
+  .lgw-w table.lg th.ct{background:var(--lgw-navy) !important}
   /* Clipping: hide content scrolling behind sticky columns */
   .tbl-wrap{overflow-x:auto;overflow-y:visible}
-  table.lg th.cp::after,table.lg td.cp::after{content:'';position:absolute;top:0;right:-1px;bottom:0;width:1px;background:var(--lgw-border)}
-  table.lg th.ct::after,table.lg td.ct::after{content:'';position:absolute;top:0;right:-4px;bottom:0;width:4px;background:linear-gradient(to right,var(--lgw-border),transparent)}
+  .lgw-w table.lg th.cp::after,.lgw-w table.lg td.cp::after{content:'';position:absolute;top:0;right:-1px;bottom:0;width:1px;background:var(--lgw-border)}
+  .lgw-w table.lg th.ct::after,.lgw-w table.lg td.ct::after{content:'';position:absolute;top:0;right:-4px;bottom:0;width:4px;background:linear-gradient(to right,var(--lgw-border),transparent)}
   /* Ensure sticky cells always have solid backgrounds matching their row */
-  table.lg td.cp,table.lg td.ct{background:var(--lgw-bg)}
-  table.lg tr:nth-child(even) td.cp,table.lg tr:nth-child(even) td.ct{background:var(--lgw-bg-alt)}
-  table.lg tr:hover td.cp,table.lg tr:hover td.ct{background:var(--lgw-bg-hover)}
-  table.lg tr.row-promote-zone td.cp,table.lg tr.row-promote-zone td.ct{background:var(--lgw-promote-bg) !important}
-  table.lg tr.row-promoted td.cp,table.lg tr.row-promoted td.ct{background:var(--lgw-promote-cl) !important}
-  table.lg tr.row-relegate-zone td.cp,table.lg tr.row-relegate-zone td.ct{background:var(--lgw-relegate-bg) !important}
-  table.lg tr.row-relegated td.cp,table.lg tr.row-relegated td.ct{background:var(--lgw-relegate-cl) !important}
+  .lgw-w table.lg td.cp,.lgw-w table.lg td.ct{background:var(--lgw-bg)}
+  .lgw-w table.lg tr:nth-child(even) td.cp,.lgw-w table.lg tr:nth-child(even) td.ct{background:var(--lgw-bg-alt)}
+  .lgw-w table.lg tr:hover td.cp,.lgw-w table.lg tr:hover td.ct{background:var(--lgw-bg-hover)}
+  .lgw-w table.lg tr.row-promote-zone td.cp,.lgw-w table.lg tr.row-promote-zone td.ct{background:var(--lgw-promote-bg) !important}
+  .lgw-w table.lg tr.row-promoted td.cp,.lgw-w table.lg tr.row-promoted td.ct{background:var(--lgw-promote-cl) !important}
+  .lgw-w table.lg tr.row-relegate-zone td.cp,.lgw-w table.lg tr.row-relegate-zone td.ct{background:var(--lgw-relegate-bg) !important}
+  .lgw-w table.lg tr.row-relegated td.cp,.lgw-w table.lg tr.row-relegated td.ct{background:var(--lgw-relegate-cl) !important}
   /* Badge stacking in team column */
-  table.lg td.ct{display:flex;flex-direction:column;align-items:flex-start;gap:2px;white-space:normal;min-width:90px;max-width:130px}
-  table.lg td.ct .lgw-badge{margin-right:0;width:22px;height:22px}
-  table.lg th.ct{min-width:100px}
+  .lgw-w table.lg td.ct{display:flex;flex-direction:column;align-items:flex-start;gap:2px;white-space:normal;min-width:90px;max-width:130px}
+  .lgw-w table.lg td.ct .lgw-badge{margin-right:0;width:22px;height:22px}
+  .lgw-w table.lg th.ct{min-width:100px}
   /* Fixture rows on mobile */
   .fx-h,.fx-a{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:12px}
   .fx-a{align-items:flex-start}

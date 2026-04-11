@@ -1,4 +1,4 @@
-/* LGW Calendar Widget JS - v7.1.16 */
+/* LGW Calendar Widget JS - v7.1.17 */
 (function () {
   'use strict';
 
@@ -262,7 +262,7 @@
   var VIEW_KEY = 'lgw_cal_view';
   function getViewPref() {
     try { var v = localStorage.getItem(VIEW_KEY); if (v === 'table' || v === 'list') return v; } catch(e) {}
-    return 'list';
+    return 'table';
   }
   function setViewPref(v) { try { localStorage.setItem(VIEW_KEY, v); } catch(e) {} }
 

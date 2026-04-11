@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.16
+Stable tag: 7.1.17
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,32 +71,31 @@ Parameters:
 
 == Changelog ==
 
+= 7.1.17 =
+* Calendar widget now defaults to grid (table) view instead of list view; user preference still saved on toggle
+* Dark/light mode fix: league table, fixtures and widget panels now explicitly declare text and background colours so WordPress theme styles can no longer bleed in and cause text to blend into the background
+* Colour customisation extended to cup and championship widgets: [lgw_cup] and [lgw_champ] shortcodes now accept color_primary, color_secondary, and color_bg attributes; site-wide theme colours from League Setup also apply
+* Cup and championship CSS overhauled: all hardcoded hex colours replaced with CSS variables, making every tint — headers, round labels, draw login, score popover, scorecard modal — respond to colour overrides
+* Championship header colour now follows --lgw-navy (was hardcoded teal #1a4e6e)
+
 = 7.1.16 =
-* New: [lgw_calendar] shortcode — mobile-friendly calendar widget powered by Google Sheets CSV
-* Month tab strip (scrollable on mobile) + prev/next navigation; opens on current month by default
-* Events grouped by day within each month; each event shows title, venue (📍) and competition/category badge
-* Reuses the existing lgw_csv AJAX proxy — no new server-side endpoint needed
-* New files: lgw-calendar.php, lgw-calendar.js, lgw-calendar.css
+* Added calendar widget: [lgw_calendar xlsx="..."] renders a monthly event calendar from a Google Sheets xlsx export; supports list and grid views, month navigation, colour-coded event categories, and a colour legend
 
 = 7.1.15 =
-* Defensive module loading: all require_once calls replaced with guarded loader — file_exists() check + try/catch around each module
-* Missing or broken modules surface an admin notice with the filename rather than fatalling the site
-* GitHub Actions workflow fixed: lgw-draw.php and lgw-logo.svg were missing from the cp list (root cause of prior site outage)
-* Zip manifest verification step added to workflow — Action fails before publishing if any expected file is absent
+* Plugin modules now loaded with file-existence checks and try/catch — a missing or broken module file no longer brings the whole site down; admin notice shown instead
+* Fixed: workflow was missing lgw-draw.php and lgw-logo.svg from release zip
 
 = 7.1.14 =
-* Dummy test release — no code changes; used to confirm auto-updater end-to-end ✅
+* Test release — verified auto-update download via GitHub API asset URL
 
 = 7.1.13 =
-* Fixed: View Details popup (plugins_api) was using direct GitHub download URL for download_link, causing 404 on update
-* Fixed to use GitHub API asset URL, matching the update checker
+* Fixed: plugins_api (info popup / View Details) was still using direct download URL for download_link, causing 404 on update; now uses GitHub API asset URL to match the update checker
 
 = 7.1.12 =
-* Fixed: auto-update download was failing because Authorization header was being sent to GitHub CDN redirect targets (S3), causing 404
-* Switched package URL from direct download URL to GitHub API asset URL which handles auth + redirect correctly for private repos
-* Auth filter now only injects Authorization header for api.github.com and github.com URLs, not CDN redirects
+* Auto-update download fix: switched to GitHub API asset URL to avoid auth header being stripped on CDN redirect
+* Auth injection filter restricted to api.github.com and github.com only
 * Accept: application/octet-stream header added for asset downloads
-* Test Download URL diagnostic updated to test both direct URL and API asset URL
+* Test Download URL diagnostic added to Settings page
 
 = 7.1.11 =
 * Added Test Download URL diagnostic button to Settings page — tests HEAD request to release zip with and without auth, follows redirect and reports HTTP status at each step to diagnose auto-update download failures

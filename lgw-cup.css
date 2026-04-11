@@ -1,4 +1,4 @@
-/* NIPGL Cup Bracket CSS - v6.0.7 */
+/* LGW Cup Bracket CSS - v7.1.17 */
 
 /* ── Default light-mode CSS variables ──────────────────────────────────────── */
 /* These mirror the division widget defaults so the cup widget looks correct    */
@@ -10,6 +10,7 @@
   --lgw-border:      #d0d5e8;
   --lgw-navy:        #1a2e5a;
   --lgw-navy-mid:    #243d78;
+  --lgw-red:         #c0202a;
   --lgw-gold:        #e8b400;
   --lgw-text:        #1a1a1a;
   --lgw-text-muted:  #666666;
@@ -33,7 +34,7 @@
 
 /* ── Header ──────────────────────────────────────────────────────────────────── */
 .lgw-cup-header {
-  background: #c0202a;
+  background: var(--lgw-red, #c0202a);
   color: #fff;
   padding: 14px 20px;
   display: flex;
@@ -128,10 +129,10 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .08em;
-  color: #1a2e5a;
+  color: var(--lgw-navy, #1a2e5a);
   padding: 6px 8px 6px;
   text-align: center;
-  background: #e8b400;
+  background: var(--lgw-gold, #e8b400);
   border-radius: 4px 4px 0 0;
   margin: 0 8px 6px;
 }
@@ -139,7 +140,7 @@
   display: block;
   font-size: 10px;
   font-weight: 600;
-  color: #1a2e5a;
+  color: var(--lgw-navy, #1a2e5a);
   letter-spacing: 0;
   text-transform: none;
   margin-top: 2px;
@@ -277,8 +278,8 @@
   box-shadow: 0 2px 12px rgba(232,180,0,.2);
 }
 .lgw-cup-round-final .lgw-cup-round-header {
-  background: #1a2e5a;
-  color: #e8b400;
+  background: var(--lgw-navy, #1a2e5a);
+  color: var(--lgw-gold, #e8b400);
 }
 
 /* ── Trophy / winner card ────────────────────────────────────────────────────── */
@@ -382,24 +383,24 @@
 .lgw-cup-draw-login-title {
   font-size: 16px;
   font-weight: 700;
-  color: #1a2e5a;
+  color: var(--lgw-navy, #1a2e5a);
   margin-bottom: 8px;
 }
 .lgw-cup-draw-login-input {
   width: 100%;
   padding: 9px 12px;
-  border: 1px solid #d0d5e8;
+  border: 1px solid var(--lgw-border, #d0d5e8);
   border-radius: 6px;
   font-size: 14px;
   font-family: inherit;
-  color: #1a1a1a;
-  background: #fff;
+  color: var(--lgw-text, #1a1a1a);
+  background: var(--lgw-bg, #fff);
   margin-bottom: 12px;
   box-sizing: border-box;
 }
 .lgw-cup-draw-login-input:focus {
   outline: none;
-  border-color: #1a2e5a;
+  border-color: var(--lgw-navy, #1a2e5a);
 }
 .lgw-cup-draw-login-actions {
   display: flex;
@@ -408,7 +409,7 @@
 .lgw-cup-draw-login-submit {
   flex: 1;
   padding: 9px;
-  background: #1a2e5a;
+  background: var(--lgw-navy, #1a2e5a);
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -430,7 +431,7 @@
 }
 .lgw-cup-draw-login-msg {
   font-size: 12px;
-  color: #c0202a;
+  color: var(--lgw-red, #c0202a);
   margin-top: 8px;
   min-height: 16px;
 }
@@ -524,7 +525,7 @@
 .lgw-cup-draw-skip-btn {
   padding: 12px 32px;
   background: var(--lgw-gold, #e8b400);
-  color: #1a2e5a;
+  color: var(--lgw-navy, #1a2e5a);
   border: none;
   border-radius: 7px;
   font-size: 15px;
@@ -625,7 +626,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #1a1a1a;
+  color: var(--lgw-text, #1a1a1a);
 }
 .lgw-cup-score-pop-input {
   width: 52px;
@@ -636,13 +637,13 @@
   font-weight: 700;
   font-family: inherit;
   text-align: center;
-  color: #1a1a1a;
-  background: #fff;
+  color: var(--lgw-text, #1a1a1a);
+  background: var(--lgw-bg, #fff);
 }
 .lgw-cup-score-pop-input:focus {
   outline: none;
   border-color: var(--lgw-navy, #1a2e5a);
-  background: #fff;
+  background: var(--lgw-bg, #fff);
 }
 .lgw-cup-score-pop-actions {
   display: flex;
@@ -674,7 +675,7 @@
 }
 .lgw-cup-score-pop-msg {
   font-size: 11px;
-  color: #c0202a;
+  color: var(--lgw-red, #c0202a);
   margin-top: 5px;
   min-height: 14px;
 }
@@ -713,7 +714,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 18px;
-  background: #c0202a;
+  background: var(--lgw-red, #c0202a);
   color: #fff;
   flex-shrink: 0;
 }
@@ -737,7 +738,7 @@
   padding: 16px 18px;
 }
 .lgw-cup-sc-loading, .lgw-cup-sc-none {
-  color: #666;
+  color: var(--lgw-text-muted, #666);
   font-size: 14px;
   text-align: center;
   padding: 24px 0;
@@ -746,14 +747,14 @@
   display: flex;
   gap: 16px;
   font-size: 12px;
-  color: #555;
+  color: var(--lgw-text-muted, #555);
   margin-bottom: 6px;
 }
 .lgw-cup-sc-conf {
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 12px;
-  color: #1a2e5a;
+  color: var(--lgw-navy, #1a2e5a);
 }
 .lgw-cup-sc-table {
   width: 100%;
@@ -761,7 +762,7 @@
   font-size: 12px;
 }
 .lgw-cup-sc-table th {
-  background: #1a2e5a;
+  background: var(--lgw-navy, #1a2e5a);
   color: #fff;
   padding: 6px 8px;
   font-weight: 700;
@@ -769,21 +770,21 @@
 }
 .lgw-cup-sc-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid #e8eaf0;
+  border-bottom: 1px solid var(--lgw-border, #e8eaf0);
   vertical-align: middle;
 }
 .lgw-cup-sc-table tfoot td {
-  background: #f0f2f8;
+  background: var(--lgw-bg-alt, #f0f2f8);
   font-weight: 700;
-  border-top: 2px solid #1a2e5a;
+  border-top: 2px solid var(--lgw-navy, #1a2e5a);
   border-bottom: none;
 }
 .lgw-cup-sc-rink {
-  color: #999;
+  color: var(--lgw-text-muted, #999);
   font-size: 11px;
   white-space: nowrap;
 }
-.lgw-cup-sc-players { color: #1a1a1a; }
+.lgw-cup-sc-players { color: var(--lgw-text, #1a1a1a); }
 .lgw-cup-sc-score {
   text-align: center;
   font-weight: 700;
@@ -791,7 +792,7 @@
   width: 40px;
 }
 .lgw-cup-sc-score.win { color: #1a5c1a; }
-.lgw-cup-sc-vs { text-align: center; color: #999; font-size: 11px; }
+.lgw-cup-sc-vs { text-align: center; color: var(--lgw-text-muted, #999); font-size: 11px; }
 .lgw-cup-sc-total-lbl { color: #666; font-size: 11px; }
 
 /* ── Print styles ─────────────────────────────────────────────────────────────── */
