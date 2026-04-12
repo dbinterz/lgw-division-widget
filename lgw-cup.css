@@ -373,7 +373,8 @@
   font-family: 'Saira', Arial, sans-serif;
 }
 .lgw-cup-draw-login-box {
-  background: #fff;
+  background: var(--lgw-bg, #fff);
+  color: var(--lgw-text, #1a1a1a);
   border-radius: 12px;
   padding: 28px 32px 24px;
   width: 320px;
@@ -597,7 +598,8 @@
 .lgw-cup-score-popover {
   position: absolute;
   z-index: 9999;
-  background: #fff;
+  background: var(--lgw-bg, #fff);
+  color: var(--lgw-text, #1a1a1a);
   border: 1px solid var(--lgw-border, #d0d5e8);
   border-radius: 9px;
   box-shadow: 0 6px 24px rgba(0,0,0,.18);
@@ -673,6 +675,19 @@
   cursor: pointer;
   color: var(--lgw-text-muted, #666);
 }
+.lgw-cup-score-pop-reset {
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid var(--lgw-red, #c0202a);
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--lgw-red, #c0202a);
+  margin-left: auto;
+}
+.lgw-cup-score-pop-reset:hover { background: var(--lgw-red, #c0202a); color: #fff; }
+.lgw-cup-score-pop-reset:disabled { opacity: .6; cursor: default; }
 .lgw-cup-score-pop-msg {
   font-size: 11px;
   color: var(--lgw-red, #c0202a);
@@ -699,7 +714,8 @@
   padding: 16px;
 }
 .lgw-cup-sc-modal-box {
-  background: #fff;
+  background: var(--lgw-bg, #fff);
+  color: var(--lgw-text, #1a1a1a);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,.25);
   max-width: 700px;

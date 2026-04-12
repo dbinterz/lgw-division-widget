@@ -1,0 +1,485 @@
+/* LGW Finals Week Widget CSS - v7.1.21 */
+
+/* ── Wrapper ─────────────────────────────────────────────────────────────── */
+/* Force light theme by default — dense fixture data reads best on white.    */
+/* Dark mode only activates on explicit manual toggle (data-lgw-theme=dark). */
+.lgw-finals-wrap {
+  font-family: 'Saira', Arial, sans-serif;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  /* Light theme vars — always applied; dark overrides below for manual toggle */
+  --lgw-bg:         #ffffff;
+  --lgw-bg-alt:     #f0f2f8;
+  --lgw-bg-hover:   #e6e9f5;
+  --lgw-border:     #d0d5e8;
+  --lgw-navy:       #1a2e5a;
+  --lgw-navy-mid:   #243d78;
+  --lgw-red:        #c0202a;
+  --lgw-gold:       #e8b400;
+  --lgw-text:       #1a1a1a;
+  --lgw-text-muted: #666666;
+  --lgw-win:        #2a7a2a;
+  --lgw-shadow:     rgba(0,0,0,.10);
+  --lgw-live-bg:    #fff8f0;
+  --lgw-live-border:#e06000;
+  color: var(--lgw-text);
+  background: var(--lgw-bg);
+}
+.lgw-finals-wrap * { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Heading ─────────────────────────────────────────────────────────────── */
+.lgw-finals-heading {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--lgw-navy);
+  padding: 10px 16px;
+  border-radius: 6px 6px 0 0;
+  letter-spacing: .03em;
+}
+
+/* ── Championship block ──────────────────────────────────────────────────── */
+.lgw-finals-champ {
+  border: 1px solid var(--lgw-border);
+  border-top: none;
+  background: var(--lgw-bg);
+}
+.lgw-finals-champ:last-child { border-radius: 0 0 6px 6px; }
+
+.lgw-finals-champ-header {
+  background: var(--lgw-bg-alt);
+  border-bottom: 1px solid var(--lgw-border);
+  padding: 8px 14px;
+}
+.lgw-finals-champ-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--lgw-navy);
+}
+
+/* ── Round ───────────────────────────────────────────────────────────────── */
+.lgw-finals-round-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--lgw-red);
+  padding: 5px 14px;
+}
+
+/* ── Match card ──────────────────────────────────────────────────────────── */
+.lgw-finals-match {
+  border-bottom: 1px solid var(--lgw-border);
+  padding: 12px 14px;
+  background: var(--lgw-bg);
+  transition: background .15s;
+}
+.lgw-finals-match:last-child { border-bottom: none; }
+.lgw-finals-match:nth-child(even) { background: var(--lgw-bg-alt); }
+
+.lgw-finals-match--live {
+  border-left: 4px solid #e05060;
+  background: #fff8f8 !important;
+}
+.lgw-finals-match--complete {
+  border-left: 4px solid var(--lgw-win);
+}
+.lgw-finals-match--upcoming {
+  border-left: 4px solid transparent;
+}
+
+/* ── Datetime ────────────────────────────────────────────────────────────── */
+.lgw-finals-datetime {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.lgw-finals-datetime-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lgw-text-muted);
+}
+.lgw-finals-datetime--unset .lgw-finals-edit-dt {
+  font-size: 12px;
+  color: var(--lgw-text-muted);
+  background: none;
+  border: 1px dashed var(--lgw-border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.lgw-finals-edit-dt {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 13px;
+  opacity: .5;
+  transition: opacity .15s;
+}
+.lgw-finals-edit-dt:hover { opacity: 1; }
+
+/* ── Teams row ───────────────────────────────────────────────────────────── */
+.lgw-finals-teams {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+.lgw-finals-teams--pending {
+  color: var(--lgw-text-muted);
+  font-style: italic;
+  justify-items: center;
+}
+
+.lgw-finals-team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--lgw-text);
+}
+.lgw-finals-team--away {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+.lgw-finals-badge {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.lgw-finals-team-name {
+  line-height: 1.3;
+}
+.lgw-finals-tbd {
+  font-size: 13px;
+  color: var(--lgw-text-muted);
+}
+.lgw-finals-vs {
+  font-size: 12px;
+  color: var(--lgw-text-muted);
+  font-weight: 400;
+}
+
+/* ── Score block ─────────────────────────────────────────────────────────── */
+.lgw-finals-score-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 90px;
+}
+.lgw-finals-score {
+  font-size: 22px;
+  font-weight: 800;
+  min-width: 28px;
+  text-align: center;
+  line-height: 1;
+  color: var(--lgw-text-muted);
+}
+.lgw-finals-score--win { color: var(--lgw-navy); }
+.lgw-finals-score--live { color: var(--lgw-red); }
+.lgw-finals-score-sep {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--lgw-text-muted);
+  padding: 0 2px;
+}
+.lgw-finals-score-placeholder {
+  font-size: 16px;
+  color: var(--lgw-text-muted);
+  font-weight: 400;
+}
+.lgw-finals-live-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  background: #e05060;
+  color: #fff;
+  border-radius: 3px;
+  padding: 2px 5px;
+  animation: lgw-finals-pulse 1.4s infinite;
+}
+@keyframes lgw-finals-pulse {
+  0%,100% { opacity: 1; }
+  50%      { opacity: .5; }
+}
+.lgw-finals-edit-score {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 13px;
+  opacity: .4;
+  transition: opacity .15s;
+  margin-left: 4px;
+}
+.lgw-finals-edit-score:hover { opacity: 1; }
+
+/* ── Ends section ────────────────────────────────────────────────────────── */
+.lgw-finals-ends {
+  margin-top: 10px;
+  border-top: 1px solid var(--lgw-border);
+  padding-top: 8px;
+}
+.lgw-finals-ends-empty {
+  padding: 4px 0;
+}
+
+/* ── Ends toggle header (collapsible) ────────────────────────────────────── */
+.lgw-finals-ends-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 4px 0 6px;
+  user-select: none;
+}
+.lgw-finals-ends-hdr-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--lgw-text-muted);
+}
+.lgw-finals-ends-hdr-toggle {
+  font-size: 11px;
+  color: var(--lgw-text-muted);
+  transition: transform .2s;
+}
+.lgw-finals-ends-hdr-toggle.collapsed { transform: rotate(-90deg); }
+
+/* ── Ends body (scrollable) ──────────────────────────────────────────────── */
+.lgw-finals-ends-body {
+  max-height: 320px;
+  overflow-y: auto;
+  transition: max-height .25s ease, opacity .2s;
+  opacity: 1;
+}
+.lgw-finals-ends-body.hidden {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+.lgw-finals-ends-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: 'Saira', Arial, sans-serif;
+}
+.lgw-finals-ends-th {
+  background: var(--lgw-navy);
+  color: #fff;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+.lgw-finals-ends-th--end {
+  text-align: center;
+  width: 50px;
+}
+.lgw-finals-ends-th--name { text-align: left; }
+.lgw-finals-ends-th--right { text-align: right; }
+
+.lgw-finals-ends-td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--lgw-border);
+  color: var(--lgw-text);
+}
+.lgw-finals-ends-td--end { text-align: center; color: var(--lgw-text-muted); font-size: 11px; }
+.lgw-finals-ends-td--score { text-align: left; font-weight: 700; }
+.lgw-finals-ends-td--right { text-align: right; }
+.lgw-finals-ends-td--total {
+  font-weight: 800;
+  font-size: 13px;
+  background: var(--lgw-bg-alt);
+  border-top: 2px solid var(--lgw-border);
+  border-bottom: none;
+}
+.lgw-finals-ends-td.win { color: var(--lgw-win); }
+
+.lgw-finals-ends-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.lgw-finals-add-end-btn,
+.lgw-finals-del-end-btn {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 5px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--lgw-border);
+  cursor: pointer;
+  background: var(--lgw-bg);
+  color: var(--lgw-navy);
+  transition: background .15s;
+}
+.lgw-finals-add-end-btn:hover { background: var(--lgw-navy); color: #fff; border-color: var(--lgw-navy); }
+.lgw-finals-del-end-btn { color: var(--lgw-red); border-color: var(--lgw-red); }
+.lgw-finals-del-end-btn:hover { background: var(--lgw-red); color: #fff; }
+.lgw-finals-complete-btn {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 5px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--lgw-win);
+  cursor: pointer;
+  background: var(--lgw-win);
+  color: #fff;
+  margin-left: auto;
+  transition: opacity .15s;
+}
+.lgw-finals-complete-btn:hover { opacity: .85; }
+
+/* ── Popover ─────────────────────────────────────────────────────────────── */
+.lgw-finals-pop {
+  position: absolute;
+  z-index: 99999;
+  background: var(--lgw-bg, #fff);
+  color: var(--lgw-text, #1a1a1a);
+  border: 1px solid var(--lgw-border, #d0d5e8);
+  border-radius: 9px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  padding: 14px 16px 12px;
+  min-width: 260px;
+  font-family: 'Saira', Arial, sans-serif;
+}
+.lgw-finals-pop-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--lgw-navy, #1a2e5a);
+  margin-bottom: 4px;
+}
+.lgw-finals-pop-subtitle {
+  font-size: 12px;
+  color: var(--lgw-text-muted, #666);
+  margin-bottom: 10px;
+}
+.lgw-finals-pop-row {
+  margin-bottom: 10px;
+}
+.lgw-finals-pop-row--ends {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lgw-finals-pop-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--lgw-border, #d0d5e8);
+  border-radius: 5px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--lgw-text, #1a1a1a);
+  background: var(--lgw-bg, #fff);
+}
+.lgw-finals-pop-input--end {
+  width: 60px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 16px;
+}
+.lgw-finals-pop-input:focus { outline: none; border-color: var(--lgw-navy, #1a2e5a); }
+.lgw-finals-pop-vs {
+  font-size: 16px;
+  color: var(--lgw-text-muted, #666);
+  flex-shrink: 0;
+}
+.lgw-finals-pop-end-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lgw-text-muted, #666);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lgw-finals-pop-end-label--right { text-align: right; }
+.lgw-finals-pop-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.lgw-finals-pop-save {
+  flex: 1;
+  padding: 8px;
+  background: var(--lgw-navy, #1a2e5a);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+.lgw-finals-pop-save:hover { opacity: .9; }
+.lgw-finals-pop-cancel {
+  padding: 8px 12px;
+  background: none;
+  border: 1px solid var(--lgw-border, #d0d5e8);
+  border-radius: 5px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--lgw-text-muted, #666);
+}
+.lgw-finals-pop-clear {
+  padding: 8px 10px;
+  background: none;
+  border: 1px solid var(--lgw-red, #c0202a);
+  border-radius: 5px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--lgw-red, #c0202a);
+  margin-left: auto;
+}
+.lgw-finals-pop-clear:hover { background: var(--lgw-red, #c0202a); color: #fff; }
+.lgw-finals-pop-msg {
+  font-size: 11px;
+  color: var(--lgw-red, #c0202a);
+  margin-top: 6px;
+  min-height: 14px;
+}
+
+/* ── Dark mode — only on explicit manual toggle, not OS preference ───────── */
+:root[data-lgw-theme="dark"] .lgw-finals-wrap {
+  --lgw-bg:         #1e1e2e;
+  --lgw-bg-alt:     #2a2a3e;
+  --lgw-bg-hover:   #32324a;
+  --lgw-border:     #3a3a55;
+  --lgw-navy:       #4a6fa5;
+  --lgw-text:       #e8e8f0;
+  --lgw-text-muted: #aaaacc;
+  --lgw-win:        #4aaa4a;
+  --lgw-red:        #e05060;
+  --lgw-live-bg:    #2a1e10;
+  --lgw-live-border:#e06000;
+}
+.lgw-finals-match--live {
+  border-left-color: var(--lgw-live-border) !important;
+  background: var(--lgw-live-bg) !important;
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .lgw-finals-team { font-size: 12px; gap: 5px; }
+  .lgw-finals-badge { width: 22px; height: 22px; }
+  .lgw-finals-score { font-size: 18px; }
+  .lgw-finals-teams { grid-template-columns: 1fr auto 1fr; gap: 4px; }
+  .lgw-finals-ends-th, .lgw-finals-ends-td { padding: 3px 5px; font-size: 11px; }
+}

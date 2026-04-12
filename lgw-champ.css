@@ -386,7 +386,8 @@
   font-family: 'Saira', Arial, sans-serif;
 }
 .lgw-champ-draw-login-box {
-  background: #fff;
+  background: var(--lgw-bg, #fff);
+  color: var(--lgw-text, #1a1a1a);
   border-radius: 12px;
   padding: 28px 32px 24px;
   width: 320px;
@@ -610,7 +611,8 @@
 .lgw-champ-score-popover {
   position: absolute;
   z-index: 9999;
-  background: #fff;
+  background: var(--lgw-bg, #fff);
+  color: var(--lgw-text, #1a1a1a);
   border: 1px solid var(--lgw-border, #d0d5e8);
   border-radius: 9px;
   box-shadow: 0 6px 24px rgba(0,0,0,.18);
@@ -686,6 +688,19 @@
   cursor: pointer;
   color: var(--lgw-text-muted, #666);
 }
+.lgw-champ-score-pop-reset {
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid var(--lgw-red, #c0202a);
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--lgw-red, #c0202a);
+  margin-left: auto;
+}
+.lgw-champ-score-pop-reset:hover { background: var(--lgw-red, #c0202a); color: #fff; }
+.lgw-champ-score-pop-reset:disabled { opacity: .6; cursor: default; }
 .lgw-champ-score-pop-msg {
   font-size: 11px;
   color: var(--lgw-red, #c0202a);
@@ -712,7 +727,8 @@
   padding: 16px;
 }
 .lgw-champ-sc-modal-box {
-  background: #fff;
+  background: var(--lgw-bg, #fff);
+  color: var(--lgw-text, #1a1a1a);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,.25);
   max-width: 700px;
@@ -1020,5 +1036,154 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-lgw-theme]):not([data-lgw-theme="light"]) .lgw-champ-draw-overlay {
     background: rgba(5,8,20,.9);
+  }
+}
+
+/* ── [lgw_finalists] shortcode ───────────────────────────────────────────────── */
+.lgw-finalists-wrap {
+  font-family: 'Saira', Arial, sans-serif;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  color: var(--lgw-text, #1a1a1a);
+}
+
+.lgw-finalists-heading {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--lgw-navy, #1a2e5a);
+  padding: 10px 16px;
+  border-radius: 6px 6px 0 0;
+  letter-spacing: .03em;
+}
+
+.lgw-finalists-champ {
+  border: 1px solid var(--lgw-border, #d0d5e8);
+  border-top: none;
+  background: var(--lgw-bg, #fff);
+}
+.lgw-finalists-champ:last-child {
+  border-radius: 0 0 6px 6px;
+}
+
+.lgw-finalists-champ-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--lgw-border, #d0d5e8);
+  background: var(--lgw-bg-alt, #f0f2f8);
+}
+
+.lgw-finalists-champ-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--lgw-navy, #1a2e5a);
+}
+
+.lgw-finalists-champ-stage {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--lgw-text-muted, #666);
+  white-space: nowrap;
+}
+
+.lgw-finalists-entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 14px;
+  align-items: flex-start;
+}
+
+.lgw-finalists-section-label {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--lgw-text-muted, #888);
+  padding: 4px 0 2px;
+  margin-top: 4px;
+  border-top: 1px solid var(--lgw-border, #d0d5e8);
+}
+.lgw-finalists-section-label:first-child {
+  margin-top: 0;
+  border-top: none;
+}
+
+.lgw-finalists-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--lgw-bg-alt, #f0f2f8);
+  border: 1px solid var(--lgw-border, #d0d5e8);
+  border-radius: 5px;
+  min-width: 200px;
+  flex: 1 1 200px;
+  max-width: calc(50% - 4px);
+  box-sizing: border-box;
+}
+
+.lgw-finalists-badge {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.lgw-finalists-badge-placeholder {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--lgw-border, #d0d5e8);
+  flex-shrink: 0;
+}
+
+.lgw-finalists-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lgw-text, #1a1a1a);
+  line-height: 1.3;
+  flex: 1;
+}
+
+.lgw-finalists-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--lgw-text-muted, #888);
+  white-space: nowrap;
+}
+
+.lgw-finalists-pending,
+.lgw-finalists-pending-partial {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--lgw-text-muted, #888);
+  font-style: italic;
+}
+.lgw-finalists-pending-partial {
+  width: 100%;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--lgw-border, #d0d5e8);
+  margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+  .lgw-finalists-entry {
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+  .lgw-finalists-champ-header {
+    flex-direction: column;
+    gap: 2px;
   }
 }

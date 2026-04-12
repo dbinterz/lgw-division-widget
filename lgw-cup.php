@@ -8,7 +8,9 @@
 add_action('wp_enqueue_scripts', 'lgw_cup_enqueue');
 function lgw_cup_enqueue() {
     global $post;
-    if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'lgw_cup')) return;
+    if (!is_singular() || !is_a($post, 'WP_Post')) return;
+    $content = $post->post_content . ' ' . get_the_content(null, false, $post);
+    if (!has_shortcode($content, 'lgw_cup')) return;
     wp_enqueue_style('lgw-saira',  'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
     wp_enqueue_style('lgw-widget', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-widget.css', array('lgw-saira'), LGW_VERSION);
     wp_enqueue_style('lgw-cup',    plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-cup.css',    array('lgw-widget'), LGW_VERSION);
@@ -145,6 +147,11 @@ function lgw_ajax_cup_save_score() {
             $bracket['matches'][$next_round][$next_match][$next_slot]           = $winner;
             $bracket['matches'][$next_round][$next_match][$next_slot . '_score'] = null;
         }
+    }
+
+    // Reset: if both scores cleared, cascade through all downstream rounds
+    if ($home_score === null && $away_score === null) {
+        lgw_cup_cascade_reset($bracket, $round_idx, $match_idx);
     }
 
     update_option('lgw_cup_' . $cup_id, $cup);
@@ -463,6 +470,28 @@ function lgw_ajax_cup_perform_draw() {
  * @param array  $cup  Full cup option array
  * @return true|WP_Error
  */
+/**
+ * Recursively clear a match's winner from all subsequent rounds.
+ * Cup brackets use floor(match_idx/2) mapping (no prev_game annotations).
+ */
+function lgw_cup_cascade_reset(&$bracket, $round_idx, $match_idx) {
+    $all_matches = &$bracket['matches'];
+    $next_round  = $round_idx + 1;
+    if (!isset($all_matches[$next_round])) return;
+
+    $next_match = intval(floor($match_idx / 2));
+    $next_slot  = $match_idx % 2 === 0 ? 'home' : 'away';
+    if (!isset($all_matches[$next_round][$next_match])) return;
+
+    $all_matches[$next_round][$next_match][$next_slot]            = null;
+    $all_matches[$next_round][$next_match][$next_slot . '_score'] = null;
+    // Also clear the other team's score since a valid result needs both teams
+    $other_score = $next_slot === 'home' ? 'away_score' : 'home_score';
+    $all_matches[$next_round][$next_match][$other_score] = null;
+
+    lgw_cup_cascade_reset($bracket, $next_round, $next_match);
+}
+
 function lgw_cup_perform_draw($cup_id, $cup) {
     $entries = array_values(array_filter(array_map('trim', $cup['entries'] ?? array())));
     if (count($entries) < 2) return new WP_Error('too_few', 'At least 2 entries required.');

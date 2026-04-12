@@ -16,7 +16,10 @@
 add_action('wp_enqueue_scripts', 'lgw_champ_enqueue');
 function lgw_champ_enqueue() {
     global $post;
-    if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'lgw_champ')) return;
+    if (!is_singular() || !is_a($post, 'WP_Post')) return;
+    // Check raw post_content; also check the filtered content so page builders work
+    $content = $post->post_content . ' ' . get_the_content(null, false, $post);
+    if (!has_shortcode($content, 'lgw_champ') && !has_shortcode($content, 'lgw_finalists')) return;
     wp_enqueue_style('lgw-saira',  'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
     wp_enqueue_style('lgw-widget', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-widget.css', array('lgw-saira'), LGW_VERSION);
     wp_enqueue_style('lgw-champ',  plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-champ.css',  array('lgw-widget'), LGW_VERSION);
@@ -132,8 +135,77 @@ function lgw_ajax_champ_save_score() {
         }
     }
 
+    // Reset: if both scores cleared, cascade-clear all downstream rounds
+    if ($home_score === null && $away_score === null) {
+        lgw_champ_cascade_reset($bracket, $round_idx, $match_idx);
+        // If this is a section bracket, also unseed the final stage so it
+        // can be re-drawn once corrected results are entered.
+        if ($section !== 'final' && isset($champ['final_bracket'])) {
+            unset($champ['final_bracket']);
+        }
+    }
+
     update_option('lgw_champ_' . $champ_id, $champ);
-    wp_send_json_success(array('bracket' => $bracket));
+    wp_send_json_success(array(
+        'bracket'       => $bracket,
+        'final_bracket' => $champ['final_bracket'] ?? null,
+    ));
+}
+
+/**
+ * Recursively clear a match's winner from all subsequent rounds.
+ * Starts at $round_idx/$match_idx and follows the winner slot forward
+ * through every round until there is nothing left to clear.
+ * Uses prev_game_home/prev_game_away annotations where available,
+ * falls back to floor(match_idx/2) for un-annotated brackets.
+ */
+function lgw_champ_cascade_reset(&$bracket, $round_idx, $match_idx) {
+    $all_matches = &$bracket['matches'];
+    $next_round  = $round_idx + 1;
+    if (!isset($all_matches[$next_round])) return;
+
+    $this_game = $all_matches[$round_idx][$match_idx]['game_num'] ?? null;
+    $found_nm  = null;
+    $found_slot = null;
+
+    if ($this_game) {
+        foreach ($all_matches[$next_round] as $nm => &$nm_ref) {
+            if (($nm_ref['prev_game_home'] ?? null) == $this_game) {
+                $nm_ref['home']       = null;
+                $nm_ref['home_score'] = null;
+                $nm_ref['away_score'] = null; // score no longer valid without both teams
+                $found_nm   = $nm;
+                $found_slot = 'home';
+                break;
+            }
+            if (($nm_ref['prev_game_away'] ?? null) == $this_game) {
+                $nm_ref['away']       = null;
+                $nm_ref['away_score'] = null;
+                $nm_ref['home_score'] = null;
+                $found_nm   = $nm;
+                $found_slot = 'away';
+                break;
+            }
+        }
+        unset($nm_ref);
+    }
+
+    // Fallback: floor(match_idx/2) mapping
+    if ($found_nm === null) {
+        $fb_nm   = intval(floor($match_idx / 2));
+        $fb_slot = $match_idx % 2 === 0 ? 'home' : 'away';
+        if (isset($all_matches[$next_round][$fb_nm])) {
+            $all_matches[$next_round][$fb_nm][$fb_slot]            = null;
+            $all_matches[$next_round][$fb_nm][$fb_slot . '_score'] = null;
+            $found_nm   = $fb_nm;
+            $found_slot = $fb_slot;
+        }
+    }
+
+    // Continue cascading if we found the next match
+    if ($found_nm !== null) {
+        lgw_champ_cascade_reset($bracket, $next_round, $found_nm);
+    }
 }
 
 /**
@@ -828,6 +900,7 @@ function lgw_champ_handle_admin_actions() {
         $champ_data = array_merge($existing, array(
             'title'       => sanitize_text_field(wp_unslash($_POST['lgw_champ_title'] ?? '')),
             'discipline'  => sanitize_text_field($_POST['lgw_champ_discipline'] ?? 'singles'),
+            'season'      => sanitize_text_field(wp_unslash($_POST['lgw_champ_season'] ?? '')),
             'entries'     => $entries,
             'sections'    => $sections,
             'dates'       => $dates,
@@ -963,7 +1036,7 @@ function lgw_champs_list_page() {
       <p>No championships yet. <a href="<?php echo admin_url('admin.php?page=lgw-champs&action=new'); ?>">Create one →</a></p>
     <?php else: ?>
     <table class="widefat striped" style="max-width:900px">
-      <thead><tr><th>Title</th><th>Discipline</th><th>Entries</th><th>Sections</th><th>Draw</th><th>Shortcode</th><th></th></tr></thead>
+      <thead><tr><th>Title</th><th>Season</th><th>Discipline</th><th>Entries</th><th>Sections</th><th>Draw</th><th>Shortcode</th><th></th></tr></thead>
       <tbody>
       <?php foreach ($champs as $id => $champ):
         $n_sections = count($champ['sections'] ?? array());
@@ -974,6 +1047,7 @@ function lgw_champs_list_page() {
       ?>
       <tr>
         <td><strong><?php echo esc_html($champ['title'] ?? $id); ?></strong></td>
+        <td><?php echo esc_html($champ['season'] ?? '—'); ?></td>
         <td><?php echo esc_html(ucfirst($champ['discipline'] ?? 'singles')); ?></td>
         <td><?php echo count($champ['entries'] ?? array()); ?></td>
         <td><?php echo $n_sections; ?></td>
@@ -1275,6 +1349,15 @@ function lgw_champ_edit_page($champ_id) {
               <option value="<?php echo $val; ?>" <?php selected($champ['discipline'] ?? 'singles', $val); ?>><?php echo $label; ?></option>
               <?php endforeach; ?>
             </select>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="lgw_champ_season">Season</label></th>
+          <td>
+            <input type="text" id="lgw_champ_season" name="lgw_champ_season"
+                   value="<?php echo esc_attr($champ['season'] ?? ''); ?>"
+                   placeholder="e.g. 2025 or 2025/26" class="regular-text" style="width:160px">
+            <p class="description">Used by <code>[lgw_finalists season="2025"]</code> to group championships.</p>
           </td>
         </tr>
         <tr>
@@ -1877,6 +1960,142 @@ function lgw_champ_shortcode($atts) {
     .lgw-champ-section-pane { display:none; }
     .lgw-champ-section-pane.active { display:block; }
     </style>
+    <?php
+    return ob_get_clean();
+}
+
+// ── [lgw_finalists] shortcode ─────────────────────────────────────────────────
+// Displays all finalists/semi-finalists for a given season across all championships.
+// Usage: [lgw_finalists season="2025"]
+// For each championship in the season:
+//   1 section  → 4 semi-finalists (all reaching Finals Week)
+//   2 sections → 2 finalists per section (4 total)
+//   4 sections → 1 winner per section (4 total)
+add_shortcode('lgw_finalists', 'lgw_finalists_shortcode');
+function lgw_finalists_shortcode($atts) {
+    $atts = shortcode_atts(array(
+        'season' => '',
+        'title'  => '',
+    ), $atts);
+
+    $season = trim($atts['season']);
+    if (!$season) return '<p>No season specified for <code>[lgw_finalists]</code>.</p>';
+
+    // Load all championships
+    global $wpdb;
+    $rows = $wpdb->get_results(
+        "SELECT option_name, option_value FROM {$wpdb->options}
+         WHERE option_name LIKE 'lgw_champ_%' ORDER BY option_name"
+    );
+    $champs = array();
+    foreach ($rows as $row) {
+        $id  = substr($row->option_name, strlen('lgw_champ_'));
+        $val = maybe_unserialize($row->option_value);
+        if (is_array($val) && isset($val['title']) && ($val['season'] ?? '') === $season) {
+            $champs[$id] = $val;
+        }
+    }
+
+    if (empty($champs)) {
+        return '<p>No championships found for season <strong>' . esc_html($season) . '</strong>.</p>';
+    }
+
+    // Badges
+    $club_badges = get_option('lgw_club_badges', array()); // keyed by lowercase club name
+    $team_badges = get_option('lgw_badges',      array()); // keyed by team name
+
+    // Helper: get badge URL for an entry string ("Player, Club")
+    $badge_url = function($entry) use ($club_badges, $team_badges) {
+        // Try team badge first
+        foreach ($team_badges as $team => $url) {
+            if (stripos($entry, $team) !== false) return $url;
+        }
+        // Fall back to club badge
+        $club = strtolower(trim(explode(',', $entry, 2)[1] ?? ''));
+        return $club_badges[$club] ?? '';
+    };
+
+    // Helper: render a single finalist entry
+    $render_entry = function($entry, $label = '') use ($badge_url) {
+        $url  = $badge_url($entry);
+        $img  = $url ? '<img src="' . esc_url($url) . '" alt="" class="lgw-finalists-badge">' : '<span class="lgw-finalists-badge-placeholder"></span>';
+        $name = esc_html($entry);
+        return '<div class="lgw-finalists-entry">'
+             . $img
+             . '<span class="lgw-finalists-name">' . $name . '</span>'
+             . ($label ? '<span class="lgw-finalists-label">' . esc_html($label) . '</span>' : '')
+             . '</div>';
+    };
+
+    ob_start();
+    $heading = $atts['title'] ?: esc_html($season) . ' Finals';
+    ?>
+    <div class="lgw-finalists-wrap">
+      <div class="lgw-finalists-heading"><?php echo esc_html($heading); ?></div>
+      <?php foreach ($champs as $id => $champ):
+        $n_sections  = count($champ['sections'] ?? array());
+        $title       = $champ['title'] ?? $id;
+        $discipline  = ucfirst($champ['discipline'] ?? 'singles');
+
+        // Determine qualifier mode and label
+        if ($n_sections === 1) {
+            // Show 4 semi-finalists
+            $mode        = 'semis';     // q_per_section=4 on single section
+            $q_per_sec   = 4;
+            $stage_label = 'Semi-finalists';
+        } elseif ($n_sections === 2) {
+            // Show both finalists per section (2 × 2 = 4)
+            $mode        = 'finalists';
+            $q_per_sec   = 2;
+            $stage_label = 'Finalists';
+        } else {
+            // 4 sections: show section winner (4 × 1 = 4)
+            $mode        = 'winners';
+            $q_per_sec   = 1;
+            $stage_label = 'Section Winners';
+        }
+
+        // Collect finalists across sections
+        $finalists = array();
+        $pending   = false;
+        foreach (($champ['sections'] ?? array()) as $idx => $sec) {
+            $bracket_key = 'section_' . $idx . '_bracket';
+            $bracket     = $champ[$bracket_key] ?? null;
+            if (!$bracket) { $pending = true; continue; }
+            $q = lgw_champ_get_section_qualifiers($bracket, $q_per_sec);
+            if ($q === null) { $pending = true; continue; }
+            foreach ($q as $entry) {
+                $finalists[] = array('entry' => $entry, 'section' => $sec['label'] ?? ($idx + 1));
+            }
+        }
+        ?>
+        <div class="lgw-finalists-champ">
+          <div class="lgw-finalists-champ-header">
+            <span class="lgw-finalists-champ-title"><?php echo esc_html($title); ?></span>
+            <span class="lgw-finalists-champ-stage"><?php echo esc_html($stage_label); ?></span>
+          </div>
+          <?php if (empty($finalists) && $pending): ?>
+            <div class="lgw-finalists-pending">⏳ Draw not yet complete</div>
+          <?php else: ?>
+          <div class="lgw-finalists-entries">
+            <?php
+            $shown_sections = array();
+            foreach ($finalists as $f):
+                // Show section divider for multi-section comps
+                if ($n_sections > 1 && !in_array($f['section'], $shown_sections)):
+                    $shown_sections[] = $f['section'];
+                    echo '<div class="lgw-finalists-section-label">Section ' . esc_html($f['section']) . '</div>';
+                endif;
+                echo $render_entry($f['entry']);
+            endforeach;
+            if ($pending): ?>
+              <div class="lgw-finalists-pending-partial">⏳ Some results still pending</div>
+            <?php endif; ?>
+          </div>
+          <?php endif; ?>
+        </div>
+      <?php endforeach; ?>
+    </div>
     <?php
     return ob_get_clean();
 }

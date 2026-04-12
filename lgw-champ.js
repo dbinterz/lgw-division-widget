@@ -688,6 +688,8 @@
     var hs = (match.home_score !== null && match.home_score !== undefined) ? match.home_score : '';
     var as = (match.away_score !== null && match.away_score !== undefined) ? match.away_score : '';
 
+    var hasScore = (hs !== '' && as !== '');
+
     var pop = document.createElement('div');
     pop.className = 'lgw-champ-score-popover';
     pop.innerHTML =
@@ -703,6 +705,7 @@
       '<div class="lgw-champ-score-pop-actions">' +
         '<button class="lgw-champ-score-pop-save">Save</button>' +
         '<button class="lgw-champ-score-pop-cancel">Cancel</button>' +
+        (hasScore ? '<button class="lgw-champ-score-pop-reset">Clear</button>' : '') +
       '</div>' +
       '<div class="lgw-champ-score-pop-msg"></div>';
 
@@ -726,6 +729,34 @@
       pop.parentNode.removeChild(pop);
     });
 
+    var resetBtn = qs('.lgw-champ-score-pop-reset', pop);
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function () {
+        if (!confirm('Clear the score for this match? The next round slot will also be cleared.')) return;
+        var scoreSection = wrap.dataset.section || '0';
+        resetBtn.disabled = true;
+        resetBtn.textContent = 'Clearing…';
+        post('lgw_champ_save_score', {
+          champ_id: cupId, nonce: nonce, section: scoreSection,
+          round_idx: roundIdx, match_idx: matchIdx,
+          home_score: '', away_score: '',
+        }, function (res) {
+          if (!res.success) {
+            msgEl.textContent = 'Error: ' + (res.data || 'Unknown');
+            resetBtn.disabled = false;
+            resetBtn.textContent = 'Clear';
+            return;
+          }
+          pop.parentNode.removeChild(pop);
+          renderBracket(wrap, res.data.bracket);
+          // Update final stage if section results changed
+          if (wrap.dataset.section !== 'final') {
+            updateFinalWrap(wrap, res.data.final_bracket || null);
+          }
+        });
+      });
+    }
+
     qs('.lgw-champ-score-pop-save', pop).addEventListener('click', function () {
       var saveBtn = this;
       saveBtn.disabled = true;
@@ -744,6 +775,10 @@
         }
         pop.parentNode.removeChild(pop);
         renderBracket(wrap, res.data.bracket);
+        // Update final stage if section results changed
+        if (wrap.dataset.section !== 'final') {
+          updateFinalWrap(wrap, res.data.final_bracket || null);
+        }
       });
     });
 
@@ -758,8 +793,32 @@
     }, 50);
   }
 
-  // ── Status bar ────────────────────────────────────────────────────────────────
-  // ── Sponsor bar ───────────────────────────────────────────────────────────────
+  // ── Update the final stage wrap when a section score changes ─────────────────
+  function updateFinalWrap(sectionWrap, finalBracket) {
+    // Find the outer tabs container, then the final pane wrap
+    var outer = sectionWrap.closest
+      ? sectionWrap.closest('.lgw-champ-tabs-outer')
+      : (function() {
+          var el = sectionWrap;
+          while (el && !el.classList.contains('lgw-champ-tabs-outer')) el = el.parentNode;
+          return el;
+        })();
+    if (!outer) return;
+    var finalWrap = outer.querySelector('.lgw-champ-wrap[data-section="final"]');
+    if (!finalWrap) return;
+    if (finalBracket && finalBracket.rounds && finalBracket.rounds.length) {
+      // Update data-bracket so page refresh picks up the new state
+      finalWrap.dataset.bracket = JSON.stringify(finalBracket);
+      renderBracket(finalWrap, finalBracket);
+    } else {
+      // Final was unseeded (reset) — clear the bracket display
+      finalWrap.dataset.bracket = '';
+      var bracketEl = finalWrap.querySelector('.lgw-champ-bracket');
+      if (bracketEl) bracketEl.innerHTML = '';
+      var emptyEl = finalWrap.querySelector('.lgw-champ-empty');
+      if (emptyEl) emptyEl.style.display = '';
+    }
+  }
   function renderSponsorBar(wrap) {
     var sponsors = [];
     try { sponsors = JSON.parse(wrap.dataset.sponsors || '[]'); } catch (e) {}

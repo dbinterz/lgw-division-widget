@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.17
+Stable tag: 7.1.21
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,30 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.21 =
+* Finals Week: colour scheme fixed — widget now uses forced light theme like other widgets; live match state uses a subtle warm amber tint instead of dark red; dark mode only activates on explicit manual toggle
+* Finals Week: Complete game button added — shown in the ends panel, pre-filled with the running total from ends entered, lets admin confirm or adjust before saving; validates that scores are not equal (no draws in bowls)
+* Finals Week: final score edit button (✏️) remains accessible during live end-by-end scoring, not just after completion
+* Finals Week: ends table is now collapsible (click the Ends header to toggle) and scrollable up to a fixed height, so viewers can focus on the score without scrolling through a long ends list
+
+= 7.1.20 =
+* New shortcode [lgw_finals season="2026"] — Finals Week schedule page showing all championship SF+Final matches across a season; displays date/time, team names with badges, live end-by-end scoring, and final scores
+* Admin can set date/time per match via a popover (📅 button), enter end-by-end scores live (+ Add end / Remove last end), and save the final aggregate score
+* Public viewers see live scores updated automatically every 30 seconds without page refresh
+* 1-section competitions surface the last 2 rounds (SF + Final) of the section bracket; 2/4-section competitions use the Final Stage bracket
+* Winner propagation and cascade reset work the same as the main bracket
+* New files: lgw-finals.php, lgw-finals.js, lgw-finals.css
+
+= 7.1.19 =
+* New shortcode [lgw_finalists season="2025"] displays all finalists/semi-finalists across every championship in a given season on a single page — 1-section competitions show 4 semi-finalists, 2-section shows both finalists per section, 4-section shows each section winner; pending draws shown with a placeholder
+* Season field added to championship admin — set on the edit page, visible in the championships list, used by [lgw_finalists] to filter by season
+* Score reset now cascades through all subsequent rounds (not just one step forward) for both cup and championship brackets; resetting a section result also unsets the auto-seeded final stage so it re-seeds correctly when results are corrected
+* Championship score save/reset now updates the final stage panel live in the browser without requiring a page refresh
+
+= 7.1.18 =
+* Dark/light mode fix extended to modals: fixture modal, cup score entry popover, cup/champ draw login box, and cup/champ scorecard modal all had hardcoded white backgrounds — replaced with CSS vars so they render correctly in dark mode
+* Calendar widget now remembers the selected month across page refreshes, persisted per calendar instance in localStorage
 
 = 7.1.17 =
 * Calendar widget now defaults to grid (table) view instead of list view; user preference still saved on toggle

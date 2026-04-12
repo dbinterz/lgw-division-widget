@@ -261,7 +261,7 @@ table.lg .lgw-badge{width:20px;height:20px}
 body.lgw-modal-open{overflow:hidden}
 
 /* ── Modal box — uses :root vars so always has solid background ──────────────── */
-.lgw-modal{background:var(--lgw-bg);border-radius:8px;width:100%;max-width:580px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.35);font-family:'Saira',Arial,sans-serif;margin:0 auto}
+.lgw-modal{background:var(--lgw-bg);color:var(--lgw-text);border-radius:8px;width:100%;max-width:580px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.35);font-family:'Saira',Arial,sans-serif;margin:0 auto}
 .lgw-modal-head{display:flex;align-items:center;justify-content:space-between;background:var(--lgw-navy);color:#fff;padding:12px 16px;border-radius:8px 8px 0 0;gap:10px}
 .lgw-modal-title{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .lgw-modal-title h2{margin:0;font-size:16px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

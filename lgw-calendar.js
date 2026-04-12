@@ -266,6 +266,28 @@
   }
   function setViewPref(v) { try { localStorage.setItem(VIEW_KEY, v); } catch(e) {} }
 
+  // ── Month preference (persisted per calendar instance) ───────────────────
+  // Key includes a short hash of the xlsx URL so multiple calendars on the
+  // same page store independently, and so the key is URL-safe.
+  function urlKey(xlsxUrl) {
+    var h = 0;
+    for (var i = 0; i < xlsxUrl.length; i++) { h = (Math.imul(31, h) + xlsxUrl.charCodeAt(i)) | 0; }
+    return 'lgw_cal_month_' + Math.abs(h).toString(36);
+  }
+  function getMonthPref(xlsxUrl, mgs) {
+    try {
+      var v = localStorage.getItem(urlKey(xlsxUrl));
+      if (v !== null) {
+        var saved = parseInt(v, 10);
+        if (!isNaN(saved) && saved >= 0 && saved < mgs.length) return saved;
+      }
+    } catch(e) {}
+    return findInitialMonth(mgs);
+  }
+  function setMonthPref(xlsxUrl, idx) {
+    try { localStorage.setItem(urlKey(xlsxUrl), String(idx)); } catch(e) {}
+  }
+
   // ── Render list view ──────────────────────────────────────────────────────
   function renderList(mg) {
     var groupKeys = [], byDateStr = {};
@@ -385,9 +407,12 @@
   }
 
   // ── Render a month view (list or table) ───────────────────────────────────
-  function renderMonth(wrap, mgs, idx, view) {
+  function renderMonth(wrap, mgs, idx, view, xlsxUrl) {
     view = view || getViewPref();
     var mg = mgs[idx];
+
+    // Persist the selected month for this calendar instance
+    if (xlsxUrl) setMonthPref(xlsxUrl, idx);
 
     var nav = '<div class="lgw-cal-nav">'
       + '<button class="lgw-cal-nav-btn" data-dir="-1"' + (idx > 0 ? '' : ' disabled') + '>&#8249;</button>'
@@ -421,13 +446,13 @@
     wrap.querySelectorAll('.lgw-cal-nav-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var ni = idx + parseInt(btn.getAttribute('data-dir'), 10);
-        if (ni >= 0 && ni < mgs.length) { renderMonth(wrap, mgs, ni, getViewPref()); scrollActiveTab(wrap); }
+        if (ni >= 0 && ni < mgs.length) { renderMonth(wrap, mgs, ni, getViewPref(), xlsxUrl); scrollActiveTab(wrap); }
       });
     });
     // Month tabs
     wrap.querySelectorAll('.lgw-cal-tab').forEach(function(tab) {
       tab.addEventListener('click', function() {
-        renderMonth(wrap, mgs, parseInt(tab.getAttribute('data-idx'), 10), getViewPref());
+        renderMonth(wrap, mgs, parseInt(tab.getAttribute('data-idx'), 10), getViewPref(), xlsxUrl);
         scrollActiveTab(wrap);
       });
     });
@@ -436,7 +461,7 @@
       btn.addEventListener('click', function() {
         var v = btn.getAttribute('data-view');
         setViewPref(v);
-        renderMonth(wrap, mgs, idx, v);
+        renderMonth(wrap, mgs, idx, v, xlsxUrl);
         scrollActiveTab(wrap);
       });
     });
@@ -462,7 +487,7 @@
         var events = parseEvents(data);
         if (!events.length) { wrap.innerHTML = '<div class="lgw-cal-status">No events found in calendar.</div>'; return; }
         var mgs = groupByMonth(events);
-        renderMonth(wrap, mgs, findInitialMonth(mgs));
+        renderMonth(wrap, mgs, getMonthPref(xlsxUrl, mgs), undefined, xlsxUrl);
         scrollActiveTab(wrap);
       } catch(e) {
         wrap.innerHTML = '<div class="lgw-cal-status lgw-cal-error">&#9888; Could not parse calendar data.</div>';

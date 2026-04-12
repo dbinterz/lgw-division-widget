@@ -738,6 +738,8 @@
     var hs = (match.home_score !== null && match.home_score !== undefined) ? match.home_score : '';
     var as = (match.away_score !== null && match.away_score !== undefined) ? match.away_score : '';
 
+    var hasScore = (hs !== '' && as !== '');
+
     var pop = document.createElement('div');
     pop.className = 'lgw-cup-score-popover';
     pop.innerHTML =
@@ -753,6 +755,7 @@
       '<div class="lgw-cup-score-pop-actions">' +
         '<button class="lgw-cup-score-pop-save">Save</button>' +
         '<button class="lgw-cup-score-pop-cancel">Cancel</button>' +
+        (hasScore ? '<button class="lgw-cup-score-pop-reset">Clear</button>' : '') +
       '</div>' +
       '<div class="lgw-cup-score-pop-msg"></div>';
 
@@ -775,6 +778,30 @@
     qs('.lgw-cup-score-pop-cancel', pop).addEventListener('click', function () {
       pop.parentNode.removeChild(pop);
     });
+
+    var resetBtn = qs('.lgw-cup-score-pop-reset', pop);
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function () {
+        if (!confirm('Clear the score for this match? The next round slot will also be cleared.')) return;
+        resetBtn.disabled = true;
+        resetBtn.textContent = 'Clearing…';
+        post('lgw_cup_save_score', {
+          cup_id: cupId, nonce: nonce,
+          round_idx: roundIdx, match_idx: matchIdx,
+          home_score: '', away_score: '',
+          score_token: scoreToken || '',
+        }, function (res) {
+          if (!res.success) {
+            msgEl.textContent = 'Error: ' + (res.data || 'Unknown');
+            resetBtn.disabled = false;
+            resetBtn.textContent = 'Clear';
+            return;
+          }
+          pop.parentNode.removeChild(pop);
+          renderBracket(wrap, res.data.bracket);
+        });
+      });
+    }
 
     qs('.lgw-cup-score-pop-save', pop).addEventListener('click', function () {
       var saveBtn = this;
