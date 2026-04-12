@@ -56,6 +56,9 @@ jobs:
           cp lgw-sheets.php          lgw-division-widget/
           cp lgw-pdf.php             lgw-division-widget/
           cp lgw-logo.svg            lgw-division-widget/
+          cp lgw-finals.php          lgw-division-widget/
+          cp lgw-finals.js           lgw-division-widget/
+          cp lgw-finals.css          lgw-division-widget/
           cp readme.txt              lgw-division-widget/
           cp README.md               lgw-division-widget/
           zip -r "$ZIPNAME" lgw-division-widget/
