@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.21
+Stable tag: 7.1.26
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,20 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.26 =
+* Finals Week: fix home end scores left-aligning in ends table — stray CSS class was overriding right-align; home scores and running totals now correctly right-align toward the centre End column
+
+= 7.1.25 =
+* Finals Week: ends table defaults to collapsed; click header to expand
+* Finals Week: ends table now shows 5 columns — end score | running total | end number | running total | end score — so scores and totals are centred near the end number rather than pushed to the outer edges
+
+= 7.1.24 =
+* Finals Week: player name and club name now displayed separately in the match card — player name(s) bold on top, club name smaller and muted below; badge aligns to the full name block
+
+= 7.1.23 =
+* Finals Week: fix score display showing "undefined–undefined" after adding an end (undefined homeScore/awayScore now treated as null, showing live running total instead)
+* Finals Week: rink number added to match display alongside date/time; admin can set/clear it in the date & time popover; stored as finals_rink on the match object; polled live for public viewers
 
 = 7.1.21 =
 * Finals Week: colour scheme fixed — widget now uses forced light theme like other widgets; live match state uses a subtle warm amber tint instead of dark red; dark mode only activates on explicit manual toggle

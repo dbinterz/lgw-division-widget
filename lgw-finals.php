@@ -9,11 +9,12 @@
  *
  * Per-match extras stored on the match object:
  *   finals_datetime  string  "YYYY-MM-DD HH:MM" — manually set by admin
+ *   finals_rink      string  rink number/label — manually set by admin
  *   ends             array   [[home_end, away_end], …] — end-by-end scores
  *
  * Final aggregate scores use the existing home_score / away_score fields.
  *
- * @version 7.1.19
+ * @version 7.1.26
  */
 
 if (!defined('ABSPATH')) exit;
@@ -165,6 +166,7 @@ function lgw_finals_shortcode($atts) {
               $has_score = $hs !== null && $as !== null;
               $ends    = $match['ends'] ?? array();
               $dt      = $match['finals_datetime'] ?? '';
+              $rink    = $match['finals_rink']     ?? '';
               $pending = !$home || !$away;
 
               // Compute running totals from ends
@@ -204,22 +206,28 @@ function lgw_finals_shortcode($atts) {
                   'awayScore'  => $as,
                   'ends'       => $ends,
                   'datetime'   => $dt,
+                  'rink'       => $rink,
               );
             ?>
             <div class="lgw-finals-match <?php echo $status_cls; ?>"
                  id="lgw-fm-<?php echo esc_attr($mid); ?>"
                  data-mid="<?php echo esc_attr($mid); ?>">
 
-              <?php if ($dt): ?>
+              <?php if ($dt || $rink): ?>
               <div class="lgw-finals-datetime">
+                <?php if ($dt): ?>
                 <span class="lgw-finals-datetime-val"><?php echo esc_html(lgw_finals_format_datetime($dt)); ?></span>
+                <?php endif; ?>
+                <?php if ($rink): ?>
+                <span class="lgw-finals-rink-val">Rink <?php echo esc_html($rink); ?></span>
+                <?php endif; ?>
                 <?php if ($is_admin): ?>
-                <button class="lgw-finals-edit-dt" data-mid="<?php echo esc_attr($mid); ?>" title="Edit date/time">✏️</button>
+                <button class="lgw-finals-edit-dt" data-mid="<?php echo esc_attr($mid); ?>" title="Edit date/time &amp; rink">✏️</button>
                 <?php endif; ?>
               </div>
               <?php elseif ($is_admin): ?>
               <div class="lgw-finals-datetime lgw-finals-datetime--unset">
-                <button class="lgw-finals-edit-dt" data-mid="<?php echo esc_attr($mid); ?>">📅 Set date &amp; time</button>
+                <button class="lgw-finals-edit-dt" data-mid="<?php echo esc_attr($mid); ?>">📅 Set date, time &amp; rink</button>
               </div>
               <?php endif; ?>
 
@@ -233,7 +241,12 @@ function lgw_finals_shortcode($atts) {
               <div class="lgw-finals-teams">
                 <div class="lgw-finals-team lgw-finals-team--home">
                   <?php if ($home_badge): ?><img src="<?php echo esc_url($home_badge); ?>" class="lgw-finals-badge" alt=""><?php endif; ?>
-                  <span class="lgw-finals-team-name"><?php echo esc_html($home); ?></span>
+                  <div class="lgw-finals-team-info">
+                    <span class="lgw-finals-team-name"><?php echo esc_html(lgw_finals_player_name($home)); ?></span>
+                    <?php $hclub = lgw_finals_club_name($home); if ($hclub): ?>
+                    <span class="lgw-finals-team-club"><?php echo esc_html($hclub); ?></span>
+                    <?php endif; ?>
+                  </div>
                 </div>
 
                 <div class="lgw-finals-score-block">
@@ -255,14 +268,19 @@ function lgw_finals_shortcode($atts) {
                 </div>
 
                 <div class="lgw-finals-team lgw-finals-team--away">
-                  <span class="lgw-finals-team-name"><?php echo esc_html($away); ?></span>
+                  <div class="lgw-finals-team-info">
+                    <span class="lgw-finals-team-name"><?php echo esc_html(lgw_finals_player_name($away)); ?></span>
+                    <?php $aclub = lgw_finals_club_name($away); if ($aclub): ?>
+                    <span class="lgw-finals-team-club"><?php echo esc_html($aclub); ?></span>
+                    <?php endif; ?>
+                  </div>
                   <?php if ($away_badge): ?><img src="<?php echo esc_url($away_badge); ?>" class="lgw-finals-badge" alt=""><?php endif; ?>
                 </div>
               </div>
 
               <?php if (!empty($ends)): ?>
               <div class="lgw-finals-ends" id="lgw-ends-<?php echo esc_attr($mid); ?>">
-                <?php echo lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid); ?>
+                <?php echo lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, true); ?>
               </div>
               <?php elseif ($is_admin && !$has_score && !$pending): ?>
               <div class="lgw-finals-ends" id="lgw-ends-<?php echo esc_attr($mid); ?>">
@@ -307,12 +325,13 @@ function lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $col
     foreach ($ends as $i => $end) {
         $he = intval($end[0] ?? 0);
         $ae = intval($end[1] ?? 0);
-        $home_total += $he;
-        $away_total += $ae;
+        $home_total += $he; $away_total += $ae;
         $rows .= '<tr>'
-               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--score' . ($he > $ae ? ' win' : '') . '">' . $he . '</td>'
+               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score' . ($he > $ae ? ' win' : '') . '">' . $he . '</td>'
+               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--running">' . $home_total . '</td>'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end">' . ($i + 1) . '</td>'
-               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--score lgw-finals-ends-td--right' . ($ae > $he ? ' win' : '') . '">' . $ae . '</td>'
+               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--running lgw-finals-ends-td--right">' . $away_total . '</td>'
+               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score lgw-finals-ends-td--right' . ($ae > $he ? ' win' : '') . '">' . $ae . '</td>'
                . '</tr>';
     }
 
@@ -325,13 +344,17 @@ function lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $col
     $body_class = 'lgw-finals-ends-body' . ($collapsed ? ' hidden' : '');
     $table = '<table class="lgw-finals-ends-table">'
            . '<thead><tr>'
-           . '<th class="lgw-finals-ends-th lgw-finals-ends-th--name">'  . esc_html(lgw_finals_short_name($home)) . '</th>'
+           . '<th class="lgw-finals-ends-th lgw-finals-ends-th--end-score">'  . esc_html(lgw_finals_short_name($home)) . '</th>'
+           . '<th class="lgw-finals-ends-th lgw-finals-ends-th--running">Tot</th>'
            . '<th class="lgw-finals-ends-th lgw-finals-ends-th--end">End</th>'
-           . '<th class="lgw-finals-ends-th lgw-finals-ends-th--name lgw-finals-ends-th--right">' . esc_html(lgw_finals_short_name($away)) . '</th>'
+           . '<th class="lgw-finals-ends-th lgw-finals-ends-th--running lgw-finals-ends-th--right">Tot</th>'
+           . '<th class="lgw-finals-ends-th lgw-finals-ends-th--end-score lgw-finals-ends-th--right">' . esc_html(lgw_finals_short_name($away)) . '</th>'
            . '</tr></thead><tbody>' . $rows . '</tbody>'
            . '<tfoot><tr>'
            . '<td class="lgw-finals-ends-td lgw-finals-ends-td--total' . ($home_total > $away_total ? ' win' : '') . '">' . $home_total . '</td>'
+           . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end"></td>'
            . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end">Total</td>'
+           . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end"></td>'
            . '<td class="lgw-finals-ends-td lgw-finals-ends-td--total lgw-finals-ends-td--right' . ($away_total > $home_total ? ' win' : '') . '">' . $away_total . '</td>'
            . '</tr></tfoot></table>';
 
@@ -356,6 +379,20 @@ function lgw_finals_short_name($entry) {
     return mb_strlen($name) > 22 ? mb_substr($name, 0, 20) . '…' : $name;
 }
 
+// ── Helper: player name part of an entry (before the last comma) ──────────────
+function lgw_finals_player_name($entry) {
+    if (!$entry) return '';
+    $parts = explode(',', $entry, 2);
+    return trim($parts[0]);
+}
+
+// ── Helper: club name part of an entry (after the last comma) ─────────────────
+function lgw_finals_club_name($entry) {
+    if (!$entry) return '';
+    $parts = explode(',', $entry, 2);
+    return isset($parts[1]) ? trim($parts[1]) : '';
+}
+
 // ── AJAX: save datetime ───────────────────────────────────────────────────────
 add_action('wp_ajax_lgw_finals_save_datetime', 'lgw_ajax_finals_save_datetime');
 function lgw_ajax_finals_save_datetime() {
@@ -367,6 +404,7 @@ function lgw_ajax_finals_save_datetime() {
     $round_idx  = intval($_POST['round_idx']          ?? -1);
     $match_idx  = intval($_POST['match_idx']          ?? -1);
     $datetime   = sanitize_text_field($_POST['datetime'] ?? '');
+    $rink       = sanitize_text_field($_POST['rink']     ?? '');
 
     if (!$champ_id || !$bracket_key || $round_idx < 0 || $match_idx < 0) {
         wp_send_json_error('Invalid parameters');
@@ -383,10 +421,12 @@ function lgw_ajax_finals_save_datetime() {
     }
 
     $champ[$bracket_key]['matches'][$round_idx][$match_idx]['finals_datetime'] = $datetime;
+    $champ[$bracket_key]['matches'][$round_idx][$match_idx]['finals_rink']     = $rink;
     update_option('lgw_champ_' . $champ_id, $champ);
     wp_send_json_success(array(
         'formatted' => lgw_finals_format_datetime($datetime),
         'raw'       => $datetime,
+        'rink'      => $rink,
     ));
 }
 
@@ -530,6 +570,7 @@ function lgw_ajax_finals_poll() {
                 'awayScore' => $match['away_score']      ?? null,
                 'ends'      => $match['ends']            ?? array(),
                 'datetime'  => $match['finals_datetime'] ?? '',
+                'rink'      => $match['finals_rink']     ?? '',
             );
         }
     }

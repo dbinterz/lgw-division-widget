@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v7.1.19 */
+/* LGW Finals Week Widget JS - v7.1.26 */
 (function () {
   'use strict';
 
@@ -48,27 +48,33 @@
       var ae = parseInt(e[1], 10) || 0;
       ht += he; at += ae;
       rows += '<tr>'
-            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--score' + (he > ae ? ' win' : '') + '">' + he + '</td>'
+            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score' + (he > ae ? ' win' : '') + '">' + he + '</td>'
+            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--running">' + ht + '</td>'
             + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end">' + (i + 1) + '</td>'
-            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--score lgw-finals-ends-td--right' + (ae > he ? ' win' : '') + '">' + ae + '</td>'
+            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--running lgw-finals-ends-td--right">' + at + '</td>'
+            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score lgw-finals-ends-td--right' + (ae > he ? ' win' : '') + '">' + ae + '</td>'
             + '</tr>';
     });
     var shortHome = shortName(home), shortAway = shortName(away);
-    var isCollapsed = collapsed || false;
+    var isCollapsed = collapsed !== false; // default true
     var hdr = '<div class="lgw-finals-ends-hdr" data-ends-toggle="' + esc(mid) + '">'
             + '<span class="lgw-finals-ends-hdr-label">Ends (' + endsArr.length + ')</span>'
             + '<span class="lgw-finals-ends-hdr-toggle' + (isCollapsed ? ' collapsed' : '') + '">▼</span>'
             + '</div>';
     var table = '<table class="lgw-finals-ends-table">'
               + '<thead><tr>'
-              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--name">'  + esc(shortHome) + '</th>'
+              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--end-score">'  + esc(shortHome) + '</th>'
+              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--running">Tot</th>'
               + '<th class="lgw-finals-ends-th lgw-finals-ends-th--end">End</th>'
-              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--name lgw-finals-ends-th--right">' + esc(shortAway) + '</th>'
+              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--running lgw-finals-ends-th--right">Tot</th>'
+              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--end-score lgw-finals-ends-th--right">' + esc(shortAway) + '</th>'
               + '</tr></thead>'
               + '<tbody>' + rows + '</tbody>'
               + '<tfoot><tr>'
               + '<td class="lgw-finals-ends-td lgw-finals-ends-td--total' + (ht > at ? ' win' : '') + '">' + ht + '</td>'
+              + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end"></td>'
               + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end">Total</td>'
+              + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end"></td>'
               + '<td class="lgw-finals-ends-td lgw-finals-ends-td--total lgw-finals-ends-td--right' + (at > ht ? ' win' : '') + '">' + at + '</td>'
               + '</tr></tfoot></table>';
     var actions = '';
@@ -128,18 +134,23 @@
     var p = midParts(mid);
     var m = matches[mid] || {};
     var current = m.datetime || '';
+    var currentRink = m.rink || '';
 
     var pop = document.createElement('div');
     pop.className = 'lgw-finals-pop';
     pop.innerHTML =
-      '<div class="lgw-finals-pop-title">Set date &amp; time</div>'
+      '<div class="lgw-finals-pop-title">Set date, time &amp; rink</div>'
     + '<div class="lgw-finals-pop-row">'
     + '<input class="lgw-finals-pop-input" type="datetime-local" id="lgw-finals-dt-input" value="' + esc(current.replace(' ', 'T')) + '">'
+    + '</div>'
+    + '<div class="lgw-finals-pop-row lgw-finals-pop-row--rink">'
+    + '<label class="lgw-finals-pop-label" for="lgw-finals-rink-input">Rink</label>'
+    + '<input class="lgw-finals-pop-input lgw-finals-pop-input--rink" type="text" id="lgw-finals-rink-input" maxlength="10" placeholder="e.g. 3" value="' + esc(currentRink) + '">'
     + '</div>'
     + '<div class="lgw-finals-pop-actions">'
     + '<button class="lgw-finals-pop-save">Save</button>'
     + '<button class="lgw-finals-pop-cancel">Cancel</button>'
-    + (current ? '<button class="lgw-finals-pop-clear">Clear</button>' : '')
+    + (current || currentRink ? '<button class="lgw-finals-pop-clear">Clear</button>' : '')
     + '</div>'
     + '<div class="lgw-finals-pop-msg"></div>';
 
@@ -150,26 +161,27 @@
     qs('.lgw-finals-pop-cancel', pop).addEventListener('click', closePop);
 
     var clearBtn = qs('.lgw-finals-pop-clear', pop);
-    if (clearBtn) clearBtn.addEventListener('click', function() { saveDatetime(mid, '', pop); });
+    if (clearBtn) clearBtn.addEventListener('click', function() { saveDatetime(mid, '', '', pop); });
 
     qs('.lgw-finals-pop-save', pop).addEventListener('click', function() {
       var raw = qs('#lgw-finals-dt-input', pop).value; // "YYYY-MM-DDTHH:MM"
       var formatted = raw ? raw.replace('T', ' ') : '';
-      saveDatetime(mid, formatted, pop);
+      var rink = qs('#lgw-finals-rink-input', pop).value.trim();
+      saveDatetime(mid, formatted, rink, pop);
     });
   }
 
-  function saveDatetime(mid, dt, pop) {
+  function saveDatetime(mid, dt, rink, pop) {
     var p = midParts(mid);
     var msgEl = qs('.lgw-finals-pop-msg', pop);
     post('lgw_finals_save_datetime', {
       champ_id: p.champId, bracket_key: p.bracketKey,
       round_idx: p.roundIdx, match_idx: p.matchIdx,
-      datetime: dt,
+      datetime: dt, rink: rink,
     }, function(res) {
       if (!res.success) { msgEl.textContent = 'Error: ' + (res.data || 'Unknown'); return; }
       closePop();
-      // Update datetime display
+      // Update datetime + rink display
       var matchEl = qs('#lgw-fm-' + mid);
       if (!matchEl) return;
       var dtEl = qs('.lgw-finals-datetime', matchEl);
@@ -178,16 +190,17 @@
         dtEl.className = 'lgw-finals-datetime';
         matchEl.insertBefore(dtEl, matchEl.firstChild);
       }
-      if (dt) {
+      if (dt || rink) {
         dtEl.className = 'lgw-finals-datetime';
-        dtEl.innerHTML = '<span class="lgw-finals-datetime-val">' + esc(res.data.formatted) + '</span>'
-                       + '<button class="lgw-finals-edit-dt" data-mid="' + esc(mid) + '" title="Edit date/time">✏️</button>';
+        dtEl.innerHTML = (dt ? '<span class="lgw-finals-datetime-val">' + esc(res.data.formatted) + '</span>' : '')
+                       + (rink ? '<span class="lgw-finals-rink-val">Rink ' + esc(rink) + '</span>' : '')
+                       + '<button class="lgw-finals-edit-dt" data-mid="' + esc(mid) + '" title="Edit date/time &amp; rink">✏️</button>';
       } else {
         dtEl.className = 'lgw-finals-datetime lgw-finals-datetime--unset';
-        dtEl.innerHTML = '<button class="lgw-finals-edit-dt" data-mid="' + esc(mid) + '">📅 Set date &amp; time</button>';
+        dtEl.innerHTML = '<button class="lgw-finals-edit-dt" data-mid="' + esc(mid) + '">📅 Set date, time &amp; rink</button>';
       }
       bindMatchButtons(matchEl);
-      if (matches[mid]) matches[mid].datetime = dt;
+      if (matches[mid]) { matches[mid].datetime = dt; matches[mid].rink = rink; }
     });
   }
 
@@ -448,11 +461,32 @@
             // Check if anything changed
             var changed = local.homeScore !== d.homeScore
                        || local.awayScore !== d.awayScore
+                       || local.rink      !== d.rink
                        || JSON.stringify(local.ends) !== JSON.stringify(d.ends);
             if (!changed) return;
             local.homeScore = d.homeScore;
             local.awayScore = d.awayScore;
             local.ends      = d.ends;
+            // Update rink display if changed
+            if (local.rink !== d.rink) {
+              local.rink = d.rink;
+              var matchEl = qs('#lgw-fm-' + mid);
+              if (matchEl) {
+                var dtEl = qs('.lgw-finals-datetime', matchEl);
+                if (dtEl) {
+                  var dtVal = qs('.lgw-finals-datetime-val', dtEl);
+                  var rkVal = qs('.lgw-finals-rink-val', dtEl);
+                  if (rkVal) rkVal.parentNode.removeChild(rkVal);
+                  if (d.rink) {
+                    var newRk = document.createElement('span');
+                    newRk.className = 'lgw-finals-rink-val';
+                    newRk.textContent = 'Rink ' + d.rink;
+                    if (dtVal && dtVal.nextSibling) dtEl.insertBefore(newRk, dtVal.nextSibling);
+                    else dtEl.insertBefore(newRk, dtEl.firstChild);
+                  }
+                }
+              }
+            }
             // Update ends table
             var endsEl = qs('#lgw-ends-' + mid);
             if (endsEl) {

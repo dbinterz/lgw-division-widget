@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget CSS - v7.1.21 */
+/* LGW Finals Week Widget CSS - v7.1.26 */
 
 /* ── Wrapper ─────────────────────────────────────────────────────────────── */
 /* Force light theme by default — dense fixture data reads best on white.    */
@@ -103,6 +103,14 @@
   font-weight: 600;
   color: var(--lgw-text-muted);
 }
+.lgw-finals-rink-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lgw-text-muted);
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--lgw-surface, #f0f2f8);
+}
 .lgw-finals-datetime--unset .lgw-finals-edit-dt {
   font-size: 12px;
   color: var(--lgw-text-muted);
@@ -149,6 +157,15 @@
   flex-direction: row-reverse;
   text-align: right;
 }
+.lgw-finals-team-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.lgw-finals-team--away .lgw-finals-team-info {
+  align-items: flex-end;
+}
 .lgw-finals-badge {
   width: 28px;
   height: 28px;
@@ -158,6 +175,13 @@
 }
 .lgw-finals-team-name {
   line-height: 1.3;
+  white-space: normal;
+}
+.lgw-finals-team-club {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--lgw-text-muted);
+  line-height: 1.2;
 }
 .lgw-finals-tbd {
   font-size: 13px;
@@ -285,8 +309,12 @@
 }
 .lgw-finals-ends-th--end {
   text-align: center;
-  width: 50px;
+  width: 36px;
 }
+.lgw-finals-ends-th--end-score { text-align: right; width: 32px; }
+.lgw-finals-ends-th--end-score.lgw-finals-ends-th--right { text-align: left; }
+.lgw-finals-ends-th--running { text-align: right; width: 36px; color: rgba(255,255,255,.7); font-weight: 400; }
+.lgw-finals-ends-th--running.lgw-finals-ends-th--right { text-align: left; }
 .lgw-finals-ends-th--name { text-align: left; }
 .lgw-finals-ends-th--right { text-align: right; }
 
@@ -296,6 +324,10 @@
   color: var(--lgw-text);
 }
 .lgw-finals-ends-td--end { text-align: center; color: var(--lgw-text-muted); font-size: 11px; }
+.lgw-finals-ends-td--end-score { text-align: right; font-weight: 700; padding: 4px 4px; }
+.lgw-finals-ends-td--end-score.lgw-finals-ends-td--right { text-align: left; }
+.lgw-finals-ends-td--running { text-align: right; font-size: 11px; color: var(--lgw-text-muted); padding: 4px 4px; }
+.lgw-finals-ends-td--running.lgw-finals-ends-td--right { text-align: left; }
 .lgw-finals-ends-td--score { text-align: left; font-weight: 700; }
 .lgw-finals-ends-td--right { text-align: right; }
 .lgw-finals-ends-td--total {
@@ -371,6 +403,20 @@
 }
 .lgw-finals-pop-row {
   margin-bottom: 10px;
+}
+.lgw-finals-pop-row--rink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lgw-finals-pop-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lgw-text-muted, #666);
+  white-space: nowrap;
+}
+.lgw-finals-pop-input--rink {
+  width: 80px;
 }
 .lgw-finals-pop-row--ends {
   display: flex;
