@@ -33,6 +33,7 @@ jobs:
           ZIPNAME="lgw-division-widget-v${VERSION}.zip"
           mkdir -p lgw-division-widget
           cp lgw-division-widget.php lgw-division-widget/
+          cp lgw-seasons.php         lgw-division-widget/
           cp lgw-scorecards.php      lgw-division-widget/
           cp lgw-scorecard.js        lgw-division-widget/
           cp lgw-scorecard.css       lgw-division-widget/
