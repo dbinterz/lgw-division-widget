@@ -1,6 +1,6 @@
 <?php
 /**
- * LGW Scorecard Feature - v6.3.0
+ * LGW Scorecard Feature - v7.1.27
  * Per-club passphrase auth, two-party submission, confirm/amend/dispute flow.
  */
 
@@ -606,6 +606,11 @@ function lgw_ajax_save_scorecard() {
         update_post_meta($post_id, 'lgw_scorecard_data',$sc);
         update_post_meta($post_id, 'lgw_sc_status',     'pending');
         update_post_meta($post_id, 'lgw_submitted_by',  $club);
+        // Tag with the active season so scorecards are attributable per season
+        if (function_exists('lgw_get_active_season_id')) {
+            $season_id = lgw_get_active_season_id();
+            if ($season_id) update_post_meta($post_id, 'lgw_sc_season', $season_id);
+        }
         lgw_audit_log($post_id, 'submitted', 'Submitted by ' . $club);
         // Flag if division is missing or doesn't map to a known sheet tab
         $drive_opts = get_option('lgw_drive', array());

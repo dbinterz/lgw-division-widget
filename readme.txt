@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.26
+Stable tag: 7.1.27
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.27 =
+* New: Season management — new 📅 Seasons admin page to manage the active season, archive past seasons, and backload historical seasons (CSV URLs per division)
+* New: Season switcher on the front-end widget — add seasons="2025,2024" or seasons="all" to any [lgw_division] shortcode to show a pill bar above the tabs; clicking a past season loads that season's data read-only
+* New: Scorecard season tagging — new scorecards stamped with lgw_sc_season post meta; archiving a season back-fills all untagged scorecards
+* New file: lgw-seasons.php
 
 = 7.1.26 =
 * Finals Week: fix home end scores left-aligning in ends table — stray CSS class was overriding right-align; home scores and running totals now correctly right-align toward the centre End column

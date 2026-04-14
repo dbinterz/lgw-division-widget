@@ -587,6 +587,21 @@
     var extraSponsors=[];
     try{extraSponsors=JSON.parse(widget.getAttribute('data-sponsors')||'[]');}catch(e){}
 
+    // Season switcher — seasons data encoded on data-seasons attribute
+    var seasonsData=[];
+    try{
+      var raw=widget.getAttribute('data-seasons');
+      if(raw) seasonsData=JSON.parse(raw);
+    }catch(e){}
+    // activeCsvUrl tracks which CSV is currently loaded (may change on season switch)
+    var activeCsvUrl=csvUrl;
+    // currentSeasonEntry: the entry in seasonsData whose active:true flag is set (= live season)
+    var currentSeasonEntry=null;
+    for(var si=0;si<seasonsData.length;si++){
+      if(seasonsData[si].active){currentSeasonEntry=seasonsData[si];break;}
+    }
+    var selectedSeasonId=currentSeasonEntry?currentSeasonEntry.id:'';
+
     var prev=widget.previousElementSibling;
     var divisionTitle=prev&&prev.classList.contains('lgw-title')?prev.textContent.trim():'';
 
@@ -726,6 +741,111 @@
       });
     }
 
+    // ── Season switcher ───────────────────────────────────────────────────────
+    if(seasonsData.length>1){
+      var switcher=document.createElement('div');
+      switcher.className='lgw-season-switcher';
+      renderSwitcher();
+      var tabBar2=widget.querySelector('.lgw-tabs');
+      if(tabBar2) widget.insertBefore(switcher,tabBar2);
+    }
+
+    function renderSwitcher(){
+      if(!switcher) return;
+      var sel=document.createElement('select');
+      sel.className='lgw-season-select';
+      sel.setAttribute('aria-label','Select season');
+      for(var i=0;i<seasonsData.length;i++){
+        var s=seasonsData[i];
+        var opt=document.createElement('option');
+        opt.value=s.id;
+        opt.textContent=s.label;
+        opt.setAttribute('data-csv-url',s.csv_url);
+        if(s.id===selectedSeasonId) opt.selected=true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change',function(){
+        var opt=sel.options[sel.selectedIndex];
+        var sid=opt.value;
+        var scsv=opt.getAttribute('data-csv-url');
+        if(sid===selectedSeasonId) return;
+        selectedSeasonId=sid;
+        activeCsvUrl=scsv;
+        var isLive=currentSeasonEntry&&(sid===currentSeasonEntry.id);
+        loadSeason(scsv,isLive);
+      });
+      switcher.innerHTML='';
+      switcher.appendChild(sel);
+    }
+
+    // ── loadSeason — fetch a CSV URL and re-render both panels ────────────────
+    // isLive: true = apply score overrides + enable scorecard submission click.
+    function loadSeason(url,isLive){
+      panels.forEach(function(p){
+        p.innerHTML='<div class="lgw-status">Loading&hellip;</div>';
+      });
+      activeFilter='all';
+      var proxyUrl2=ajaxUrl+'?action=lgw_csv&url='+encodeURIComponent(url);
+      var xhr2=new XMLHttpRequest();
+      xhr2.open('GET',proxyUrl2);
+      xhr2.onload=function(){
+        if(xhr2.status===200&&xhr2.responseText&&xhr2.responseText.trim().length>10){
+          allRows=parseCSV(xhr2.responseText);
+          if(isLive){
+            parseFxGroups=function(rows){ return applyScoreOverrides(parseFixtureGroups(rows), url); };
+          } else {
+            // Past season — no overrides, no submission
+            parseFxGroups=function(rows){ return parseFixtureGroups(rows); };
+          }
+          var tp=getPanel('table'), fp=getPanel('fixtures');
+          if(tp){
+            tp.innerHTML=renderTable(allRows,promote,relegate,parseFxGroups)+sponsorBar();
+            tp.insertBefore(makePrintBtn('table'),tp.firstChild);
+            if(!isLive) addArchiveBanner(tp);
+          }
+          if(fp){
+            fp.innerHTML=filterBar(activeFilter)+renderFixtures(allRows,activeFilter,parseFxGroups);
+            fp.insertBefore(makePrintBtn('fixtures'),fp.firstChild);
+            if(!isLive) addArchiveBanner(fp);
+          }
+          bindFilterBtns();
+          // For past seasons: fixture click still opens scorecard modal (historical data)
+          // For live season: full scorecard + submission behaviour
+          bindTeamLinks();
+          if(isLive){
+            bindFixtureClicks();
+          } else {
+            bindFixtureClicksReadOnly();
+          }
+        } else {
+          var msg='Could not load season data — please try refreshing.';
+          try{ var j=JSON.parse(xhr2.responseText); if(j&&j.error) msg=j.error; }catch(e){}
+          showError(msg);
+        }
+      };
+      xhr2.onerror=function(){ showError('Network error — please check your connection and try again.'); };
+      xhr2.send();
+    }
+
+    function addArchiveBanner(panel){
+      var banner=document.createElement('div');
+      banner.className='lgw-archive-banner';
+      banner.textContent='📁 Archived season — read only';
+      panel.insertBefore(banner,panel.firstChild);
+    }
+
+    // ── Fixture row click helpers — separated so season switching can swap ────
+    function bindFixtureClicks(){
+      // Alias for consistency — fixture row clicks are handled inside bindTeamLinks
+      bindTeamLinks();
+    }
+
+    function bindFixtureClicksReadOnly(){
+      // Past seasons: same modal behaviour — scorecards are looked up by home/away/date
+      bindTeamLinks();
+    }
+
+    // ── Initial data load ─────────────────────────────────────────────────────
     var proxyUrl=ajaxUrl+'?action=lgw_csv&url='+encodeURIComponent(csvUrl);
     var xhr=new XMLHttpRequest();
     xhr.open('GET',proxyUrl);
@@ -742,7 +862,7 @@
           fp.innerHTML=filterBar(activeFilter)+renderFixtures(allRows,activeFilter,parseFxGroups);
           fp.insertBefore(makePrintBtn('fixtures'),fp.firstChild);
         }
-        bindFilterBtns(); bindTeamLinks();
+        bindFilterBtns(); bindTeamLinks(); bindFixtureClicks();
       } else {
         var msg = 'Could not load league data — please try refreshing the page.';
         try {

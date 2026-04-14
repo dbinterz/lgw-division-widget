@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.1.26
+ * Version: 7.1.27
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.1.26');
+define('LGW_VERSION', '7.1.27');
 
 
 // ── Admin page logo header helper ────────────────────────────────────────────
@@ -66,6 +66,7 @@ $lgw_modules = array(
     'lgw-sheets.php',
     'lgw-calendar.php',
     'lgw-finals.php',
+    'lgw-seasons.php',
 );
 $lgw_missing = array();
 foreach ($lgw_modules as $lgw_module) {
@@ -444,6 +445,8 @@ function lgw_enqueue() {
         'clubBadges'     => $club_badges,
         'sponsors'       => $sponsors,
         'scoreOverrides' => get_option('lgw_score_overrides', array()),
+        'seasons'        => function_exists('lgw_seasons_for_js') ? lgw_seasons_for_js() : array(),
+        'activeSeasonId' => function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '',
     ));
 }
 
@@ -458,15 +461,73 @@ function lgw_division_shortcode($atts) {
         'sponsor_img'  => '',
         'sponsor_url'  => '',
         'sponsor_name' => '',
-        'color_primary'   => '',  // e.g. #1a2e5a
-        'color_secondary' => '',  // e.g. #e8b400
-        'color_bg'        => '',  // e.g. #ffffff
+        'color_primary'   => '',
+        'color_secondary' => '',
+        'color_bg'        => '',
+        'seasons'      => '',  // comma-separated season IDs, or "all"
     ), $atts);
 
     if (!$atts['csv']) return '<p>No CSV URL provided.</p>';
 
     $id          = 'lgw-' . substr(md5($atts['csv']), 0, 8);
     $csv_escaped = esc_attr($atts['csv']);
+
+    // ── Build season switcher data ─────────────────────────────────────────────
+    // seasons_data: array of {id, label, csv_url} for this division
+    $seasons_data = array();
+    if (!empty($atts['seasons']) && function_exists('lgw_get_seasons')) {
+        $all_seasons     = lgw_get_seasons();
+        $active_id       = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+        $division_title  = trim($atts['title']);
+
+        // Add the active / current season first (uses the shortcode csv directly)
+        if ($active_id) {
+            // Find label for active season
+            $active_label = '';
+            foreach ($all_seasons as $s) {
+                if (!empty($s['active'])) { $active_label = $s['label']; break; }
+            }
+            $seasons_data[] = array(
+                'id'      => $active_id,
+                'label'   => $active_label ?: $active_id,
+                'csv_url' => $atts['csv'],
+                'active'  => true,
+            );
+        }
+
+        // Determine which archived season IDs to include
+        $archived_seasons = array_values(array_filter($all_seasons, function($s){ return empty($s['active']); }));
+        usort($archived_seasons, function($a, $b){ return strcmp($b['id'], $a['id']); });
+
+        if ($atts['seasons'] === 'all') {
+            $wanted_ids = array_map(function($s){ return $s['id']; }, $archived_seasons);
+        } else {
+            $wanted_ids = array_map('trim', explode(',', $atts['seasons']));
+        }
+
+        foreach ($archived_seasons as $s) {
+            if (!in_array($s['id'], $wanted_ids)) continue;
+            // Find CSV URL for this division in the archived season
+            $csv_url = '';
+            foreach (($s['divisions'] ?? array()) as $d) {
+                // Match by division title if set, else take first division
+                if ($division_title && strcasecmp($d['division'], $division_title) === 0) {
+                    $csv_url = $d['csv_url']; break;
+                } elseif (!$division_title && !empty($d['csv_url'])) {
+                    $csv_url = $d['csv_url']; break;
+                }
+            }
+            if ($csv_url) {
+                $seasons_data[] = array(
+                    'id'      => $s['id'],
+                    'label'   => $s['label'],
+                    'csv_url' => $csv_url,
+                    'active'  => false,
+                );
+            }
+        }
+    }
+    $seasons_json = esc_attr(json_encode($seasons_data));
 
     // Resolve theme: shortcode override > global setting > CSS defaults
     $global_theme = get_option('lgw_theme', array());
@@ -535,7 +596,9 @@ function lgw_division_shortcode($atts) {
         . ' data-csv="' . $csv_escaped . '"'
         . ' data-promote="' . intval($atts['promote']) . '"'
         . ' data-relegate="' . intval($atts['relegate']) . '"'
-        . ' data-sponsors="' . $extra_json . '">'
+        . ' data-sponsors="' . $extra_json . '"'
+        . (!empty($seasons_data) ? ' data-seasons="' . $seasons_json . '"' : '')
+        . '>'
         . '<div class="lgw-tabs">'
         . '<div class="lgw-tab active" data-tab="table">League Table</div>'
         . '<div class="lgw-tab" data-tab="fixtures">Fixtures &amp; Results</div>'
@@ -584,6 +647,10 @@ function lgw_admin_menu() {
     // Championships — function defined in lgw-champ.php
     if (function_exists('lgw_champs_register_submenu')) {
         lgw_champs_register_submenu();
+    }
+    // Seasons — function defined in lgw-seasons.php
+    if (function_exists('lgw_seasons_register_submenu')) {
+        lgw_seasons_register_submenu();
     }
     // League Setup — cache, API key, Drive/Sheets integration, shortcode reference
     add_submenu_page(

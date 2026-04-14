@@ -360,3 +360,14 @@ body.lgw-modal-open{overflow:hidden}
 .lgw-entry-badge-placeholder{width:22px;height:22px;flex-shrink:0;border-radius:50%;background:var(--lgw-border,#d0d5e8)}
 .lgw-entry-name{font-size:13px;font-weight:600;color:var(--lgw-text,#1a1a1a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lgw-entry-club{font-size:11px;color:var(--lgw-text-muted,#666);margin-left:auto;white-space:nowrap;flex-shrink:0}
+
+/* ── Season switcher ───────────────────────────────────────────────────────── */
+.lgw-season-switcher{display:flex;align-items:center;padding:6px 8px;background:var(--lgw-bg-alt);border:1px solid var(--lgw-border);border-bottom:none;border-radius:6px 6px 0 0;gap:8px}
+.lgw-season-switcher::before{content:'Season:';font-size:12px;font-weight:700;font-family:'Saira',Arial,sans-serif;color:var(--lgw-text-muted);white-space:nowrap}
+.lgw-season-select{font-family:'Saira',Arial,sans-serif;font-size:13px;font-weight:600;color:var(--lgw-navy);background:var(--lgw-bg);border:1px solid var(--lgw-border);border-radius:4px;padding:4px 8px;cursor:pointer;flex:1;max-width:220px}
+.lgw-season-select:focus{outline:2px solid var(--lgw-navy);outline-offset:1px}
+/* When switcher is present, flatten the top corners of the tab bar */
+.lgw-season-switcher+.lgw-tabs .lgw-tab{border-radius:0}
+.lgw-season-switcher+.lgw-tabs .lgw-darkmode-btn{border-radius:0}
+/* Archive banner shown inside panels for past seasons */
+.lgw-archive-banner{background:var(--lgw-bg-alt);border-bottom:1px solid var(--lgw-border);padding:6px 12px;font-size:12px;color:var(--lgw-text-muted);font-weight:600;font-family:'Saira',Arial,sans-serif}
