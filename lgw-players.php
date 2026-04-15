@@ -167,6 +167,78 @@ function lgw_get_or_create_player($club, $name) {
     return intval($wpdb->insert_id);
 }
 
+/**
+ * Remove player records that have no appearances (e.g. after an admin name correction).
+ * Starred players are preserved regardless — they may be manually curated.
+ */
+function lgw_prune_orphaned_players() {
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+    $wpdb->query(
+        "DELETE p FROM $pt p
+         LEFT JOIN $at a ON a.player_id = p.id
+         WHERE a.id IS NULL AND p.starred = 0"
+    );
+}
+
+// ── AJAX: Check which players are new (not yet in DB) for preview highlighting ─
+add_action('wp_ajax_nopriv_lgw_check_new_players', 'lgw_ajax_check_new_players');
+add_action('wp_ajax_lgw_check_new_players',        'lgw_ajax_check_new_players');
+function lgw_ajax_check_new_players() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+
+    // players: JSON array of {name, club} objects
+    $raw = json_decode(stripslashes($_POST['players'] ?? '[]'), true);
+    if (!is_array($raw)) wp_send_json_success(array());
+
+    global $wpdb;
+    $tbl    = lgw_players_table();
+    $at     = lgw_appearances_table();
+    $new    = array();
+
+    // Active season date range for appearances check
+    $season = lgw_get_season();
+    $season_where = '';
+    if (!empty($season['start']) && !empty($season['end'])) {
+        $season_where = $wpdb->prepare(
+            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
+            $season['start'], $season['end']
+        );
+    }
+
+    foreach ($raw as $entry) {
+        $name = lgw_clean_player_name(sanitize_text_field($entry['name'] ?? ''));
+        $club = sanitize_text_field($entry['club'] ?? '');
+        if (!$name || !$club) continue;
+
+        // Check if player exists at all
+        $player_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $tbl WHERE club = %s AND name = %s",
+            $club, $name
+        ));
+
+        if (!$player_id) {
+            // Brand new player — never seen before
+            $new[] = array('name' => $name, 'club' => $club, 'reason' => 'new_player');
+            continue;
+        }
+
+        // Player exists — check if they have any appearances this season
+        if ($season_where) {
+            $count = $wpdb->get_var(
+                "SELECT COUNT(*) FROM " . lgw_appearances_table() . " a
+                 WHERE a.player_id = " . intval($player_id) . " $season_where"
+            );
+            if (!$count) {
+                $new[] = array('name' => $name, 'club' => $club, 'reason' => 'new_this_season');
+            }
+        }
+    }
+
+    wp_send_json_success($new);
+}
+
 // ── Admin menu ────────────────────────────────────────────────────────────────
 // ── Admin page ────────────────────────────────────────────────────────────────
 function lgw_players_admin_page() {

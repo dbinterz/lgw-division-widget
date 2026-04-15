@@ -1,4 +1,4 @@
-/* LGW Scorecard JS - v5.17.10 */
+/* LGW Scorecard JS - v5.17.11 */
 (function(){
   'use strict';
 
@@ -29,7 +29,7 @@
     for (var k in data) fd.append(k, data[k]);
     var xhr = new XMLHttpRequest();
     xhr.open('POST', ajaxUrl);
-    xhr.onload  = function(){ cb(JSON.parse(xhr.responseText || '{}')); };
+    xhr.onload  = function(){ var r; try { r=JSON.parse(xhr.responseText||'{}'); } catch(e){ r={success:false,data:'Bad server response — please try again.'}; } cb(r); };
     xhr.onerror = function(){ cb({success:false, data:'Network error — please check your connection and try again.'}); };
     xhr.send(fd);
   }
@@ -851,14 +851,16 @@
     });
   }
 
-  // ── Scorecard display (called from lgw-widget.js) ───────────────────────────
+  // ── Scorecard display (called from lgw-widget.js for played fixtures) ─────────
   window.lgwFetchScorecard = function(home, away, date, containerEl) {
     containerEl.innerHTML = '<p class="lgw-sc-loading">Loading scorecard…</p>';
     var xhr = new XMLHttpRequest();
     xhr.open('GET', ajaxUrl+'?action=lgw_get_scorecard'
       +'&home='+encodeURIComponent(home)
       +'&away='+encodeURIComponent(away)
-      +'&date='+encodeURIComponent(date)+'&_='+Date.now());
+      +'&date='+encodeURIComponent(date)
+      +(opts.context ? '&context='+encodeURIComponent(opts.context) : '')
+      +'&_='+Date.now());
     xhr.onload = function(){
       var res = JSON.parse(xhr.responseText || '{}');
       if (res.success && res.data) {
@@ -871,9 +873,68 @@
     xhr.send();
   };
 
+  // ── Fetch scorecard; if none found and submission allowed, offer the form ──────
+  // opts: { canSubmit, division, maxPts, isAdmin, submissionMode, authClub }
+  window.lgwFetchScorecardOrSubmit = function(home, away, date, containerEl, opts) {
+    opts = opts || {};
+    containerEl.innerHTML = '<p class="lgw-sc-loading">Loading scorecard…</p>';
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', ajaxUrl+'?action=lgw_get_scorecard'
+      +'&home='+encodeURIComponent(home)
+      +'&away='+encodeURIComponent(away)
+      +'&date='+encodeURIComponent(date)+'&_='+Date.now());
+    xhr.onload = function(){
+      var res;
+      try { res = JSON.parse(xhr.responseText || '{}'); } catch(e) {
+        containerEl.innerHTML = '<p class="lgw-sc-none">Could not load scorecard (bad response).</p>';
+        return;
+      }
+      if (res.success && res.data) {
+        // Scorecard exists — show it with inline confirm/amend if pending and second club
+        containerEl.innerHTML = lgwRenderScorecardHtml(res.data, {
+          authClub:       opts.authClub || authClub || '',
+          isAdmin:        opts.isAdmin,
+          canSubmit:      opts.canSubmit,
+          submissionMode: opts.submissionMode,
+          context:        opts.context || '',
+        });
+        // Bind confirm/amend actions if rendered
+        var reviewEl = containerEl.querySelector('.lgw-sc-review-inline');
+        if (reviewEl) {
+          lgwBindInlineReview(reviewEl, res.data, containerEl, opts, home, away, date);
+        }
+      } else if (opts.canSubmit) {
+        // No scorecard yet — offer submission
+        containerEl.innerHTML = '<p class="lgw-sc-none" style="margin-bottom:12px">No scorecard submitted yet.</p>'
+          + '<div class="lgw-sc-submit-wrap"></div>';
+        var sub = containerEl.querySelector('.lgw-sc-submit-wrap');
+        if (sub && typeof window.lgwOpenSubmitInModal === 'function') {
+          window.lgwOpenSubmitInModal(sub, {
+            home: home,
+            away: away,
+            date: date,
+            division: opts.division || '',
+            maxPts: (opts.maxPts !== undefined && opts.maxPts !== null) ? opts.maxPts : 7,
+            isAdmin: opts.isAdmin,
+            submissionMode: opts.submissionMode,
+            authClub: opts.authClub,
+            context: opts.context || '',
+          });
+        }
+      } else {
+        containerEl.innerHTML = '<p class="lgw-sc-none">No scorecard submitted yet.</p>';
+      }
+    };
+    xhr.onerror = function(){ containerEl.innerHTML = '<p class="lgw-sc-none">Could not load scorecard.</p>'; };
+    xhr.send();
+  };
+
   // ── Scorecard HTML renderer (shared by modal display and review) ──────────────
-  function lgwRenderScorecardHtml(sc) {
+  // ctx: optional { authClub, isAdmin, canSubmit, submissionMode }
+  function lgwRenderScorecardHtml(sc, ctx) {
+    ctx = ctx || {};
     var status = sc['_status'] || 'pending';
+    var submittedBy = sc['_submitted_by'] || '';
     var h = '<div class="lgw-sc-full">';
 
     // Status badge
@@ -886,9 +947,10 @@
 
     // Meta
     h += '<div class="lgw-sc-meta">';
-    if (sc.division) h += '<span class="lgw-sc-div">'+esc(sc.division)+'</span>';
-    if (sc.venue)    h += '<span class="lgw-sc-venue">'+esc(sc.venue)+'</span>';
-    if (sc.date)     h += '<span class="lgw-sc-date">'+esc(sc.date)+'</span>';
+    if (sc.division)   h += '<span class="lgw-sc-div">'+esc(sc.division)+'</span>';
+    if (sc.venue)      h += '<span class="lgw-sc-venue">'+esc(sc.venue)+'</span>';
+    if (sc.date)       h += '<span class="lgw-sc-date">'+esc(sc.date)+'</span>';
+    if (sc.submitter)  h += '<span class="lgw-sc-submitter">Submitted by: '+esc(sc.submitter)+'</span>';
     h += '</div>';
 
     // Rinks
@@ -935,10 +997,935 @@
       }
       h += '</div>';
     }
+
+    // ── Inline confirm/amend for pending scorecards ──
+    // Show when: status is pending, submission is allowed, and the current
+    // club is involved in the match but is NOT the one who submitted.
+    var currentClubCtx = ctx.authClub || authClub || '';
+    var canAct = (ctx.canSubmit || ctx.isAdmin)
+      && status === 'pending'
+      && currentClubCtx
+      && !lgwClubMatchesTeamStr(currentClubCtx, submittedBy);
+
+    // Also check the current club is actually involved in this match
+    var homeTeam = sc.home_team || '';
+    var awayTeam = sc.away_team || '';
+    var clubInvolved = homeTeam && awayTeam && currentClubCtx && (
+      lgwClubMatchesTeamStr(currentClubCtx, homeTeam) ||
+      lgwClubMatchesTeamStr(currentClubCtx, awayTeam)
+    );
+
+    if (canAct && clubInvolved) {
+      h += '<div class="lgw-sc-review-inline">'
+        +'<p class="lgw-sc-review-prompt">This scorecard was submitted by <strong>'+esc(submittedBy)+'</strong>. Do the scores look correct?</p>'
+        +'<div class="lgw-sc-review-actions">'
+        +'<button class="lgw-btn lgw-btn-primary lgw-inline-confirm">✅ Confirm — scores are correct</button>'
+        +'<button class="lgw-btn lgw-btn-secondary lgw-inline-amend">✏️ Amend — I have different scores</button>'
+        +'</div>'
+        +'<p class="lgw-inline-review-status lgw-notice" style="display:none"></p>'
+        +'</div>';
+    }
+
     h += '</div>';
     return h;
   }
 
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // ── In-modal submission form (called from lgw-widget.js) ──────────────────────
+  // opts: { home, away, date, division, maxPts, isAdmin, submissionMode, authClub }
+  window.lgwOpenSubmitInModal = function(containerEl, opts) {
+    opts = opts || {};
+    var home       = opts.home || '';
+    var away       = opts.away || '';
+    var date       = opts.date || '';
+    var division   = opts.division || '';
+    var maxPts     = (opts.maxPts !== undefined && opts.maxPts !== null) ? opts.maxPts : 7;
+    var isAdm      = !!opts.isAdmin;
+    var mode       = opts.submissionMode || 'open';
+    var scContext  = opts.context || 'league';
+    var currentClub = opts.authClub || authClub || '';
+
+    // ── Helper: render the inline scorecard form (pre-filled, locked meta) ────
+    function renderModalForm(club) {
+      var rinkRows = '';
+      for(var r = 1; r <= 4; r++){
+        rinkRows +=
+          '<tr class="lgw-modal-rink-row" data-rink="'+r+'">'
+          +'<td class="lgw-modal-rink-num">'+r+'</td>'
+          +'<td><textarea class="lgw-modal-players lgw-modal-players-home lgw-autoresize" placeholder="Player names, comma separated" data-rink="'+r+'" rows="1"></textarea></td>'
+          +'<td style="text-align:center"><input type="number" class="lgw-score-home" data-rink="'+r+'" min="0" style="width:60px;text-align:center"></td>'
+          +'<td style="text-align:center"><input type="number" class="lgw-score-away" data-rink="'+r+'" min="0" style="width:60px;text-align:center"></td>'
+          +'<td><textarea class="lgw-modal-players lgw-modal-players-away lgw-autoresize" placeholder="Player names, comma separated" data-rink="'+r+'" rows="1"></textarea></td>'
+          +'</tr>';
+      }
+
+      var adminForRow = '';
+      if(isAdm){
+        adminForRow =
+          '<div class="lgw-modal-sc-field" style="margin-bottom:14px">'
+          +'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px">'
+          +'<label class="lgw-modal-sc-label" style="margin:0">Submitting on behalf of</label>'
+          +'</div>'
+          +'<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px">'
+          +'<label style="display:flex;align-items:center;gap:4px"><input type="radio" name="lgw_modal_submitted_for" value="home" checked> '
+            +esc(home)+' <span style="color:#888">(home)</span></label>'
+          +'<label style="display:flex;align-items:center;gap:4px"><input type="radio" name="lgw_modal_submitted_for" value="away"> '
+            +esc(away)+' <span style="color:#888">(away)</span></label>'
+          +'<label style="display:flex;align-items:center;gap:4px"><input type="radio" name="lgw_modal_submitted_for" value="both"> '
+            +'Both teams <span style="color:#0a5a0a">(auto-confirms)</span></label>'
+          +'</div>'
+          +'</div>';
+      }
+
+      return '<div class="lgw-modal-sc-form">'
+        +(club && club !== 'Admin' ? '<div class="lgw-club-bar" style="margin-bottom:12px"><span>Submitting as <strong>'+esc(club)+'</strong></span>'
+            +(mode==='open' ? ' <button class="lgw-btn lgw-btn-secondary lgw-btn-sm lgw-modal-logout">Log out</button>' : '')
+            +'</div>' : '')
+        // ── Entry method tabs ──
+        +'<div class="lgw-submit-tabs" style="margin-bottom:12px">'
+        +'<button class="lgw-stab lgw-modal-tab active" data-mtab="photo">📷 Photo</button>'
+        +'<button class="lgw-stab lgw-modal-tab" data-mtab="excel">📊 Excel</button>'
+        +'<button class="lgw-stab lgw-modal-tab" data-mtab="manual">✏️ Manual</button>'
+        +'</div>'
+        // Photo panel
+        +'<div class="lgw-stab-panel active lgw-modal-tabpanel" data-mtab="photo">'
+        +'<p class="lgw-hint">Upload a photo of the scorecard. AI will read it and pre-fill the form below.</p>'
+        +'<div class="lgw-upload-area" id="lgw-modal-photo-drop">'
+        +'<input type="file" id="lgw-modal-photo-input" accept="image/*" capture="environment" style="display:none">'
+        +'<div class="lgw-upload-inner" id="lgw-modal-photo-trigger"><span class="lgw-upload-icon">📷</span><span>Tap to take a photo or choose an image</span></div>'
+        +'<img id="lgw-modal-photo-preview" src="" alt="" style="display:none;max-width:100%;max-height:180px;border-radius:6px;margin-top:10px">'
+        +'</div>'
+        +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-parse-photo" style="margin-top:8px;display:none">Read Scorecard with AI</button>'
+        +'<p id="lgw-modal-photo-status" class="lgw-notice" style="display:none"></p>'
+        +'</div>'
+        // Excel panel
+        +'<div class="lgw-stab-panel lgw-modal-tabpanel" data-mtab="excel" style="display:none">'
+        +'<p class="lgw-hint">Upload the LGW Excel scorecard template (.xlsx).</p>'
+        +'<div class="lgw-upload-area">'
+        +'<input type="file" id="lgw-modal-excel-input" accept=".xlsx,.xls">'
+        +'<div class="lgw-upload-inner"><span class="lgw-upload-icon">📊</span><span>Choose Excel file (.xlsx)</span></div>'
+        +'</div>'
+        +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-parse-excel" style="margin-top:8px;display:none">Read Spreadsheet</button>'
+        +'<p id="lgw-modal-excel-status" class="lgw-notice" style="display:none"></p>'
+        +'</div>'
+        // Manual panel
+        +'<div class="lgw-stab-panel lgw-modal-tabpanel" data-mtab="manual" style="display:none">'
+        +'<p class="lgw-hint">Fill in the scorecard details manually using the form below.</p>'
+        +'</div>'
+        // ── Match meta ──
+        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-bottom:14px">'
+        +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Home Team</label>'
+          +'<input type="text" class="lgw-modal-meta" id="lgw-modal-home" value="'+esc(home)+'" readonly></div>'
+        +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Away Team</label>'
+          +'<input type="text" class="lgw-modal-meta" id="lgw-modal-away" value="'+esc(away)+'" readonly></div>'
+        +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Fixture Date</label>'
+          +'<input type="text" class="lgw-modal-meta" id="lgw-modal-date" value="'+esc(date)+'" readonly></div>'
+        +'<div class="lgw-modal-sc-field">'
+          +'<label class="lgw-modal-sc-label">Date Played <span style="font-weight:400;text-transform:none;font-size:10px;color:#888">(only if different to fixture date)</span></label>'
+          +'<input type="text" id="lgw-modal-date-played" placeholder="dd/mm/yyyy" style="width:100%;padding:7px 10px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px;font-family:inherit"></div>'
+        +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Division</label>'
+          +'<input type="text" class="lgw-modal-meta" id="lgw-modal-division" value="'+esc(division)+'" readonly></div>'
+        +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Venue</label>'
+          +'<input type="text" id="lgw-modal-venue" placeholder="e.g. Home Club" style="width:100%;padding:7px 10px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px;font-family:inherit"></div>'
+        +'<div class="lgw-modal-sc-field" style="grid-column:1/-1"><label class="lgw-modal-sc-label">Submitted by <span style="font-weight:400;text-transform:none;font-size:10px;color:#888">(your name)</span></label>'
+          +'<input type="text" id="lgw-modal-submitter" placeholder="e.g. John Smith" style="width:100%;padding:7px 10px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px;font-family:inherit"></div>'
+        +'</div>'
+        +adminForRow
+        // ── Rink table ──
+        +'<div style="overflow-x:auto;margin-bottom:14px">'
+        +'<table class="lgw-modal-rink-table">'
+        +'<thead><tr><th style="width:36px">Rink</th>'
+          +'<th style="text-align:left">'+esc(home)+' Players</th>'
+          +'<th style="width:70px;text-align:center">Home</th>'
+          +'<th style="width:70px;text-align:center">Away</th>'
+          +'<th style="text-align:left">'+esc(away)+' Players</th>'
+        +'</tr></thead>'
+        +'<tbody>'+rinkRows+'</tbody>'
+        +'</table></div>'
+        // ── Totals ──
+        +'<div style="display:grid;grid-template-columns:'+( maxPts > 0 ? '1fr 1fr 1fr 1fr' : '1fr 1fr' )+';gap:8px;margin-bottom:6px">'
+        +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Home Total Shots</label>'
+          +'<input type="number" id="lgw-modal-home-total" min="0" style="width:100%;padding:6px"></div>'
+        +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Away Total Shots</label>'
+          +'<input type="number" id="lgw-modal-away-total" min="0" style="width:100%;padding:6px"></div>'
+        +(maxPts > 0
+          ? '<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Home Points</label>'
+            +'<input type="number" id="lgw-modal-home-pts" min="0" max="'+maxPts+'" style="width:100%;padding:6px" data-pts="home"></div>'
+            +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Away Points</label>'
+            +'<input type="number" id="lgw-modal-away-pts" min="0" max="'+maxPts+'" style="width:100%;padding:6px" data-pts="away"></div>'
+          : '')
+        +'</div>'
+        +(maxPts > 0 ? '<p style="font-size:11px;color:#888;margin:0 0 12px">Points must total '+maxPts+' (max per match).</p>' : '')
+        +'<p id="lgw-modal-sc-status" class="lgw-notice" style="display:none"></p>'
+        +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-sc-save">💾 Save Scorecard</button>'
+        +'</div>';
+    }
+
+    // ── Helper: populate modal form fields from parsed scorecard data ─────────
+    function populateModalForm(el, sc) {
+      // Venue — overwrite if AI/Excel gave us one; keep home/away/date/division locked
+      if (sc.venue)      { var v = el.querySelector('#lgw-modal-venue');       if(v) v.value = sc.venue; }
+      if (sc.date) {
+        var normDate = (typeof normaliseDate === 'function') ? normaliseDate(sc.date) : sc.date;
+        // If date differs from fixture date, put it in the "date played" override field
+        if (normDate && normDate !== date) {
+          var dp = el.querySelector('#lgw-modal-date-played');
+          if(dp) dp.value = normDate;
+        }
+      }
+      // Totals
+      function mset(id, val) {
+        var fe = el.querySelector('#'+id);
+        if(fe && val !== null && val !== undefined && val !== '') fe.value = val;
+      }
+      mset('lgw-modal-home-total',  sc.home_total);
+      mset('lgw-modal-away-total',  sc.away_total);
+      mset('lgw-modal-home-pts',    sc.home_points);
+      mset('lgw-modal-away-pts',    sc.away_points);
+      // Rinks
+      (sc.rinks || []).forEach(function(rk){
+        var r = rk.rink;
+        var row = el.querySelector('.lgw-modal-rink-row[data-rink="'+r+'"]');
+        if (!row) return;
+        // Players — join array into comma-separated string
+        var hpEl = row.querySelector('.lgw-modal-players-home');
+        var apEl = row.querySelector('.lgw-modal-players-away');
+        if (hpEl && rk.home_players && rk.home_players.length) hpEl.value = rk.home_players.join(', ');
+        if (apEl && rk.away_players && rk.away_players.length) apEl.value = rk.away_players.join(', ');
+        // Trigger auto-resize
+        if(hpEl && hpEl.tagName === 'TEXTAREA') setTimeout(function(){ hpEl.style.height='auto'; hpEl.style.height=hpEl.scrollHeight+'px'; },0);
+        if(apEl && apEl.tagName === 'TEXTAREA') setTimeout(function(){ apEl.style.height='auto'; apEl.style.height=apEl.scrollHeight+'px'; },0);
+        var hs = row.querySelector('.lgw-score-home');
+        var as = row.querySelector('.lgw-score-away');
+        if (hs && rk.home_score !== null && rk.home_score !== undefined) hs.value = rk.home_score;
+        if (as && rk.away_score !== null && rk.away_score !== undefined) as.value = rk.away_score;
+      });
+      // Trigger points hint update
+      var hpEl2 = el.querySelector('#lgw-modal-home-pts');
+      if (hpEl2) hpEl2.dispatchEvent(new Event('input'));
+    }
+    function collectModalForm(el) {
+      var rinks = [];
+      el.querySelectorAll('.lgw-modal-rink-row').forEach(function(row){
+        var r = row.getAttribute('data-rink');
+        var hpInput = row.querySelector('.lgw-modal-players-home');
+        var apInput = row.querySelector('.lgw-modal-players-away');
+        var hpRaw = hpInput ? hpInput.value : '';
+        var apRaw = apInput ? apInput.value : '';
+        rinks.push({
+          rink:         parseInt(r,10),
+          home_players: hpRaw.split(',').map(function(s){return s.trim();}).filter(Boolean),
+          away_players: apRaw.split(',').map(function(s){return s.trim();}).filter(Boolean),
+          home_score:   (function(v){return v===''||v===null?null:parseInt(v,10);})(
+                          (row.querySelector('.lgw-score-home')||{}).value),
+          away_score:   (function(v){return v===''||v===null?null:parseInt(v,10);})(
+                          (row.querySelector('.lgw-score-away')||{}).value),
+        });
+      });
+      // Date played: use if filled, else fall back to fixture date
+      var datePlayed = ((el.querySelector('#lgw-modal-date-played')||{}).value||'').trim();
+      var fixtureDate = (el.querySelector('#lgw-modal-date')||{}).value || date;
+      return {
+        home_team:    (el.querySelector('#lgw-modal-home')||{}).value || home,
+        away_team:    (el.querySelector('#lgw-modal-away')||{}).value || away,
+        date:         datePlayed || fixtureDate,
+        division:     (el.querySelector('#lgw-modal-division')||{}).value || division,
+        venue:        ((el.querySelector('#lgw-modal-venue')||{}).value||'').trim(),
+        submitter:    ((el.querySelector('#lgw-modal-submitter')||{}).value||'').trim(),
+        home_total:   (function(v){return v===''?null:parseFloat(v);})(
+                        ((el.querySelector('#lgw-modal-home-total')||{}).value)),
+        away_total:   (function(v){return v===''?null:parseFloat(v);})(
+                        ((el.querySelector('#lgw-modal-away-total')||{}).value)),
+        home_points:  (function(v){return v===''?null:parseFloat(v);})(
+                        ((el.querySelector('#lgw-modal-home-pts')||{}).value)),
+        away_points:  (function(v){return v===''?null:parseFloat(v);})(
+                        ((el.querySelector('#lgw-modal-away-pts')||{}).value)),
+        rinks: rinks,
+        context: scContext,
+      };
+    }
+
+    // ── Helper: validate points ───────────────────────────────────────────────
+    function validatePoints(sc, statusEl) {
+      // Cup mode (maxPts === 0): no points fields, always valid
+      if (maxPts === 0) return true;
+      var hp = sc.home_points, ap = sc.away_points;
+      // Both blank — skip validation (player tracking only, no result needed)
+      if (hp === null && ap === null) return true;
+      // One filled, one blank
+      if (hp === null || ap === null) {
+        showStatus(statusEl, '❌ Please enter both home and away points, or leave both blank.', 'error');
+        return false;
+      }
+      if (hp < 0 || ap < 0) {
+        showStatus(statusEl, '❌ Points cannot be negative.', 'error');
+        return false;
+      }
+      if (hp > maxPts || ap > maxPts) {
+        showStatus(statusEl, '❌ Neither team can exceed '+maxPts+' points.', 'error');
+        return false;
+      }
+      var total = hp + ap;
+      if (total !== maxPts) {
+        showStatus(statusEl, '❌ Home and away points must total '+maxPts+' (currently '+total+'). Max per match is '+maxPts+'.', 'error');
+        return false;
+      }
+      return true;
+    }
+
+    // ── Show login gate or form ───────────────────────────────────────────────
+    if(mode !== 'disabled' && mode !== 'admin_only' && !currentClub && !isAdm){
+      var allClubs = (typeof lgwSubmit !== 'undefined' && lgwSubmit.clubs) ? lgwSubmit.clubs : [];
+
+      // Filter to only clubs involved in this fixture
+      var fixtureClubs = allClubs.filter(function(c){ return lgwClubMatchesTeam(c, home) || lgwClubMatchesTeam(c, away); });
+      // Fall back to all clubs if no match (e.g. club list not configured)
+      var clubs = fixtureClubs.length ? fixtureClubs : allClubs;
+
+      var clubOpts = '';
+      if(clubs.length){
+        clubs.forEach(function(c){
+          clubOpts += '<option value="'+esc(c)+'">'+esc(c)+'</option>';
+        });
+      }
+
+      containerEl.innerHTML =
+        '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0">'
+        +'<h3 style="margin:0 0 10px;color:#1a2e5a">Log in to submit scorecard</h3>'
+        +'<p style="font-size:13px;margin-bottom:12px;color:#555">Select your club and enter your passphrase.</p>'
+        +(clubs.length
+          ? '<div class="lgw-form-row" style="margin-bottom:10px">'
+            +'<select id="lgw-modal-club-select" style="width:100%;padding:9px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px">'
+            +'<option value="">— Select your club —</option>'+clubOpts+'</select></div>'
+          : '<div class="lgw-form-row" style="margin-bottom:10px">'
+            +'<input type="text" id="lgw-modal-club-text" placeholder="Your club name" style="width:100%;padding:9px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px"></div>'
+        )
+        +'<div class="lgw-pin-row" style="margin-bottom:8px">'
+        +'<input type="text" id="lgw-modal-pin-input" placeholder="Passphrase" maxlength="60" autocomplete="off" autocapitalize="none" spellcheck="false">'
+        +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-pin-submit">Login</button>'
+        +'</div>'
+        +'<p id="lgw-modal-pin-error" class="lgw-notice lgw-notice-error" style="display:none"></p>'
+        +'</div>';
+
+      function doModalLogin(){
+        var clubEl = containerEl.querySelector('#lgw-modal-club-select') || containerEl.querySelector('#lgw-modal-club-text');
+        var pinEl  = containerEl.querySelector('#lgw-modal-pin-input');
+        var errEl  = containerEl.querySelector('#lgw-modal-pin-error');
+        var clubVal = clubEl ? clubEl.value.trim() : '';
+        var pin    = pinEl  ? pinEl.value.trim()  : '';
+        if(!clubVal){ showStatus(errEl,'Please select your club','error'); return; }
+        if(!pin) { showStatus(errEl,'Please enter your passphrase','error'); return; }
+        var btn = containerEl.querySelector('#lgw-modal-pin-submit');
+        if(btn){ btn.disabled=true; btn.textContent='Logging in…'; }
+        post('lgw_check_pin', {club: clubVal, pin: pin}, function(res){
+          if(btn){ btn.disabled=false; btn.textContent='Login'; }
+          if(res.success){
+            currentClub = res.data.club;
+            authClub = currentClub;
+            containerEl.innerHTML = renderModalForm(currentClub);
+            bindModalForm(containerEl);
+          } else {
+            showStatus(errEl, res.data || 'Incorrect club or passphrase', 'error');
+          }
+        });
+      }
+
+      var loginBtn = containerEl.querySelector('#lgw-modal-pin-submit');
+      var pinEl2   = containerEl.querySelector('#lgw-modal-pin-input');
+      if(loginBtn) loginBtn.addEventListener('click', doModalLogin);
+      if(pinEl2)   pinEl2.addEventListener('keydown', function(e){ if(e.key==='Enter') doModalLogin(); });
+      return;
+    }
+
+    // Already logged in or admin — but first check club is involved in THIS fixture
+    // A club logged in on one page carries their session to all fixture modals;
+    // if they click a fixture that doesn't involve their club, show read-only view.
+    if(!isAdm && currentClub && home && away){
+      var clubInFixture = lgwClubMatchesTeam(currentClub, home) || lgwClubMatchesTeam(currentClub, away);
+      if(!clubInFixture){
+        containerEl.innerHTML = '<p class="lgw-sc-none">No scorecard submitted yet.</p>';
+        return;
+      }
+    }
+
+    // Involved club or admin — show form directly
+    containerEl.innerHTML = renderModalForm(isAdm ? 'Admin' : currentClub);
+    bindModalForm(containerEl);
+    // Pre-fill with existing scorecard data if provided (amend flow)
+    if(opts.prefill) {
+      setTimeout(function(){ populateModalForm(containerEl, opts.prefill); }, 50);
+    }
+
+    function bindModalForm(el) {
+      // ── Tab switching ──────────────────────────────────────────────────────
+      el.querySelectorAll('.lgw-modal-tab').forEach(function(tab){
+        tab.addEventListener('click', function(){
+          el.querySelectorAll('.lgw-modal-tab').forEach(function(t){ t.classList.remove('active'); });
+          el.querySelectorAll('.lgw-modal-tabpanel').forEach(function(p){ p.style.display='none'; p.classList.remove('active'); });
+          tab.classList.add('active');
+          var panel = el.querySelector('.lgw-modal-tabpanel[data-mtab="'+tab.getAttribute('data-mtab')+'"]');
+          if(panel){ panel.style.display=''; panel.classList.add('active'); }
+        });
+      });
+
+      // ── Photo upload ───────────────────────────────────────────────────────
+      var photoInput2   = el.querySelector('#lgw-modal-photo-input');
+      var photoTrigger2 = el.querySelector('#lgw-modal-photo-trigger');
+      var photoPreview2 = el.querySelector('#lgw-modal-photo-preview');
+      var parseBtn2     = el.querySelector('#lgw-modal-parse-photo');
+      var photoStat2    = el.querySelector('#lgw-modal-photo-status');
+      var modalPhotoFile = null;
+
+      if(photoTrigger2) photoTrigger2.addEventListener('click', function(){ if(photoInput2) photoInput2.click(); });
+      if(photoInput2) photoInput2.addEventListener('change', function(){
+        if(!photoInput2.files[0]) return;
+        modalPhotoFile = photoInput2.files[0];
+        var reader = new FileReader();
+        reader.onload = function(e){
+          photoPreview2.src = e.target.result;
+          photoPreview2.style.display = '';
+          if(parseBtn2) parseBtn2.style.display = '';
+        };
+        reader.readAsDataURL(modalPhotoFile);
+      });
+      if(parseBtn2){
+        parseBtn2.addEventListener('click', function(){
+          if(!modalPhotoFile) return;
+          parseBtn2.disabled = true; parseBtn2.textContent = '⏳ Reading…';
+          showStatus(photoStat2, 'Sending to AI — this takes a few seconds…', 'info');
+          var fd = new FormData();
+          fd.append('action', 'lgw_parse_photo');
+          fd.append('nonce',  nonce);
+          fd.append('photo',  modalPhotoFile);
+          var xhr3 = new XMLHttpRequest();
+          xhr3.open('POST', ajaxUrl);
+          xhr3.onload = function(){
+            parseBtn2.disabled = false; parseBtn2.textContent = 'Read Scorecard with AI';
+            var res = JSON.parse(xhr3.responseText || '{}');
+            if(res.success){ populateModalForm(el, res.data); showStatus(photoStat2, '✅ Scorecard read — please check all fields below.', 'ok'); }
+            else showStatus(photoStat2, '❌ ' + (res.data || 'Could not read scorecard'), 'error');
+          };
+          xhr3.onerror = function(){ parseBtn2.disabled=false; parseBtn2.textContent='Read Scorecard with AI'; showStatus(photoStat2,'❌ Network error','error'); };
+          xhr3.send(fd);
+        });
+      }
+
+      // ── Excel upload ───────────────────────────────────────────────────────
+      var excelInput2  = el.querySelector('#lgw-modal-excel-input');
+      var parseExcel2  = el.querySelector('#lgw-modal-parse-excel');
+      var excelStat2   = el.querySelector('#lgw-modal-excel-status');
+
+      if(excelInput2) excelInput2.addEventListener('change', function(){
+        if(excelInput2.files[0] && parseExcel2) parseExcel2.style.display = '';
+      });
+      if(parseExcel2){
+        parseExcel2.addEventListener('click', function(){
+          if(!excelInput2 || !excelInput2.files[0]) return;
+          parseExcel2.disabled = true; parseExcel2.textContent = '⏳ Reading…';
+          showStatus(excelStat2, 'Reading spreadsheet…', 'info');
+          var fd = new FormData();
+          fd.append('action', 'lgw_parse_excel');
+          fd.append('nonce',  nonce);
+          fd.append('excel',  excelInput2.files[0]);
+          var xhr4 = new XMLHttpRequest();
+          xhr4.open('POST', ajaxUrl);
+          xhr4.onload = function(){
+            parseExcel2.disabled = false; parseExcel2.textContent = 'Read Spreadsheet';
+            var res = JSON.parse(xhr4.responseText || '{}');
+            if(res.success){ populateModalForm(el, res.data); showStatus(excelStat2, '✅ Spreadsheet read — please check all fields below.', 'ok'); }
+            else showStatus(excelStat2, '❌ ' + (res.data || 'Could not read file'), 'error');
+          };
+          xhr4.onerror = function(){ parseExcel2.disabled=false; parseExcel2.textContent='Read Spreadsheet'; showStatus(excelStat2,'❌ Network error','error'); };
+          xhr4.send(fd);
+        });
+      }
+
+      // Logout
+      var logoutBtn = el.querySelector('.lgw-modal-logout');
+      if(logoutBtn){
+        logoutBtn.addEventListener('click', function(){
+          post('lgw_logout', {}, function(){
+            authClub = '';
+            currentClub = '';
+            window.lgwOpenSubmitInModal(containerEl, opts);
+          });
+        });
+      }
+
+      // Live points sum hint
+      function updatePointsHint() {
+        var hpEl = el.querySelector('#lgw-modal-home-pts');
+        var apEl = el.querySelector('#lgw-modal-away-pts');
+        var hint = el.querySelector('#lgw-modal-pts-hint');
+        if(!hpEl||!apEl||!hint) return;
+        var hp = hpEl.value === '' ? null : parseInt(hpEl.value, 10);
+        var ap = apEl.value === '' ? null : parseInt(apEl.value, 10);
+        if(hp === null && ap === null){ hint.textContent=''; hint.style.color=''; return; }
+        var total = (hp||0)+(ap||0);
+        if(total === maxPts){
+          hint.textContent = '✓ '+total+'/'+maxPts;
+          hint.style.color = '#2a7a2a';
+        } else {
+          hint.textContent = total+'/'+maxPts+' — must total '+maxPts;
+          hint.style.color = '#c0202a';
+        }
+      }
+      // Insert hint span after points row
+      var ptsRow = el.querySelector('#lgw-modal-home-pts');
+      if(ptsRow){
+        var hintEl = document.createElement('p');
+        hintEl.id = 'lgw-modal-pts-hint';
+        hintEl.style.cssText = 'font-size:11px;margin:2px 0 10px;font-weight:600';
+        ptsRow.closest('div').parentNode.insertAdjacentElement('afterend', hintEl);
+        el.querySelector('#lgw-modal-home-pts').addEventListener('input', updatePointsHint);
+        el.querySelector('#lgw-modal-away-pts').addEventListener('input', updatePointsHint);
+      }
+
+      // ── Auto-resize textareas ─────────────────────────────────────────────
+      function autoResize(ta) {
+        ta.style.height = 'auto';
+        ta.style.height = ta.scrollHeight + 'px';
+      }
+
+      // ── Live duplicate player warning ─────────────────────────────────────
+      // Returns array of {name, team, rinks[]} for any name appearing >1 on same team
+      function findDuplicatePlayers(sc) {
+        var counts = {}; // key: "side:normalised_name" → [{rink, raw}]
+        sc.rinks.forEach(function(rk){
+          ['home_players','away_players'].forEach(function(side){
+            var sideKey = side === 'home_players' ? 'home' : 'away';
+            (rk[side]||[]).forEach(function(raw){
+              var n = raw.replace(/\*/g,'').trim();
+              if(!n) return;
+              var key = sideKey + ':' + n.toLowerCase();
+              if(!counts[key]) counts[key] = {name: n, side: sideKey, rinks: []};
+              counts[key].rinks.push(rk.rink);
+            });
+          });
+        });
+        var dups = [];
+        Object.keys(counts).forEach(function(k){
+          if(counts[k].rinks.length > 1) dups.push(counts[k]);
+        });
+        return dups;
+      }
+
+      function updateDupWarnings() {
+        var sc = collectModalForm(el);
+        var dups = findDuplicatePlayers(sc);
+        var warn = el.querySelector('#lgw-modal-dup-warn');
+        if(!warn){
+          warn = document.createElement('p');
+          warn.id = 'lgw-modal-dup-warn';
+          warn.className = 'lgw-notice lgw-notice-warn';
+          warn.style.display = 'none';
+          var saveBtn2 = el.querySelector('#lgw-modal-sc-save');
+          if(saveBtn2) saveBtn2.parentNode.insertBefore(warn, saveBtn2);
+        }
+        if(dups.length){
+          var msgs = dups.map(function(d){
+            return '"'+d.name+'" appears '+d.rinks.length+' times on the '+d.side+' team (rinks '+d.rinks.join(', ')+')';
+          });
+          warn.style.display = '';
+          warn.innerHTML = '⚠️ Duplicate player names detected — if these are two different people, please distinguish them with a suffix or full name (e.g. J Smith Sr / J Smith Jr):<br><strong>'+msgs.join('<br>')+'</strong>';
+        } else {
+          warn.style.display = 'none';
+          warn.textContent = '';
+        }
+      }
+
+      el.querySelectorAll('.lgw-autoresize').forEach(function(ta){
+        ta.addEventListener('input', function(){
+          autoResize(ta);
+          updateDupWarnings();
+        });
+        setTimeout(function(){ autoResize(ta); }, 0);
+      });
+
+      // ── Save — shows preview popup first ─────────────────────────────────
+      var saveBtn   = el.querySelector('#lgw-modal-sc-save');
+      var statusEl  = el.querySelector('#lgw-modal-sc-status');
+      if(!saveBtn) return;
+
+      saveBtn.addEventListener('click', function(){
+        var sc = collectModalForm(el);
+        if(!sc.home_team || !sc.away_team){
+          showStatus(statusEl, '❌ Home and away team names are required', 'error'); return;
+        }
+        if(!validatePoints(sc, statusEl)) return;
+
+        // ── Duplicate player check ───────────────────────────────────────────
+        var dups = findDuplicatePlayers(sc);
+        if(dups.length){
+          var dupNames = dups.map(function(d){
+            return '"'+d.name+'" ('+d.side+' team, rinks '+d.rinks.join(', ')+')';
+          }).join('; ');
+          showStatus(statusEl,
+            '❌ Duplicate player names on the same team: '+dupNames
+            +'. If these are two different people, please use a distinguishing suffix (e.g. J Smith Sr / J Smith Jr) or enter their full names.',
+            'error');
+          return;
+        }
+
+        var submittedFor = 'home';
+        if(isAdm){
+          var sfEl = el.querySelector('input[name="lgw_modal_submitted_for"]:checked');
+          submittedFor = sfEl ? sfEl.value : 'home';
+        }
+
+        // ── Team mismatch check ──────────────────────────────────────────────
+        // Ensure the submitted teams match the fixture teams (in either order)
+        var submittedHome = sc.home_team.trim();
+        var submittedAway = sc.away_team.trim();
+        var fixtureHome   = home.trim();
+        var fixtureAway   = away.trim();
+
+        // Check if submitted pair matches fixture pair (allowing home/away swap)
+        var straightMatch  = lgwTeamNamesMatch(submittedHome, fixtureHome) && lgwTeamNamesMatch(submittedAway, fixtureAway);
+        var reversedMatch  = lgwTeamNamesMatch(submittedHome, fixtureAway) && lgwTeamNamesMatch(submittedAway, fixtureHome);
+
+        if(!straightMatch && !reversedMatch){
+          showStatus(statusEl,
+            '❌ These teams don\'t match this fixture. This fixture is '+esc(fixtureHome)+' v '+esc(fixtureAway)
+            +' — the scorecard appears to be for a different game. Please check you\'ve uploaded the correct scorecard.',
+            'error');
+          return;
+        }
+        var homeClub = lgwResolveClub(sc.home_team);
+        var awayClub = lgwResolveClub(sc.away_team);
+        var allPlayers = [];
+        sc.rinks.forEach(function(rk){
+          (rk.home_players||[]).forEach(function(n){ if(n) allPlayers.push({name:n, club:homeClub||sc.home_team}); });
+          (rk.away_players||[]).forEach(function(n){ if(n) allPlayers.push({name:n, club:awayClub||sc.away_team}); });
+        });
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = '⏳ Checking…';
+        showStatus(statusEl, '', '');
+
+        // Check new players, then show preview
+        var fd0 = new FormData();
+        fd0.append('action',  'lgw_check_new_players');
+        fd0.append('nonce',   nonce);
+        fd0.append('players', JSON.stringify(allPlayers));
+        var xhrN = new XMLHttpRequest();
+        xhrN.open('POST', ajaxUrl);
+        xhrN.onload = function(){
+          saveBtn.disabled = false;
+          saveBtn.textContent = '💾 Save Scorecard';
+          var res = JSON.parse(xhrN.responseText || '{}');
+          var newPlayers = (res.success && res.data) ? res.data : [];
+          showPreview(sc, submittedFor, newPlayers);
+        };
+        xhrN.onerror = function(){
+          saveBtn.disabled = false;
+          saveBtn.textContent = '💾 Save Scorecard';
+          // Still show preview even if check fails
+          showPreview(sc, submittedFor, []);
+        };
+        xhrN.send(fd0);
+      });
+
+      // ── Build set of new player names for quick lookup ────────────────────
+      function buildNewSet(newPlayers) {
+        var s = {};
+        newPlayers.forEach(function(p){ s[p.name.toLowerCase()] = p.reason; });
+        return s;
+      }
+
+      // Build set of duplicate names per side: {side:name_lower → true}
+      function buildDupSet(sc) {
+        var counts = {};
+        sc.rinks.forEach(function(rk){
+          ['home_players','away_players'].forEach(function(side){
+            var sideKey = side === 'home_players' ? 'home' : 'away';
+            (rk[side]||[]).forEach(function(raw){
+              var n = raw.replace(/\*/g,'').trim().toLowerCase();
+              if(!n) return;
+              var key = sideKey+':'+n;
+              counts[key] = (counts[key]||0)+1;
+            });
+          });
+        });
+        var dups = {};
+        Object.keys(counts).forEach(function(k){ if(counts[k]>1) dups[k]=true; });
+        return dups;
+      }
+
+      // ── Render a single player name with highlights ───────────────────────
+      function renderPlayerName(rawName, newSet, dupSet, side) {
+        var isLady  = rawName.indexOf('*') !== -1;
+        var cleaned = rawName.replace(/\*/g, '').trim();
+        var lower   = cleaned.toLowerCase();
+        var isNew   = newSet.hasOwnProperty(lower);
+        var isDup   = dupSet && dupSet.hasOwnProperty((side||'home')+':'+lower);
+        var reason  = isNew ? newSet[lower] : '';
+        var cls = 'lgw-prev-player';
+        if(isLady) cls += ' lgw-prev-lady';
+        if(isNew)  cls += ' lgw-prev-new';
+        if(isDup)  cls += ' lgw-prev-dup';
+
+        var badges = '';
+        if(isLady) badges += '<span class="lgw-prev-badge lgw-prev-badge-lady" title="Ladies player">♀</span>';
+        if(isNew)  badges += '<span class="lgw-prev-badge lgw-prev-badge-new" title="First game this season">1st game</span>';
+        if(isDup)  badges += '<span class="lgw-prev-badge lgw-prev-badge-dup" title="Same name appears more than once on this team">DUP</span>';
+
+        return (isLady||isNew||isDup)
+          ? '<span class="'+cls+'">'+esc(cleaned)+badges+'</span>'
+          : esc(cleaned);
+      }
+
+      // ── Show preview popup ────────────────────────────────────────────────
+      function showPreview(sc, submittedFor, newPlayers) {
+        var newSet = buildNewSet(newPlayers);
+        var dupSet = buildDupSet(sc);
+        var hasNew  = newPlayers.length > 0;
+        var hasLady = false;
+        var hasDup  = Object.keys(dupSet).length > 0;
+
+        // Check for lady markers
+        sc.rinks.forEach(function(rk){
+          (rk.home_players||[]).concat(rk.away_players||[]).forEach(function(n){
+            if(n && n.indexOf('*') !== -1) hasLady = true;
+          });
+        });
+
+        // Build rink rows HTML
+        var rinkHtml = '';
+        sc.rinks.forEach(function(rk){
+          var hasScores = rk.home_score !== null || rk.away_score !== null;
+          var hasPlayers = (rk.home_players&&rk.home_players.length) || (rk.away_players&&rk.away_players.length);
+          if(!hasScores && !hasPlayers) return;
+          rinkHtml += '<div class="lgw-prev-rink">';
+          rinkHtml += '<div class="lgw-prev-rink-hdr">Rink '+rk.rink+'</div>';
+          rinkHtml += '<div class="lgw-prev-rink-body">';
+          rinkHtml += '<div class="lgw-prev-col lgw-prev-col-home">';
+          (rk.home_players||[]).forEach(function(n){ if(n) rinkHtml += '<div class="lgw-prev-name">'+renderPlayerName(n, newSet, dupSet, 'home')+'</div>'; });
+          rinkHtml += '</div>';
+          rinkHtml += '<div class="lgw-prev-scores">'
+            +'<span class="lgw-prev-score'+(rk.home_score>rk.away_score?' lgw-prev-win':'')+'">'+((rk.home_score!==null&&rk.home_score!=='')?rk.home_score:'–')+'</span>'
+            +'<span class="lgw-prev-sep">–</span>'
+            +'<span class="lgw-prev-score'+(rk.away_score>rk.home_score?' lgw-prev-win':'')+'">'+((rk.away_score!==null&&rk.away_score!=='')?rk.away_score:'–')+'</span>'
+            +'</div>';
+          rinkHtml += '<div class="lgw-prev-col lgw-prev-col-away">';
+          (rk.away_players||[]).forEach(function(n){ if(n) rinkHtml += '<div class="lgw-prev-name">'+renderPlayerName(n, newSet, dupSet, 'away')+'</div>'; });
+          rinkHtml += '</div>';
+          rinkHtml += '</div></div>';
+        });
+
+        var legendHtml = '';
+        if(hasNew || hasLady || hasDup){
+          legendHtml = '<div class="lgw-prev-legend">';
+          if(hasNew)  legendHtml += '<span class="lgw-prev-badge lgw-prev-badge-new">1st game</span> First game this season &nbsp;';
+          if(hasLady) legendHtml += '<span class="lgw-prev-badge lgw-prev-badge-lady">♀</span> Ladies player (marked with *) &nbsp;';
+          if(hasDup)  legendHtml += '<span class="lgw-prev-badge lgw-prev-badge-dup">DUP</span> Same name on same team — please distinguish if two different people';
+          legendHtml += '</div>';
+        }
+
+        var totalHtml = '';
+        if(sc.home_total !== null || sc.away_total !== null || sc.home_points !== null){
+          totalHtml = '<div class="lgw-prev-totals">'
+            +'<span>Total shots: <strong>'+((sc.home_total!==null)?sc.home_total:'–')+' – '+((sc.away_total!==null)?sc.away_total:'–')+'</strong></span>'
+            +(sc.home_points!==null ? ' &nbsp; Points: <strong>'+sc.home_points+' – '+sc.away_points+'</strong>' : '')
+            +'</div>';
+        }
+
+        var adminLabel = isAdm ? '<div style="margin-bottom:6px;font-size:12px;color:#555">Submitting on behalf of: <strong>'
+          +(submittedFor==='both'?'Both teams (auto-confirms)':submittedFor==='away'?esc(sc.away_team)+' (away)':esc(sc.home_team)+' (home)')
+          +'</strong></div>' : '';
+
+        var overlay = document.createElement('div');
+        overlay.className = 'lgw-prev-overlay';
+        overlay.innerHTML =
+          '<div class="lgw-prev-dialog">'
+          +'<h3 class="lgw-prev-title">📋 Confirm Scorecard</h3>'
+          +'<div class="lgw-prev-match">'+esc(sc.home_team)+' v '+esc(sc.away_team)+'<span class="lgw-prev-meta">'+(sc.date||'')+' '+(sc.venue?'· '+sc.venue:'')+'</span></div>'
+          +adminLabel
+          +legendHtml
+          +'<div class="lgw-prev-rinks">'+rinkHtml+'</div>'
+          +totalHtml
+          +(sc.submitter ? '<div style="font-size:11px;color:#888;margin-top:6px">Submitted by: '+esc(sc.submitter)+'</div>' : '')
+          +'<div class="lgw-prev-actions">'
+          +'<button class="lgw-btn lgw-btn-secondary lgw-prev-cancel">← Edit</button>'
+          +'<button class="lgw-btn lgw-btn-primary lgw-prev-confirm">✅ Confirm &amp; Save</button>'
+          +'</div>'
+          +'</div>';
+
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('.lgw-prev-cancel').addEventListener('click', function(){
+          document.body.removeChild(overlay);
+        });
+
+        overlay.querySelector('.lgw-prev-confirm').addEventListener('click', function(){
+          document.body.removeChild(overlay);
+          doSave(sc, submittedFor);
+        });
+      }
+
+      // ── Perform the actual save ───────────────────────────────────────────
+      function doSave(sc, submittedFor) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = '⏳ Saving…';
+        showStatus(statusEl, '', '');
+
+        var fd = new FormData();
+        fd.append('action',         'lgw_save_scorecard');
+        fd.append('nonce',          nonce);
+        fd.append('scorecard',      JSON.stringify(sc));
+        fd.append('submitted_for',  submittedFor);
+        var xhr2 = new XMLHttpRequest();
+        xhr2.open('POST', ajaxUrl);
+        xhr2.onload = function(){
+          saveBtn.disabled = false;
+          var res = JSON.parse(xhr2.responseText || '{}');
+          if(res.success){
+            var msg = res.data.message || 'Scorecard saved.';
+            if(res.data.division_unresolved){
+              msg += ' ⚠️ Division name wasn\'t recognised — an admin will need to correct it.';
+            }
+            showStatus(statusEl, msg, 'ok');
+            saveBtn.textContent = '✅ Saved';
+            saveBtn.style.background = '#0a5a0a';
+          } else {
+            saveBtn.textContent = '💾 Save Scorecard';
+            showStatus(statusEl, '❌ ' + (res.data || 'Save failed'), 'error');
+          }
+        };
+        xhr2.onerror = function(){
+          saveBtn.disabled = false;
+          saveBtn.textContent = '💾 Save Scorecard';
+          showStatus(statusEl, '❌ Network error — please try again', 'error');
+        };
+        xhr2.send(fd);
+      }
+    }
+  };
+
+  // ── Helper: club prefix match against a team or submitted_by string ──────────
+  function lgwClubMatchesTeamStr(club, team) {
+    if(!club || !team) return false;
+    var c = club.toUpperCase().trim();
+    var t = team.toUpperCase().trim();
+    if(c === t) return true;
+    if(t.indexOf(c) === 0 && (t.length === c.length || t[c.length] === ' ')) return true;
+    return false;
+  }
+
+  // ── Bind confirm/amend actions on an inline review block ─────────────────────
+  // sc: the full scorecard data object
+  // containerEl: the outer container (to replace with submit form on amend)
+  // opts, home, away, date: passed through for amend flow
+  function lgwBindInlineReview(reviewEl, sc, containerEl, opts, home, away, date) {
+    var confirmBtn = reviewEl.querySelector('.lgw-inline-confirm');
+    var amendBtn   = reviewEl.querySelector('.lgw-inline-amend');
+    var statusEl   = reviewEl.querySelector('.lgw-inline-review-status');
+
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', function(){
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ Confirming…';
+        var fd = new FormData();
+        fd.append('action', 'lgw_confirm_scorecard');
+        fd.append('nonce',  nonce);
+        fd.append('id',     sc._id || '');
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', ajaxUrl);
+        xhr.onload = function(){
+          var res = JSON.parse(xhr.responseText || '{}');
+          confirmBtn.disabled = false;
+          if(res.success){
+            confirmBtn.textContent = '✅ Confirmed';
+            confirmBtn.style.background = '#0a5a0a';
+            if(amendBtn) amendBtn.style.display = 'none';
+            showStatus(statusEl, res.data.message || 'Scorecard confirmed. Thank you!', 'ok');
+            // Update status badge
+            var badge = containerEl.querySelector('.lgw-sc-badge');
+            if(badge){ badge.className='lgw-sc-badge lgw-sc-badge-confirmed'; badge.textContent='✅ Confirmed by both clubs'; }
+          } else {
+            confirmBtn.textContent = '✅ Confirm — scores are correct';
+            showStatus(statusEl, '❌ ' + (res.data || 'Could not confirm'), 'error');
+          }
+        };
+        xhr.onerror = function(){
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = '✅ Confirm — scores are correct';
+          showStatus(statusEl, '❌ Network error — please try again', 'error');
+        };
+        xhr.send(fd);
+      });
+    }
+
+    if (amendBtn) {
+      amendBtn.addEventListener('click', function(){
+        // Replace the scorecard view with the submission form, pre-filled with existing data
+        containerEl.innerHTML = '<p class="lgw-notice lgw-notice-info" style="margin-bottom:12px">'
+          +'✏️ Submit your version of the scores. If they differ from the submitted version, the result will be flagged for admin review.'
+          +'</p>'
+          +'<div id="lgw-sc-amend-form"></div>';
+        var amendContainer = containerEl.querySelector('#lgw-sc-amend-form');
+        if(amendContainer && typeof window.lgwOpenSubmitInModal === 'function'){
+          window.lgwOpenSubmitInModal(amendContainer, {
+            home:           home,
+            away:           away,
+            date:           date,
+            division:       sc.division || opts.division || '',
+            maxPts:         (opts.maxPts !== undefined && opts.maxPts !== null) ? opts.maxPts : 7,
+            isAdmin:        opts.isAdmin,
+            submissionMode: opts.submissionMode,
+            authClub:       opts.authClub || authClub,
+            context:        opts.context || sc.context || 'league',
+            prefill:        sc, // pre-populate form with existing scorecard
+          });
+        }
+      });
+    }
+  }
+
+  // ── Helper: resolve club name from team name using lgwSubmit.clubs if available ─
+  function lgwResolveClub(teamName) {
+    var clubs = (typeof lgwSubmit !== 'undefined' && lgwSubmit.clubs) ? lgwSubmit.clubs : [];
+    var upper = teamName.toUpperCase();
+    var best = '', bestLen = 0;
+    clubs.forEach(function(c){
+      var cu = c.toUpperCase();
+      if(upper === cu || (upper.indexOf(cu) === 0 && (upper.length === cu.length || upper[cu.length] === ' '))){
+        if(c.length > bestLen){ best = c; bestLen = c.length; }
+      }
+    });
+    return best;
+  }
+
+  // ── Helper: does a club name prefix-match a team name? ────────────────────────
+  // Mirrors lgw_club_matches_team in PHP
+  function lgwClubMatchesTeam(club, team) {
+    var c = club.toUpperCase().trim();
+    var t = team.toUpperCase().trim();
+    if(c === t) return true;
+    if(t.indexOf(c) === 0){
+      var rest = t.slice(c.length);
+      return rest === '' || rest[0] === ' ';
+    }
+    return false;
+  }
+
+  // ── Helper: loose team name match for mismatch detection ─────────────────────
+  // Returns true if two team name strings refer to the same team.
+  // Handles: exact match, case differences, and common normalizations
+  // (e.g. "U. Transport A" vs "Ulster Transport A", "Salisbury" vs "SALISBURY")
+  function lgwTeamNamesMatch(a, b) {
+    if(!a || !b) return false;
+    var au = a.trim().toUpperCase();
+    var bu = b.trim().toUpperCase();
+    if(au === bu) return true;
+    // Check if one starts with the other (catches "Salisbury A" vs "Salisbury")
+    if(au.indexOf(bu) === 0 || bu.indexOf(au) === 0) return true;
+    // Club prefix match: if the clubs extracted from each team are the same
+    var clubA = lgwResolveClub(a);
+    var clubB = lgwResolveClub(b);
+    if(clubA && clubB && clubA.toUpperCase() === clubB.toUpperCase()) return true;
+    return false;
+  }
 
 })();

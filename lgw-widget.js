@@ -1,4 +1,4 @@
-/* LGW Division Widget JS - v5.2 */
+/* LGW Division Widget JS - v5.3 */
 (function(){
   'use strict';
 
@@ -26,6 +26,10 @@
     });
     return groups;
   }
+
+  var submissionMode = (typeof lgwData !== 'undefined' && lgwData.submissionMode) ? lgwData.submissionMode : 'open';
+  var isAdmin        = (typeof lgwData !== 'undefined' && lgwData.isAdmin === '1');
+  var widgetAuthClub = (typeof lgwData !== 'undefined' && lgwData.authClub) ? lgwData.authClub : '';
 
   var PRINT_ICON = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/></svg>';
 
@@ -555,7 +559,9 @@
       h+='<div class="date-group"><div class="date-hdr">'+g.date+'</div>';
       g.matches.forEach(function(m){
         var pc=m.played?' played':'';
-        var fxAttrs=m.played?' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'" title="Click to view full scorecard"':'';
+        var fxAttrs=m.played
+          ?' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'" title="Click to view full scorecard"'
+          :' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'"';
         h+='<div class="fx-row'+pc+'"'+fxAttrs+'>'
           +'<div class="fx-ph">'+(m.played?m.ptsHome:'')+'</div>'
           +'<div class="fx-h"><span class="lgw-team-link" data-team="'+m.homeTeam+'">'+badgeImg(m.homeTeam)+m.homeTeam+'</span></div>'
@@ -584,6 +590,7 @@
     var csvUrl   =widget.getAttribute('data-csv');
     var promote  =parseInt(widget.getAttribute('data-promote')  ||'0',10);
     var relegate =parseInt(widget.getAttribute('data-relegate') ||'0',10);
+    var maxPts   =parseInt(widget.getAttribute('data-maxpts')   ||'7',10);
     var extraSponsors=[];
     try{extraSponsors=JSON.parse(widget.getAttribute('data-sponsors')||'[]');}catch(e){}
 
@@ -618,6 +625,29 @@
     });
     var tabBar=widget.querySelector('.lgw-tabs');
     if(tabBar) tabBar.appendChild(dmBtn);
+
+    // ── Admin view toggle ────────────────────────────────────────────────────
+    // Lets admins preview the widget as a regular visitor (no submit controls)
+    var viewAsAdmin = true; // starts in admin mode for admins
+    if(isAdmin && tabBar){
+      var viewToggleBtn = document.createElement('button');
+      viewToggleBtn.className = 'lgw-darkmode-btn lgw-view-toggle-btn';
+      viewToggleBtn.title = 'Switch to visitor view (hide admin controls)';
+      viewToggleBtn.textContent = '\uD83D\uDC41 Admin view';
+      viewToggleBtn.addEventListener('click', function(){
+        viewAsAdmin = !viewAsAdmin;
+        if(viewAsAdmin){
+          widget.classList.remove('lgw-visitor-preview');
+          viewToggleBtn.textContent = '\uD83D\uDC41 Admin view';
+          viewToggleBtn.title = 'Switch to visitor view (hide admin controls)';
+        } else {
+          widget.classList.add('lgw-visitor-preview');
+          viewToggleBtn.textContent = '\uD83D\uDC41 Visitor view';
+          viewToggleBtn.title = 'Switch back to admin view';
+        }
+      });
+      tabBar.appendChild(viewToggleBtn);
+    }
 
     function sponsorBar(){
       if(!extraSponsors.length) return '';
@@ -703,21 +733,100 @@
           );
         });
       });
+      // Unplayed fixture rows — always bind; canSubmit re-evaluated at click time
+      // so the view toggle takes effect without rebinding
+      var canShowUnplayed = submissionMode !== 'disabled' && (submissionMode !== 'admin_only' || isAdmin);
+      if(canShowUnplayed){
+        widget.querySelectorAll('.fx-row:not(.played)[data-home]').forEach(function(row){
+          row.style.cursor='pointer';
+          row.title='Submit scorecard for this fixture';
+          row.addEventListener('click',function(e){
+            if(e.target.classList.contains('lgw-team-link')||e.target.closest('.lgw-team-link')) return;
+            // Respect view toggle: if admin is previewing as visitor, suppress submit
+            var effectiveAdmin = isAdmin && viewAsAdmin;
+            if(submissionMode === 'admin_only' && !effectiveAdmin) return;
+            showUnplayedFixtureModal(
+              row.getAttribute('data-home'),
+              row.getAttribute('data-away'),
+              row.getAttribute('data-date'),
+              divisionTitle
+            );
+          });
+        });
+      }
     }
 
     function showFixtureModal(home, away, date){
+      var effectiveAdmin = isAdmin && viewAsAdmin; // respects view toggle
       var titleHtml='<h2>'+home+' v '+away+'</h2>';
       var bodyHtml='<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
         +'<hr class="lgw-sc-divider">'
         +'<div class="lgw-sc-title">Full Scorecard</div>'
-        +'<div id="lgw-sc-container"></div>';
+        +'<div id="lgw-sc-container"><p class="lgw-sc-loading">Loading…</p></div>';
       openModal(titleHtml, bodyHtml, widget);
-      // Load scorecard async after modal opens
       var container=document.getElementById('lgw-sc-container');
-      if(container && typeof window.lgwFetchScorecard === 'function'){
+      if(!container) return;
+
+      // Determine if submission can be offered
+      var canSubmit = submissionMode !== 'disabled' && (submissionMode !== 'admin_only' || effectiveAdmin);
+
+      if(typeof window.lgwFetchScorecardOrSubmit === 'function'){
+        window.lgwFetchScorecardOrSubmit(home, away, date, container, {
+          canSubmit: canSubmit,
+          division: divisionTitle,
+          maxPts: maxPts,
+          isAdmin: effectiveAdmin,
+          submissionMode: submissionMode,
+          authClub: widgetAuthClub,
+        });
+      } else if(typeof window.lgwFetchScorecard === 'function'){
         window.lgwFetchScorecard(home, away, date, container);
-      } else if(container){
+      } else {
         container.innerHTML='<p class="lgw-sc-none">Scorecard feature not loaded.</p>';
+      }
+    }
+
+    // ── Unplayed fixture modal — submission entry point ───────────────────────
+    function showUnplayedFixtureModal(home, away, date, division){
+      var effectiveAdmin = isAdmin && viewAsAdmin; // respects view toggle
+      // Determine if submission should be offered
+      var canSubmit = false;
+      if(submissionMode === 'admin_only' && effectiveAdmin) canSubmit = true;
+      if(submissionMode === 'open') canSubmit = true;
+
+      var titleHtml = '<h2>'+home+' v '+away+'</h2>';
+
+      if(!canSubmit){
+        var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
+          + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
+          + '<p class="lgw-sc-none">No scorecard submitted yet.</p>';
+        openModal(titleHtml, bodyHtml, widget);
+        return;
+      }
+
+      var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
+        + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
+        + '<hr class="lgw-sc-divider">'
+        + '<div id="lgw-sc-modal-submit"></div>';
+
+      openModal(titleHtml, bodyHtml, widget);
+
+      var container = document.getElementById('lgw-sc-modal-submit');
+      if(!container) return;
+
+      if(typeof window.lgwOpenSubmitInModal === 'function'){
+        window.lgwOpenSubmitInModal(container, {
+          home: home,
+          away: away,
+          date: date,
+          division: division || '',
+          maxPts: maxPts,
+          isAdmin: effectiveAdmin,
+          submissionMode: submissionMode,
+          authClub: widgetAuthClub,
+        });
+      } else {
+        container.innerHTML='<p class="lgw-sc-none">Scorecard submission not available.</p>';
       }
     }
 

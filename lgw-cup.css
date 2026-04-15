@@ -714,8 +714,9 @@
   padding: 16px;
 }
 .lgw-cup-sc-modal-box {
-  background: var(--lgw-bg, #fff);
-  color: var(--lgw-text, #1a1a1a);
+  background: #fff;
+  color: #1a1a1a;
+  color-scheme: light;
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,.25);
   max-width: 700px;
@@ -730,7 +731,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 18px;
-  background: var(--lgw-red, #c0202a);
+  background: var(--lgw-navy, #072a82);
   color: #fff;
   flex-shrink: 0;
 }
@@ -876,3 +877,33 @@
   font-weight: 400;
   letter-spacing: 0.01em;
 }
+
+/* Full Scorecard button in score entry popover */
+.lgw-cup-score-pop-sc {
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid var(--lgw-navy, #072a82);
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--lgw-navy, #072a82);
+  margin-left: 6px;
+}
+.lgw-cup-score-pop-sc:hover { background: var(--lgw-navy, #072a82); color: #fff; }
+
+/* Admin "Enter Score" button in scorecard modal header */
+.lgw-cup-sc-modal-score-btn {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 5px;
+  color: #fff;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 10px;
+  cursor: pointer;
+  margin-left: auto;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+.lgw-cup-sc-modal-score-btn:hover { background: rgba(255,255,255,0.28); }

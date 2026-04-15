@@ -371,3 +371,23 @@ body.lgw-modal-open{overflow:hidden}
 .lgw-season-switcher+.lgw-tabs .lgw-darkmode-btn{border-radius:0}
 /* Archive banner shown inside panels for past seasons */
 .lgw-archive-banner{background:var(--lgw-bg-alt);border-bottom:1px solid var(--lgw-border);padding:6px 12px;font-size:12px;color:var(--lgw-text-muted);font-weight:600;font-family:'Saira',Arial,sans-serif}
+
+/* ── Admin / visitor view toggle ───────────────────────────────────────────── */
+.lgw-view-toggle-btn{font-size:11px;padding:0 10px;gap:4px;white-space:nowrap;background:var(--lgw-bg-alt);color:var(--lgw-navy);border-left:1px solid var(--lgw-border)}
+.lgw-view-toggle-btn:hover{background:var(--lgw-border)}
+/* When in visitor-preview mode, show a banner inside the widget */
+.lgw-visitor-preview::before{
+  content:'👁 Visitor view preview';
+  display:block;
+  background:#fff3cd;
+  color:#856404;
+  font-size:12px;
+  font-weight:700;
+  font-family:'Saira',Arial,sans-serif;
+  padding:5px 12px;
+  border-bottom:1px solid #ffc107;
+  border-radius:0;
+  text-align:center;
+}
+/* In visitor-preview mode, hide admin-only scorecard UI */
+.lgw-visitor-preview .lgw-sc-admin-only{display:none!important}

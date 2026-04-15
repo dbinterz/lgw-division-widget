@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.27
+Stable tag: 7.1.43
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,13 +71,77 @@ Parameters:
 
 == Changelog ==
 
+= 7.1.43 =
+* Fix: Cup scorecard modal now shows the round date (e.g. 01/05/2025) as the fixture date — passed from the bracket's dates[] array at card-click time
+* Fix: Cup name (Senior Cup / Junior Cup / Midweek Cup etc.) now shown as the division label in the scorecard form instead of the generic "Cup"
+* Fix: Cup scorecard modal header changed from red to navy to match the league scorecard style; modal body always renders in light mode regardless of device dark-mode setting
+
+= 7.1.43 =
+* Fix: Cup scorecard submission now fully works — login gate, submission form, and confirm/amend flow all appear correctly when clicking a cup bracket match
+* Fix: Root cause was that lgw_get_scorecard matched on team names only, so a league scorecard for the same two clubs was found instead of returning "no scorecard yet"; fixed by adding a context field (league/cup) stored as lgw_sc_context post meta, passed through the full fetch/submit/amend chain
+* Fix: Admin clicking a cup match now sees the submission form directly (no login gate) matching league behaviour
+* Fix: Amend flow in cup now correctly skips points validation (maxPts: 0 preserved through amend path)
+
+= 7.1.43 =
+* Fix: maxPts: 0 (cup mode) was being overridden to 7 by a JS falsy fallback (0 || 7) in both lgwFetchScorecardOrSubmit and lgwOpenSubmitInModal — fixed with an explicit undefined/null check; cup scorecard login gate and submission form now appear correctly
+* Fix: Admin on cup page now sees the submission form directly without a login gate, same as the league widget
+
+= 7.1.43 =
+* Fix: Cup page now loads lgw-scorecard.js (and its CSS) as a dependency — previously lgw-cup.js had no dependency on it, so lgwFetchScorecardOrSubmit and lgwOpenSubmitInModal were undefined on cup-only pages, causing the scorecard modal to always fall through to the quick-view fallback with no login gate and no submission form
+* Fix: lgwSubmit (clubs list, nonce, authClub) now localised on cup pages so the login gate can populate the club dropdown and authenticate correctly
+* Fix: Admin on a cup-only page now goes directly to the scorecard form without a login gate (isAdmin from lgwCupData flows correctly into lgwOpenSubmitInModal)
+
+= 7.1.43 =
+* New: Cup scorecards now fully submittable via the bracket — clicking a match with both teams opens the same modal as the league (login gate, rink scores, player names, submission and confirmation flow); points fields are hidden for cup matches (not applicable) and points validation is skipped
+* Fix: Totals row in scorecard form switches to a 2-column layout when points fields are hidden
+
+= 7.1.43 =
+* Fix: Cup bracket card routing rebuilt — clicking any match with both teams known now opens the full scorecard modal (with login gate and submission) rather than the score-entry popover; the popover is now accessible via an ✏️ Score button in the modal header (admin only)
+* Fix: Matches with only one team set (TBD slot) continue to open the quick score popover directly as before
+
+= 7.1.43 =
+* Fix: Club users logged in via passphrase no longer see the scorecard submission form for fixtures that don't involve their club — those fixtures now show "No scorecard submitted yet" as a read-only visitor would see
+* Fix: Cup bracket full scorecard now accessible via a "Full Scorecard" button inside the score-entry popover — previously the scorecard viewer was unreachable when a draw passphrase was set (the editable card path always won the routing decision)
+
+= 7.1.43 =
+* Fix: lgw-sheets.php syntax error — invalid PHP template block inside echo-mode function (lgw_render_sheets_log) replaced with echo statements
+* Fix: Scorecard submission modal — JSON.parse now guarded with try/catch so PHP notices/warnings prepended to AJAX response no longer silently kill the flow
+* Fix: Login gate condition broadened from `mode === open` to exclude disabled/admin_only — future-proof and handles edge cases
+* Fix: Sub-container ID collision in lgwFetchScorecardOrSubmit replaced with class selector
+* Fix: Orphaned player records (misspelled names after admin corrections) now pruned after each admin scorecard save
+* New: Cup bracket scorecard viewer now uses full lgwFetchScorecardOrSubmit modal (with submission + login gate) when lgw-scorecard.js is loaded; falls back to cup quick-view
+* New: submissionMode and authClub added to lgwCupData so cup page has correct submission context
+* New: Admin/visitor view toggle button in widget tab bar — admins can preview the widget as a regular visitor without logging out
+
 = 7.1.27 =
 * New: Season management — new 📅 Seasons admin page to manage the active season, archive past seasons, and backload historical seasons (CSV URLs per division)
 * New: Season switcher on the front-end widget — add seasons="2025,2024" or seasons="all" to any [lgw_division] shortcode to show a pill bar above the tabs; clicking a past season loads that season's data read-only
 * New: Scorecard season tagging — new scorecards stamped with lgw_sc_season post meta; archiving a season back-fills all untagged scorecards
 * New file: lgw-seasons.php
 
-= 7.1.26 =
+= 7.1.31 =
+* Photo and Excel parse handlers now allow WP admins without a passphrase session — previously only passphrase-authenticated club users could trigger the parse; admins using the modal form were getting a silent "Not authorised" error
+* Improved auth error message: "Not authorised — please log in with your club passphrase first." shown instead of bare "Not authorised" when a non-admin, non-authenticated user attempts to parse
+
+= 7.1.30 =
+* Modal submission form now includes Photo, Excel and Manual entry tabs — same three input methods as the standalone [lgw_submit] form; photo and Excel parse results populate the pre-filled modal form
+* "Submitting on behalf of" radio text made smaller (12px, no bold team names) to reduce visual weight
+* Season tagging confirmed working: both normal and admin-both submission paths call lgw_get_active_season_id() and stamp lgw_sc_season on every new scorecard post; backfill fires when a season is archived
+
+= 7.1.29 =
+* Played fixtures with no scorecard now also show the submission form — clicking any played fixture checks for an existing scorecard first; if none, the submit form is offered inline (respects submission mode setting)
+* New shortcode attribute max_points="7" (default) on [lgw_division] — set to 6 for the 12-player division; points validation enforces home + away = max_points
+* Submission form: Date Played field added (optional, with hint text "enter only if different to fixture date"); when blank, the fixture date is used as the match date
+* Submission form: Submitted by field added (submitter's name, stored on the scorecard and displayed in the public scorecard view)
+* Points validation: live running total shown as you type (green when correct, red when off); save blocked if points do not sum to the division max
+
+= 7.1.28 =
+* Scorecard submission mode toggle in Settings: Disabled / Admin only / Open — lets admin test the workflow before releasing it to clubs
+* Fixture modal now opens for unplayed fixtures when submission is enabled — click any upcoming fixture to submit a scorecard; form is pre-filled with division, date, home team and away team
+* Admin submission now includes a "Submitting on behalf of" radio: Home team, Away team, or Both teams — selecting "Both" skips the two-party flow and immediately confirms the scorecard
+* Club list exposed in modal login gate — clubs with passphrases are shown in a select dropdown when logging in from the fixture modal
+
+= 7.1.27 =
 * Finals Week: fix home end scores left-aligning in ends table — stray CSS class was overriding right-align; home scores and running totals now correctly right-align toward the centre End column
 
 = 7.1.25 =
@@ -545,3 +609,34 @@ Parameters:
 
 = 1.0 =
 * Initial release
+
+= 7.1.32 =
+* Preview confirmation popup before saving: clicking Save now shows a full scorecard preview; users can click "← Edit" to return to the form or "✅ Confirm & Save" to proceed
+* New player highlighting in preview: players not yet in the database, or with no appearances this season, are shown in green with a NEW badge
+* Ladies player highlighting: names entered with an asterisk (*) are shown in purple with a ♀ badge in the preview; the * is stripped before saving as before
+* Player name boxes changed to auto-expanding textareas — they grow horizontally and vertically to show all names without clipping
+* New AJAX endpoint lgw_check_new_players: checks a list of player names against the DB and season appearances before showing the preview
+
+= 7.1.33 =
+* Login dropdown in fixture modal now shows only the two clubs involved in that fixture — filters the full club list using the same prefix-matching logic as passphrase auth; falls back to showing all clubs if no match is found
+* Team mismatch validation on save: if the submitted home/away team names don't match the fixture (in either order), save is blocked with a clear message — "This fixture is X v Y — the scorecard appears to be for a different game"
+* Mismatch check tolerates case differences and club prefix variations (e.g. "U. Transport A" vs "Ulster Transport A") before rejecting
+
+= 7.1.34 =
+* Drive and Sheets writeback now skip silently for scorecards from archived seasons — logs a clear ℹ️ "Skipped — scorecard belongs to archived season X" info entry instead of OAuth/tab errors
+* Sheets Retry button hidden when all log entries are informational (e.g. archived season skip); still shown for genuine warn/error entries that may be actionable
+* Drive log renderer now correctly styles info (grey), warn (amber) and success (green) entries; previously only error/success were styled
+* lgw_scorecard_is_active_season() helper added to lgw-seasons.php — returns true when the scorecard's lgw_sc_season tag matches the active season, or when no season system is in use
+
+= 7.1.35 =
+* Fixture modal now shows confirm/amend actions inline when a pending scorecard exists and the logged-in club is the second club (i.e. not the submitter)
+* Confirm: marks the scorecard as confirmed immediately, updates the badge in place
+* Amend: replaces the scorecard view with the submission form pre-filled with the existing scores — submitting different scores marks the result as disputed for admin review
+* lgw_get_scorecard AJAX response now includes _id (post ID) so the confirm action can reference the correct record without a second lookup
+* lgwClubMatchesTeamStr helper added (module-level) — mirrors PHP lgw_club_matches_team for submitted_by comparisons in JS
+
+= 7.1.36 =
+* Duplicate player name detection: if the same name appears more than once on the same team across any rinks, save is blocked with a message asking the user to use Sr/Jr suffix or enter the full name to distinguish the two individuals
+* Live duplicate warning shown as names are typed — amber notice appears below the rink table without blocking input, so the user can see the issue as it develops
+* Preview popup shows a DUP badge (amber) on any duplicated name and includes it in the legend
+* Duplicate check is case-insensitive and strips asterisks before comparing, so "J Smith*" and "J Smith" are treated as the same name

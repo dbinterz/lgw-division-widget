@@ -117,6 +117,13 @@ function lgw_safe_filename($str) {
 function lgw_drive_save_scorecard($post_id, $is_edit = false) {
     if (!lgw_drive_enabled()) return;
 
+    // Skip writeback for scorecards from archived seasons
+    if (function_exists('lgw_scorecard_is_active_season') && !lgw_scorecard_is_active_season($post_id)) {
+        $sc_season = get_post_meta($post_id, 'lgw_sc_season', true);
+        lgw_drive_log($post_id, 'info', 'Skipped — scorecard belongs to archived season ' . ($sc_season ?: 'unknown') . '; Drive upload only runs for the active season.');
+        return;
+    }
+
     require_once plugin_dir_path(__FILE__) . 'lgw-pdf.php';
 
     $sc = get_post_meta($post_id, 'lgw_scorecard_data', true);
@@ -456,17 +463,23 @@ function lgw_drive_log($post_id, $level, $message) {
 function lgw_render_drive_log($post_id) {
     $log = get_post_meta($post_id, 'lgw_drive_log', true) ?: array();
     if (!lgw_drive_enabled()) {
-        echo '<p style="color:#888;font-size:12px">Google Drive integration is not enabled.</p>';
-        return;
+        if (empty($log)) {
+            echo '<p style="color:#888;font-size:12px">Google Drive integration is not enabled.</p>';
+            return;
+        }
+        // Drive was previously enabled — still show any existing log entries
     }
     if (empty($log)) {
         echo '<p style="color:#888;font-size:12px">No Drive activity yet for this scorecard.</p>';
         return;
     }
+    $icons  = array('error' => '❌', 'warn' => '⚠️', 'info' => 'ℹ️', 'success' => '✅');
+    $colors = array('error' => '#842029', 'warn' => '#856404', 'info' => '#555', 'success' => '#0a3622');
     echo '<div style="font-size:12px">';
     foreach (array_reverse($log) as $entry) {
-        $icon  = $entry['level'] === 'error' ? '❌' : '✅';
-        $color = $entry['level'] === 'error' ? '#842029' : '#0a3622';
+        $lvl   = $entry['level'] ?? 'info';
+        $icon  = $icons[$lvl]  ?? 'ℹ️';
+        $color = $colors[$lvl] ?? '#555';
         $ts    = date('d M Y H:i', strtotime($entry['ts']));
         echo '<div style="padding:4px 0;border-bottom:1px solid #eee;color:' . $color . '">';
         echo $icon . ' <span style="color:#888">' . esc_html($ts) . '</span> ' . esc_html($entry['message']);

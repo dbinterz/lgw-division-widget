@@ -158,3 +158,89 @@
 .lgw-form-row input.team-valid   { border-color: #b2dfb2; }
 .lgw-form-row input.team-warn    { border-color: #e8d080; }
 .lgw-form-row input.team-invalid { border-color: #f5b2b2; }
+
+/* ── In-modal scorecard submission form ──────────────────────────────────────── */
+.lgw-modal-sc-form{font-family:'Saira',Arial,sans-serif}
+.lgw-modal-sc-form *{box-sizing:border-box}
+.lgw-modal-sc-label{display:block;font-size:11px;font-weight:700;color:#1a2e5a;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.lgw-modal-sc-field input{width:100%;padding:7px 10px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px;font-family:inherit;color:#1a1a1a}
+.lgw-modal-sc-field input[readonly]{background:#f6f7f7;color:#666;cursor:default}
+.lgw-modal-sc-field{margin-bottom:0}
+
+/* ── Rink table ── */
+.lgw-modal-rink-table{width:100%;border-collapse:collapse;font-size:12px;min-width:520px}
+.lgw-modal-rink-table th{padding:6px 8px;background:#1a2e5a;color:#fff;font-weight:700;text-align:left;white-space:nowrap}
+.lgw-modal-rink-table td{padding:5px 6px;border-bottom:1px solid #e8edf8;vertical-align:middle}
+.lgw-modal-rink-num{text-align:center;font-weight:700;color:#1a2e5a;width:36px}
+.lgw-modal-rink-table input[type=text]{width:100%;padding:5px 7px;border:1px solid #d0d5e8;border-radius:4px;font-size:12px;font-family:inherit}
+.lgw-modal-rink-table input[type=number]{width:60px;padding:5px 4px;border:1px solid #d0d5e8;border-radius:4px;font-size:13px;text-align:center;font-family:inherit}
+.lgw-modal-rink-table input:focus{outline:none;border-color:#1a2e5a}
+
+/* ── Club bar inside modal ── */
+.lgw-modal-sc-form .lgw-club-bar{background:#e8edf8;padding:8px 12px;border-radius:6px;display:flex;align-items:center;justify-content:space-between;font-size:13px}
+.lgw-sc-submitter{display:block;font-size:11px;color:#888;margin-top:3px}
+
+/* ── Auto-resize player name textareas ───────────────────────────────────────── */
+.lgw-autoresize{
+  width:100%;min-height:32px;padding:5px 7px;
+  border:1px solid #d0d5e8;border-radius:4px;
+  font-size:12px;font-family:inherit;line-height:1.4;
+  resize:none;overflow:hidden;box-sizing:border-box;
+  transition:border-color .15s
+}
+.lgw-autoresize:focus{outline:none;border-color:#1a2e5a}
+
+/* ── Confirmation preview overlay ────────────────────────────────────────────── */
+.lgw-prev-overlay{
+  position:fixed;inset:0;z-index:99999;
+  background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;
+  padding:16px;box-sizing:border-box
+}
+.lgw-prev-dialog{
+  background:#fff;border-radius:10px;
+  box-shadow:0 8px 40px rgba(0,0,0,.25);
+  width:100%;max-width:640px;max-height:90vh;
+  overflow-y:auto;padding:20px 22px;
+  font-family:'Saira',Arial,sans-serif;box-sizing:border-box
+}
+.lgw-prev-title{margin:0 0 12px;font-size:17px;color:#1a2e5a}
+.lgw-prev-match{font-size:15px;font-weight:700;color:#1a2e5a;margin-bottom:4px}
+.lgw-prev-meta{font-size:12px;font-weight:400;color:#888;margin-left:8px}
+.lgw-prev-legend{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0;font-size:12px;color:#444;align-items:center}
+
+/* ── Rink layout in preview ── */
+.lgw-prev-rinks{margin:12px 0}
+.lgw-prev-rink{margin-bottom:10px;border:1px solid #e8edf8;border-radius:6px;overflow:hidden}
+.lgw-prev-rink-hdr{background:#1a2e5a;color:#fff;font-size:11px;font-weight:700;padding:4px 10px}
+.lgw-prev-rink-body{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;padding:8px 10px}
+.lgw-prev-col{font-size:12px;line-height:1.6}
+.lgw-prev-col-away{text-align:right}
+.lgw-prev-scores{display:flex;align-items:center;gap:6px;justify-content:center;font-size:18px;font-weight:700;white-space:nowrap}
+.lgw-prev-score{min-width:32px;text-align:center;color:#555}
+.lgw-prev-score.lgw-prev-win{color:#1a2e5a}
+.lgw-prev-sep{color:#bbb;font-size:14px}
+
+/* ── Player name highlights ── */
+.lgw-prev-player{display:inline-flex;align-items:center;gap:3px}
+.lgw-prev-new{color:#0a5a0a;font-weight:600}
+.lgw-prev-lady{color:#8b0069}
+.lgw-prev-new.lgw-prev-lady{color:#5a006e}
+
+/* ── Highlight badges ── */
+.lgw-prev-badge{display:inline-block;font-size:9px;font-weight:800;padding:1px 4px;border-radius:3px;vertical-align:middle;margin-left:2px;letter-spacing:.03em}
+.lgw-prev-badge-new{background:#d1e7dd;color:#0a3622}
+.lgw-prev-badge-lady{background:#f5d0ef;color:#6b004f}
+
+/* ── Totals row ── */
+.lgw-prev-totals{margin-top:10px;padding:8px 10px;background:#f6f7f7;border-radius:5px;font-size:13px;color:#333}
+
+/* ── Actions row ── */
+.lgw-prev-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid #e8edf8}
+
+/* ── Inline confirm/amend in fixture modal ───────────────────────────────────── */
+.lgw-sc-review-inline{margin-top:14px;padding-top:12px;border-top:2px solid #e8edf8}
+.lgw-sc-review-prompt{font-size:13px;color:#444;margin:0 0 10px}
+.lgw-sc-review-actions{display:flex;gap:10px;flex-wrap:wrap}
+.lgw-prev-dup{color:#7a4000;font-weight:600}
+.lgw-prev-badge-dup{background:#fff3cd;color:#7a4000}

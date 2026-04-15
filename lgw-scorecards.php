@@ -54,27 +54,39 @@ function lgw_club_involved($club, $home_team, $away_team) {
 }
 
 // ── Scorecard lookup ──────────────────────────────────────────────────────────
-function lgw_get_scorecard($home, $away, $date = '') {
+function lgw_get_scorecard($home, $away, $date = '', $context = '') {
+    // Build meta query — always scope by context when provided, to prevent
+    // cup scorecards matching league lookups and vice versa.
+    $meta_query = array();
+    if ($context !== '') {
+        $meta_query = array(
+            array('key' => 'lgw_sc_context', 'value' => $context, 'compare' => '='),
+        );
+    }
+
     // Primary: match by sanitized key (home+away slug)
     $key   = sanitize_title($home . '-' . $away);
-    $posts = get_posts(array(
+    $args  = array(
         'post_type'      => 'lgw_scorecard',
         'posts_per_page' => 1,
         'post_status'    => 'publish',
         'meta_key'       => 'lgw_match_key',
         'meta_value'     => $key,
-    ));
+    );
+    if (!empty($meta_query)) $args['meta_query'] = $meta_query;
+    $posts = get_posts($args);
     if (!empty($posts)) return $posts[0];
 
     // Fallback: scan recent scorecards and match on normalised team names
-    // Handles cases where submitted name differs from CSV name (e.g. "Ulster Transport A" vs "U. Transport A")
-    $all = get_posts(array(
+    $all_args = array(
         'post_type'      => 'lgw_scorecard',
         'posts_per_page' => 50,
         'post_status'    => 'publish',
         'orderby'        => 'date',
         'order'          => 'DESC',
-    ));
+    );
+    if (!empty($meta_query)) $all_args['meta_query'] = $meta_query;
+    $all = get_posts($all_args);
     $home_norm = lgw_normalise_team($home);
     $away_norm = lgw_normalise_team($away);
     foreach ($all as $p) {
@@ -216,7 +228,8 @@ add_action('wp_ajax_nopriv_lgw_parse_photo', 'lgw_ajax_parse_photo');
 add_action('wp_ajax_lgw_parse_photo',        'lgw_ajax_parse_photo');
 function lgw_ajax_parse_photo() {
     check_ajax_referer('lgw_submit_nonce', 'nonce');
-    if (!lgw_passphrase_verified()) wp_send_json_error('Not authorised');
+    if (!lgw_passphrase_verified() && !current_user_can('manage_options'))
+        wp_send_json_error('Not authorised — please log in with your club passphrase first.');
 
     $api_key = get_option('lgw_anthropic_key', '');
     if (!$api_key) wp_send_json_error('No API key configured. Add your Anthropic API key in LGW Widget Settings.');
@@ -321,7 +334,8 @@ add_action('wp_ajax_nopriv_lgw_parse_excel', 'lgw_ajax_parse_excel');
 add_action('wp_ajax_lgw_parse_excel',        'lgw_ajax_parse_excel');
 function lgw_ajax_parse_excel() {
     check_ajax_referer('lgw_submit_nonce', 'nonce');
-    if (!lgw_passphrase_verified()) wp_send_json_error('Not authorised');
+    if (!lgw_passphrase_verified() && !current_user_can('manage_options'))
+        wp_send_json_error('Not authorised — please log in with your club passphrase first.');
 
     if (empty($_FILES['excel']['tmp_name'])) wp_send_json_error('No file received');
     $file = $_FILES['excel'];
@@ -520,15 +534,34 @@ add_action('wp_ajax_nopriv_lgw_save_scorecard', 'lgw_ajax_save_scorecard');
 add_action('wp_ajax_lgw_save_scorecard',        'lgw_ajax_save_scorecard');
 function lgw_ajax_save_scorecard() {
     check_ajax_referer('lgw_submit_nonce', 'nonce');
-    if (!lgw_passphrase_verified()) wp_send_json_error('Not authorised');
 
-    $club        = lgw_get_auth_club();
+    $submission_mode = get_option('lgw_submission_mode', 'open');
+    $is_admin        = current_user_can('manage_options');
+
+    // Gate by submission mode
+    if ($submission_mode === 'disabled') {
+        wp_send_json_error('Scorecard submission is currently disabled.');
+    }
+    if ($submission_mode === 'admin_only' && !$is_admin) {
+        wp_send_json_error('Scorecard submission is currently restricted to league administrators.');
+    }
+
+    // Admins bypass passphrase auth; clubs still require it
+    if (!$is_admin && !lgw_passphrase_verified()) {
+        wp_send_json_error('Not authorised');
+    }
+
+    $club        = $is_admin ? '__admin__' : lgw_get_auth_club();
+    // submitted_for: 'home' | 'away' | 'both' — only meaningful for admin submissions
+    $submitted_for = $is_admin ? sanitize_text_field($_POST['submitted_for'] ?? 'home') : 'home';
+    if (!in_array($submitted_for, array('home', 'away', 'both'))) $submitted_for = 'home';
+
     $raw_string  = stripslashes($_POST['scorecard'] ?? '');
     $raw         = json_decode($raw_string, true);
     if (!$raw) {
         $json_err = json_last_error_msg();
-        $preview  = $raw_string === '' ? '(empty)' : '"' . mb_substr($raw_string, 0, 120) . (mb_strlen($raw_string) > 120 ? '\u2026' : '') . '"';
-        wp_send_json_error('Invalid scorecard data \u2014 could not parse submission (' . $json_err . '). Received: ' . $preview);
+        $preview  = $raw_string === '' ? '(empty)' : '"' . mb_substr($raw_string, 0, 120) . (mb_strlen($raw_string) > 120 ? '…' : '') . '"';
+        wp_send_json_error('Invalid scorecard data — could not parse submission (' . $json_err . '). Received: ' . $preview);
     }
 
     $sc = array(
@@ -537,6 +570,8 @@ function lgw_ajax_save_scorecard() {
         'date'        => sanitize_text_field($raw['date']        ?? ''),
         'home_team'   => sanitize_text_field($raw['home_team']   ?? ''),
         'away_team'   => sanitize_text_field($raw['away_team']   ?? ''),
+        'submitter'   => sanitize_text_field($raw['submitter']   ?? ''),
+        'submitter'   => sanitize_text_field($raw['submitter']   ?? ''),
         'home_total'  => is_numeric($raw['home_total']  ?? '') ? floatval($raw['home_total'])  : null,
         'away_total'  => is_numeric($raw['away_total']  ?? '') ? floatval($raw['away_total'])  : null,
         'home_points' => is_numeric($raw['home_points'] ?? '') ? floatval($raw['home_points']) : null,
@@ -555,12 +590,23 @@ function lgw_ajax_save_scorecard() {
 
     if (empty($sc['home_team']) || empty($sc['away_team'])) wp_send_json_error('Home and away team are required');
 
-    // Club auth check — club must be involved in this match
-    if (!lgw_club_involved($club, $sc['home_team'], $sc['away_team']))
+    // Club auth check — clubs must be involved; admins are always allowed
+    if (!$is_admin && !lgw_club_involved($club, $sc['home_team'], $sc['away_team']))
         wp_send_json_error('You can only submit scorecards for matches involving ' . $club);
 
+    // For admin "both teams" submission: immediately auto-confirm
+    if ($is_admin && $submitted_for === 'both') {
+        return lgw_save_scorecard_admin_both($sc);
+    }
+
+    // For admin "home" or "away" submissions, use the team name as the submitter identity
+    if ($is_admin) {
+        $club = ($submitted_for === 'away') ? $sc['away_team'] : $sc['home_team'];
+    }
+
     $match_key = sanitize_title($sc['home_team'] . '-' . $sc['away_team']);
-    $existing  = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date']);
+    $sc_context = sanitize_key($raw['context'] ?? 'league');
+    $existing  = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context);
 
     if ($existing) {
         $existing_status = get_post_meta($existing->ID, 'lgw_sc_status', true);
@@ -604,6 +650,9 @@ function lgw_ajax_save_scorecard() {
         if (is_wp_error($post_id)) wp_send_json_error('The scorecard could not be saved to the database: ' . $post_id->get_error_message() . '. Please try again or contact the league administrator.');
         update_post_meta($post_id, 'lgw_match_key',     $match_key);
         update_post_meta($post_id, 'lgw_scorecard_data',$sc);
+        // Tag context (league/cup) so lookups don't cross-match
+        $ctx = sanitize_key($raw['context'] ?? 'league');
+        update_post_meta($post_id, 'lgw_sc_context', $ctx ?: 'league');
         update_post_meta($post_id, 'lgw_sc_status',     'pending');
         update_post_meta($post_id, 'lgw_submitted_by',  $club);
         // Tag with the active season so scorecards are attributable per season
@@ -611,7 +660,7 @@ function lgw_ajax_save_scorecard() {
             $season_id = lgw_get_active_season_id();
             if ($season_id) update_post_meta($post_id, 'lgw_sc_season', $season_id);
         }
-        lgw_audit_log($post_id, 'submitted', 'Submitted by ' . $club);
+        lgw_audit_log($post_id, 'submitted', 'Submitted by ' . $club . ($is_admin ? ' (admin, on behalf of ' . $submitted_for . ' team)' : ''));
         // Flag if division is missing or doesn't map to a known sheet tab
         $drive_opts = get_option('lgw_drive', array());
         $resolved_tab = lgw_sheets_tab_for_division($sc['division'], $drive_opts);
@@ -633,6 +682,69 @@ function lgw_ajax_save_scorecard() {
     }
 }
 
+// ── Admin "both teams" submission — immediately confirmed ─────────────────────
+function lgw_save_scorecard_admin_both($sc) {
+    $match_key  = sanitize_title($sc['home_team'] . '-' . $sc['away_team']);
+    $sc_context = sanitize_key($sc['context'] ?? 'league');
+    $existing   = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context);
+    $admin_login = wp_get_current_user()->user_login;
+
+    if ($existing) {
+        // Overwrite existing with confirmed status
+        update_post_meta($existing->ID, 'lgw_scorecard_data', $sc);
+        update_post_meta($existing->ID, 'lgw_sc_status',      'confirmed');
+        update_post_meta($existing->ID, 'lgw_submitted_by',   $sc['home_team']);
+        update_post_meta($existing->ID, 'lgw_confirmed_by',   $sc['away_team']);
+        update_post_meta($existing->ID, 'lgw_submitted_for',  'both');
+        lgw_log_appearances($existing->ID);
+        lgw_audit_log($existing->ID, 'confirmed', 'Admin submitted for both teams (' . $admin_login . ') — auto-confirmed');
+        do_action('lgw_scorecard_confirmed', $existing->ID);
+        wp_send_json_success(array(
+            'message' => 'Scorecard submitted and confirmed for both teams. ✅',
+            'status'  => 'confirmed',
+            'id'      => $existing->ID,
+        ));
+    }
+
+    $title   = $sc['home_team'] . ' v ' . $sc['away_team'] . ' (' . $sc['date'] . ')';
+    $post_id = wp_insert_post(array(
+        'post_type'   => 'lgw_scorecard',
+        'post_title'  => $title,
+        'post_status' => 'publish',
+    ));
+    if (is_wp_error($post_id)) wp_send_json_error('Could not save scorecard: ' . $post_id->get_error_message());
+
+    update_post_meta($post_id, 'lgw_match_key',     $match_key);
+    update_post_meta($post_id, 'lgw_scorecard_data', $sc);
+    update_post_meta($post_id, 'lgw_sc_status',      'confirmed');
+    update_post_meta($post_id, 'lgw_submitted_by',   $sc['home_team']);
+    update_post_meta($post_id, 'lgw_confirmed_by',   $sc['away_team']);
+    update_post_meta($post_id, 'lgw_submitted_for',  'both');
+    update_post_meta($post_id, 'lgw_sc_context',     $sc_context);
+
+    if (function_exists('lgw_get_active_season_id')) {
+        $season_id = lgw_get_active_season_id();
+        if ($season_id) update_post_meta($post_id, 'lgw_sc_season', $season_id);
+    }
+
+    $drive_opts   = get_option('lgw_drive', array());
+    $resolved_tab = lgw_sheets_tab_for_division($sc['division'], $drive_opts);
+    if (empty($sc['division']) || !$resolved_tab) {
+        update_post_meta($post_id, 'lgw_division_unresolved', 1);
+    }
+
+    lgw_log_appearances($post_id);
+    lgw_audit_log($post_id, 'confirmed', 'Admin submitted for both teams (' . $admin_login . ') — auto-confirmed');
+    do_action('lgw_scorecard_confirmed', $post_id);
+
+    wp_send_json_success(array(
+        'message'             => 'Scorecard submitted and confirmed for both teams. ✅',
+        'status'              => 'confirmed',
+        'id'                  => $post_id,
+        'division_unresolved' => (empty($sc['division']) || !$resolved_tab) ? 1 : 0,
+    ));
+}
+
 function lgw_scores_match($a, $b) {
     if (!$a || !$b) return false;
     if ($a['home_total'] != $b['home_total']) return false;
@@ -652,13 +764,15 @@ function lgw_scores_match($a, $b) {
 add_action('wp_ajax_nopriv_lgw_get_scorecard', 'lgw_ajax_get_scorecard');
 add_action('wp_ajax_lgw_get_scorecard',        'lgw_ajax_get_scorecard');
 function lgw_ajax_get_scorecard() {
-    $home = sanitize_text_field($_GET['home'] ?? '');
-    $away = sanitize_text_field($_GET['away'] ?? '');
-    $date = sanitize_text_field($_GET['date'] ?? '');
-    $post = lgw_get_scorecard($home, $away, $date);
+    $home    = sanitize_text_field($_GET['home']    ?? '');
+    $away    = sanitize_text_field($_GET['away']    ?? '');
+    $date    = sanitize_text_field($_GET['date']    ?? '');
+    $context = sanitize_key(       $_GET['context'] ?? '');
+    $post = lgw_get_scorecard($home, $away, $date, $context);
     if (!$post) { wp_send_json_error('No scorecard found'); }
-    $sc              = lgw_get_scorecard_data($post->ID);
-    $sc['_status']   = get_post_meta($post->ID, 'lgw_sc_status',    true) ?: 'pending';
+    $sc                  = lgw_get_scorecard_data($post->ID);
+    $sc['_id']           = $post->ID;
+    $sc['_status']       = get_post_meta($post->ID, 'lgw_sc_status',    true) ?: 'pending';
     $sc['_submitted_by'] = get_post_meta($post->ID, 'lgw_submitted_by', true);
     $sc['_confirmed_by'] = get_post_meta($post->ID, 'lgw_confirmed_by', true);
     wp_send_json_success($sc);

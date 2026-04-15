@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.1.27
+ * Version: 7.1.43
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.1.27');
+define('LGW_VERSION', '7.1.43');
 
 
 // ── Admin page logo header helper ────────────────────────────────────────────
@@ -431,6 +431,7 @@ function lgw_enqueue() {
         'ajaxUrl'  => admin_url('admin-ajax.php'),
         'nonce'    => wp_create_nonce('lgw_submit_nonce'),
         'authClub' => lgw_get_auth_club(),
+        'clubs'    => array_map(function($c){ return $c['name']; }, get_option('lgw_clubs', array())),
     ));
 
     wp_enqueue_script('lgw-widget', plugin_dir_url(__FILE__) . 'lgw-widget.js', array('lgw-scorecard'), LGW_VERSION, true);
@@ -447,6 +448,9 @@ function lgw_enqueue() {
         'scoreOverrides' => get_option('lgw_score_overrides', array()),
         'seasons'        => function_exists('lgw_seasons_for_js') ? lgw_seasons_for_js() : array(),
         'activeSeasonId' => function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '',
+        'submissionMode' => get_option('lgw_submission_mode', 'open'),
+        'isAdmin'        => current_user_can('manage_options') ? '1' : '0',
+        'authClub'       => lgw_get_auth_club(),
     ));
 }
 
@@ -465,6 +469,7 @@ function lgw_division_shortcode($atts) {
         'color_secondary' => '',
         'color_bg'        => '',
         'seasons'      => '',  // comma-separated season IDs, or "all"
+        'max_points'   => '7', // max points per match (6 for 12-player division)
     ), $atts);
 
     if (!$atts['csv']) return '<p>No CSV URL provided.</p>';
@@ -597,6 +602,7 @@ function lgw_division_shortcode($atts) {
         . ' data-promote="' . intval($atts['promote']) . '"'
         . ' data-relegate="' . intval($atts['relegate']) . '"'
         . ' data-sponsors="' . $extra_json . '"'
+        . ' data-maxpts="' . max(6, min(7, intval($atts['max_points']))) . '"'
         . (!empty($seasons_data) ? ' data-seasons="' . $seasons_json . '"' : '')
         . '>'
         . '<div class="lgw-tabs">'
@@ -1235,6 +1241,12 @@ function lgw_save_settings() {
         update_option('lgw_github_token', sanitize_text_field($_POST['lgw_github_token']));
     }
 
+    // Scorecard submission mode
+    $allowed_modes = array('disabled', 'admin_only', 'open');
+    $submission_mode = isset($_POST['lgw_submission_mode']) && in_array($_POST['lgw_submission_mode'], $allowed_modes)
+        ? $_POST['lgw_submission_mode'] : 'open';
+    update_option('lgw_submission_mode', $submission_mode);
+
     wp_redirect(admin_url('admin.php?page=lgw-settings&saved=1'));
     exit;
 }
@@ -1533,6 +1545,30 @@ function lgw_settings_page() {
                 </tbody>
             </table>
             <p><button type="button" class="button" id="lgw-add-sponsor">+ Add Sponsor</button></p>
+
+            <hr>
+            <h2>📋 Scorecard Submission</h2>
+            <p>Control who can submit scorecards. Use <strong>Admin only</strong> to test the workflow before releasing it to clubs.</p>
+            <?php $submission_mode = get_option('lgw_submission_mode', 'open'); ?>
+            <table class="form-table">
+                <tr>
+                    <th scope="row">Submission Mode</th>
+                    <td>
+                        <label style="display:block;margin-bottom:8px">
+                            <input type="radio" name="lgw_submission_mode" value="disabled" <?php checked($submission_mode, 'disabled'); ?>>
+                            <strong>Disabled</strong> — scorecard submission is off; fixture modal shows no submit option
+                        </label>
+                        <label style="display:block;margin-bottom:8px">
+                            <input type="radio" name="lgw_submission_mode" value="admin_only" <?php checked($submission_mode, 'admin_only'); ?>>
+                            <strong>Admin only</strong> — only logged-in WP admins can submit scorecards via the fixture modal
+                        </label>
+                        <label style="display:block">
+                            <input type="radio" name="lgw_submission_mode" value="open" <?php checked($submission_mode, 'open'); ?>>
+                            <strong>Open</strong> — clubs can submit after passphrase login (full public flow)
+                        </label>
+                    </td>
+                </tr>
+            </table>
 
             <hr>
             <h2>🔧 Plugin Updates</h2>

@@ -108,6 +108,48 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.1.43
+- **Fix:** Cup scorecard modal now shows the correct round date as the fixture date — pulled from `dates[ri]` at card-click time and passed through to the scorecard form
+- **Fix:** Cup name (Senior Cup / Junior Cup / Midweek Cup etc.) now used as the division label in the scorecard form — read from `data.title` in the bracket JSON
+- **Fix:** Cup scorecard modal header changed from red to navy (`--lgw-navy`) to match the league modal style; modal box forced to light mode so it renders consistently regardless of device dark-mode setting
+
+### v7.1.42
+- **Fix:** Cup scorecard submission fully working — login gate, form, and confirm/amend all appear correctly on cup bracket match click
+- **Fix:** Root cause: `lgw_get_scorecard` was matching league scorecards for the same two teams, making the system think a scorecard already existed; fixed by introducing a `lgw_sc_context` post meta field (`league`/`cup`) stored on every new scorecard and used to scope all lookups
+- **Fix:** Context flows through the full chain: fetch GET param → `lgwFetchScorecardOrSubmit` → `lgwOpenSubmitInModal` → JSON payload → PHP save handler → post meta; amend and admin-both paths also covered
+- **Fix:** Cup amend flow now preserves `maxPts: 0` (no points validation) through the amend path
+
+### v7.1.42
+- **Fix:** `maxPts: 0` (cup mode) was being overridden to `7` by a JS falsy fallback (`0 || 7`) in both `lgwFetchScorecardOrSubmit` and `lgwOpenSubmitInModal` — replaced with explicit `!== undefined` check; cup scorecard login gate and submission form now work correctly
+- **Fix:** Admin on cup page now sees the submission form directly without a login gate, matching league behaviour
+
+### v7.1.42
+- **Fix:** Cup page now loads `lgw-scorecard.js` (and its CSS) as a dependency — previously `lgw-cup.js` had no dependency on it, so `lgwFetchScorecardOrSubmit` and `lgwOpenSubmitInModal` were undefined on cup-only pages, causing the scorecard modal to always fall through to the quick-view fallback with no login gate and no submission form
+- **Fix:** `lgwSubmit` (clubs list, nonce, `authClub`) now localised on cup pages so the login gate can populate the club dropdown and authenticate correctly
+- **Fix:** Admin on a cup-only page now goes directly to the scorecard form without a login gate
+
+### v7.1.41
+- **New:** Cup scorecards now fully submittable via the bracket — clicking a match with both teams opens the same full modal as the league widget (login gate, rink scores, player names, submit + confirm flow); points fields are hidden for cup matches and points validation is skipped (`maxPts: 0`)
+- **Fix:** Scorecard form totals row switches to a 2-column layout when points fields are hidden (cup mode)
+
+### v7.1.40
+- **Fix:** Cup bracket card routing rebuilt — clicking any match with both teams known now opens the full scorecard modal (with login gate and submission) rather than the score-entry popover; the quick score popover is accessible via an ✏️ Score button in the modal header (admin only)
+- **Fix:** Matches with one team still TBD continue to open the quick score popover directly as before
+
+### v7.1.39
+- **Fix:** Club users logged in via passphrase no longer see the scorecard submission form for fixtures that don't involve their club — those fixtures show "No scorecard submitted yet" as a read-only visitor would see
+- **Fix:** Cup bracket full scorecard now accessible via a "Full Scorecard" button inside the score-entry popover — previously the scorecard viewer was unreachable when a draw passphrase was set (editable card path always won the routing)
+
+### v7.1.38
+- **Fix:** `lgw-sheets.php` syntax error — `lgw_render_sheets_log()` had an invalid `<?php if ?>` template block inside an already-open PHP echo context; replaced with `echo` statements
+- **Fix:** Scorecard submission modal — `JSON.parse` in `lgwFetchScorecardOrSubmit` and the central `post()` helper now wrapped in `try/catch`; PHP notices/warnings prepended to AJAX responses were silently killing the entire flow before the login gate could render
+- **Fix:** Login gate condition broadened from `mode === 'open'` to `mode !== 'disabled' && mode !== 'admin_only'` — more robust and future-proof
+- **Fix:** Sub-container ID collision in `lgwFetchScorecardOrSubmit` replaced with a class selector to avoid stale DOM lookups across multiple modal opens
+- **Fix:** Orphaned player records (misspelled names left after admin corrections) now pruned automatically after each admin scorecard save — new `lgw_prune_orphaned_players()` in `lgw-players.php`, called from `lgw-sc-admin.php`; starred players are preserved
+- **New:** Cup bracket scorecard viewer now uses the full `lgwFetchScorecardOrSubmit` modal (with submission + login gate) when `lgw-scorecard.js` is loaded; falls back to the original cup quick-view if not
+- **New:** `submissionMode` and `authClub` added to `lgwCupData` so the cup page has correct submission context
+- **New:** Admin/visitor view toggle — a 👁 button in the widget tab bar lets admins instantly preview the widget as a regular visitor (no submit controls, no admin UI) without logging out; a yellow banner confirms preview mode is active
+
 ### v7.1.27
 - Multi-season archive and front-end season switcher
 - New Seasons admin page: manage active season, archive, backload historical seasons

@@ -25,6 +25,14 @@ add_action('lgw_scorecard_admin_edited', 'lgw_sheets_on_confirmed');
 function lgw_sheets_on_confirmed($post_id) {
     $opts = get_option('lgw_drive', []);
     if (empty($opts['sheets_enabled'])) return;
+
+    // Skip writeback for scorecards from archived seasons
+    if (function_exists('lgw_scorecard_is_active_season') && !lgw_scorecard_is_active_season($post_id)) {
+        $sc_season = get_post_meta($post_id, 'lgw_sc_season', true);
+        lgw_sheets_log($post_id, 'info', 'Skipped — scorecard belongs to archived season ' . ($sc_season ?: 'unknown') . '; Sheets writeback only runs for the active season.');
+        return;
+    }
+
     lgw_sheets_write_result($post_id);
 }
 
@@ -519,6 +527,9 @@ function lgw_render_sheets_log($post_id) {
     $level_cls = ['info' => '#155724', 'warn' => '#856404', 'error' => '#721c24'];
     $level_bg  = ['info' => '#d4edda', 'warn' => '#fff3cd', 'error' => '#f8d7da'];
 
+    // Determine if any actionable (non-info) entries exist — skip retry button if all are info
+    $has_actionable = !empty(array_filter($log, function($e){ return ($e['level'] ?? 'info') !== 'info'; }));
+
     echo '<h4 style="margin:16px 0 8px;font-size:13px;color:#1a2e5a">Sheets Writeback Log</h4>';
     echo '<div style="font-size:12px;font-family:monospace;background:#f6f7f7;border:1px solid #ddd;padding:8px;border-radius:4px;max-height:150px;overflow-y:auto">';
     foreach (array_reverse($log) as $entry) {
@@ -532,36 +543,37 @@ function lgw_render_sheets_log($post_id) {
         echo '</div>';
     }
     echo '</div>';
-    ?>
-    <p style="margin-top:8px">
-        <button type="button" class="button button-small"
-            onclick="lgwSheetsRetry(<?php echo $post_id; ?>, '<?php echo wp_create_nonce('lgw_sheets_retry'); ?>')">
-            ↺ Retry Sheets writeback
-        </button>
-        <span id="lgw-sheets-retry-<?php echo $post_id; ?>" style="margin-left:8px;font-size:12px"></span>
-    </p>
-    <script>
-    function lgwSheetsRetry(postId, nonce) {
-        var span = document.getElementById('lgw-sheets-retry-'+postId);
-        span.textContent = 'Retrying\u2026';
-        var fd = new FormData();
-        fd.append('action',  'lgw_sheets_retry');
-        fd.append('nonce',   nonce);
-        fd.append('post_id', postId);
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', ajaxurl);
-        xhr.onload = function() {
-            try {
-                var d = JSON.parse(xhr.responseText);
-                span.textContent = d.success ? '\u2705 '+d.data : '\u274c '+d.data;
-                span.style.color = d.success ? 'green' : 'red';
-            } catch(e) { span.textContent = 'Bad response'; span.style.color='red'; }
-        };
-        xhr.onerror = function() { span.textContent = 'Request failed'; span.style.color='red'; };
-        xhr.send(fd);
+    if ($has_actionable) {
+        $retry_nonce = wp_create_nonce('lgw_sheets_retry');
+        echo '<p style="margin-top:8px">';
+        echo '<button type="button" class="button button-small"';
+        echo ' onclick="lgwSheetsRetry(' . intval($post_id) . ', \'' . esc_js($retry_nonce) . '\')">';
+        echo '&#8635; Retry Sheets writeback';
+        echo '</button>';
+        echo '<span id="lgw-sheets-retry-' . intval($post_id) . '" style="margin-left:8px;font-size:12px"></span>';
+        echo '</p>';
+        echo '<script>';
+        echo 'function lgwSheetsRetry(postId, nonce) {';
+        echo '    var span = document.getElementById(\'lgw-sheets-retry-\'+postId);';
+        echo '    span.textContent = \'Retrying\u2026\';';
+        echo '    var fd = new FormData();';
+        echo '    fd.append(\'action\',  \'lgw_sheets_retry\');';
+        echo '    fd.append(\'nonce\',   nonce);';
+        echo '    fd.append(\'post_id\', postId);';
+        echo '    var xhr = new XMLHttpRequest();';
+        echo '    xhr.open(\'POST\', ajaxurl);';
+        echo '    xhr.onload = function() {';
+        echo '        try {';
+        echo '            var d = JSON.parse(xhr.responseText);';
+        echo '            span.textContent = d.success ? \'\u2705 \'+d.data : \'\u274c \'+d.data;';
+        echo '            span.style.color = d.success ? \'green\' : \'red\';';
+        echo '        } catch(e) { span.textContent = \'Bad response\'; span.style.color=\'red\'; }';
+        echo '    };';
+        echo '    xhr.onerror = function() { span.textContent = \'Request failed\'; span.style.color=\'red\'; };';
+        echo '    xhr.send(fd);';
+        echo '}';
+        echo '</script>';
     }
-    </script>
-    <?php
 }
 
 // ── AJAX: Get team names for a division (for scorecard form validation) ────────

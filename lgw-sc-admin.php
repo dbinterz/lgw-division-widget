@@ -178,8 +178,13 @@ function lgw_ajax_admin_edit_scorecard() {
     // Audit
     lgw_audit_log($post_id, 'edited', $note, $before, $after);
 
-    // Re-log appearances (idempotent)
+    // Re-log appearances (idempotent — deletes and re-inserts for this scorecard)
     lgw_log_appearances($post_id);
+
+    // Prune orphaned player records left by name corrections (players with zero appearances)
+    if (function_exists('lgw_prune_orphaned_players')) {
+        lgw_prune_orphaned_players();
+    }
 
     // Fire action — triggers Drive upload (versioned) and sheets writeback
     // Wrapped separately so a Drive/Sheets failure doesn't 500 the whole request

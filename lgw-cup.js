@@ -207,8 +207,19 @@
         var scorePassphraseSet = typeof lgwCupData !== 'undefined' && lgwCupData.scorePassphraseSet == 1;
         var hasResult = match.home_score !== null && match.home_score !== undefined &&
                         match.away_score !== null && match.away_score !== undefined;
-        if ((isAdmin || scorePassphraseSet) && !match.bye && (match.home || match.away)) {
-          // Admin or passphrase-enabled: click opens score entry (with auth gate for non-admins)
+        if (match.home && match.away && !match.bye) {
+          // Both teams known: open full scorecard modal (handles view, submission, login gate).
+          // Admin score entry is accessible via a button inside that modal.
+          card.classList.add(hasResult ? 'lgw-cup-has-scorecard' : 'lgw-cup-editable');
+          card.style.cursor = 'pointer';
+          // Capture round date and index for this closure
+          (function(roundDate, roundIdx, matchIdx) {
+            card.addEventListener('click', function () {
+              openScorecardViewer(card, match, roundIdx, matchIdx, roundDate);
+            });
+          })(dates[ri] || '', ri, mi);
+        } else if ((isAdmin || scorePassphraseSet) && !match.bye && (match.home || match.away)) {
+          // One team TBD — only score entry makes sense (no scorecard possible yet)
           card.classList.add('lgw-cup-editable');
           card.addEventListener('click', function () {
             if (isAdmin || scoreToken) {
@@ -218,12 +229,6 @@
                 openScoreEntry(wrap, card, match, ri, mi);
               });
             }
-          });
-        } else if (hasResult && match.home && match.away) {
-          // Anyone: click opens scorecard viewer if result is set
-          card.classList.add('lgw-cup-has-scorecard');
-          card.addEventListener('click', function () {
-            openScorecardViewer(card, match);
           });
         }
         slotsEl.appendChild(card);
@@ -457,17 +462,31 @@
   }
 
   // ── Cup match scorecard viewer ────────────────────────────────────────────────
-  function openScorecardViewer(card, match) {
+  // Uses lgwFetchScorecardOrSubmit (full modal with submission/login gate) when
+  // lgw-scorecard.js is loaded; falls back to the cup-specific quick-view.
+  // ri and mi are optional — only needed to wire up the admin "Enter Score" button
+  function openScorecardViewer(card, match, ri, mi, roundDate) {
     var existing = qs('.lgw-cup-sc-modal');
     if (existing) existing.parentNode.removeChild(existing);
 
-    var nonce  = (typeof lgwCupData !== 'undefined') ? lgwCupData.cupNonce : '';
-    var modal  = document.createElement('div');
+    var isAdmin        = typeof lgwCupData !== 'undefined' && lgwCupData.isAdmin == 1;
+    var submissionMode = (typeof lgwCupData !== 'undefined' && lgwCupData.submissionMode) ? lgwCupData.submissionMode : 'open';
+    var authClubVal    = (typeof lgwCupData !== 'undefined') ? (lgwCupData.authClub || '') : '';
+    var canSubmit      = submissionMode !== 'disabled' && (submissionMode !== 'admin_only' || isAdmin);
+    var nonce          = (typeof lgwCupData !== 'undefined') ? lgwCupData.cupNonce : '';
+
+    // Admin gets an "Enter Score" button in the modal header for quick access to the score popover
+    var adminScoreBtn = (isAdmin && ri !== undefined && mi !== undefined)
+      ? '<button class="lgw-cup-sc-modal-score-btn" title="Enter quick score">✏️ Score</button>'
+      : '';
+
+    var modal = document.createElement('div');
     modal.className = 'lgw-cup-sc-modal';
     modal.innerHTML =
       '<div class="lgw-cup-sc-modal-box">' +
         '<div class="lgw-cup-sc-modal-header">' +
           '<span class="lgw-cup-sc-modal-title">' + escHtml(match.home) + ' v ' + escHtml(match.away) + '</span>' +
+          adminScoreBtn +
           '<button class="lgw-cup-sc-modal-close" aria-label="Close">&times;</button>' +
         '</div>' +
         '<div class="lgw-cup-sc-modal-body"><p class="lgw-cup-sc-loading">Loading scorecard…</p></div>' +
@@ -481,8 +500,43 @@
       if (e.target === modal) modal.parentNode.removeChild(modal);
     });
 
+    // Wire up admin score button — closes modal, opens score popover
+    var scoreBtn = qs('.lgw-cup-sc-modal-score-btn', modal);
+    if (scoreBtn) {
+      scoreBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        modal.parentNode.removeChild(modal);
+        // Find the wrap element (ancestor of card)
+        var wrap = card.closest('[data-cup-id]');
+        if (wrap) openScoreEntry(wrap, card, match, ri, mi);
+      });
+    }
+
+    var body = qs('.lgw-cup-sc-modal-body', modal);
+
+    // Prefer the shared full scorecard modal (handles submission + login gate)
+    if (typeof window.lgwFetchScorecardOrSubmit === 'function') {
+      // Read cup title from bracket data for the division label
+      var cupTitle = (function(){
+        var wrap = card.closest('[data-cup-id]');
+        if (!wrap) return 'Cup';
+        try { var d = JSON.parse(wrap.dataset.bracket || '{}'); return d.title || 'Cup'; }
+        catch(e) { return 'Cup'; }
+      })();
+      window.lgwFetchScorecardOrSubmit(match.home, match.away, roundDate || '', body, {
+        canSubmit:      canSubmit,
+        division:       cupTitle,
+        maxPts:         0,  // Cup scorecards don't use points
+        isAdmin:        isAdmin,
+        submissionMode: submissionMode,
+        authClub:       authClubVal,
+        context:        'cup',
+      });
+      return;
+    }
+
+    // Fallback: cup quick-view (no submission, no player names beyond what cup stores)
     post('lgw_cup_get_scorecard', { home: match.home, away: match.away, nonce: nonce }, function (res) {
-      var body = qs('.lgw-cup-sc-modal-body', modal);
       if (!res.success) {
         body.innerHTML = '<p class="lgw-cup-sc-none">No scorecard has been submitted for this match yet.</p>';
         return;
@@ -756,6 +810,7 @@
         '<button class="lgw-cup-score-pop-save">Save</button>' +
         '<button class="lgw-cup-score-pop-cancel">Cancel</button>' +
         (hasScore ? '<button class="lgw-cup-score-pop-reset">Clear</button>' : '') +
+        (match.home && match.away ? '<button class="lgw-cup-score-pop-sc">Full Scorecard</button>' : '') +
       '</div>' +
       '<div class="lgw-cup-score-pop-msg"></div>';
 
@@ -823,6 +878,15 @@
         renderBracket(wrap, res.data.bracket);
       });
     });
+
+    // Full Scorecard button — opens the shared scorecard/submission modal
+    var scBtn = qs('.lgw-cup-score-pop-sc', pop);
+    if (scBtn) {
+      scBtn.addEventListener('click', function () {
+        if (pop.parentNode) pop.parentNode.removeChild(pop);
+        openScorecardViewer(card, match);
+      });
+    }
 
     // Close on outside click
     setTimeout(function () {
