@@ -108,6 +108,29 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.1.48
+- **Fix/Cleanup:** Consolidated duplicate `lgwClubMatchesTeamStr` into `lgwClubMatchesTeam` — null guard added to the latter, all call sites updated, redundant function removed
+- **Fix/Cleanup:** Removed unnecessary `typeof normaliseDate === 'function'` defensive check in `populateModalForm` — function is always in scope within the same IIFE
+- **Fix:** Scorecard modal: Date Played field now displays in the same format as the fixture date (e.g. "Sat 9-May-2026") after blur, making it easier to confirm the correct day was entered; normalised back to dd/mm/yyyy on save
+
+### v7.1.46
+- **Fix:** Points auto-suggest now updates correctly after every rink score change, not just the first — programmatic input events no longer incorrectly cleared the auto-fill flag
+- **Fix:** Same `isTrusted` guard applied to totals auto-sum to prevent similar edge cases
+- **Fix:** Scorecard modal: Date Played field now normalises to dd/mm/yyyy format on blur, matching the fixture date display
+
+### v7.1.45
+- **New:** Scorecard submission: rink scores now auto-suggest home/away points as you type, based on configurable points-per-rink-win and overall-match-win values
+- Points calculation: 1 per rink win, 3 overall win by default (0.5/1.5 for draws); totals to 7 for 4-rink, 6 for 3-rink matches
+- **New:** League Setup: new Points System section to configure points-per-rink and overall-match points, with live preview of max points per match
+- If user manually overrides auto-suggested points, a mismatch warning is shown but submission is not blocked
+- Points auto-suggest also fires after photo AI parse and Excel import
+
+### v7.1.44
+- **New:** Scorecard submission: rink scores now auto-sum into the Home/Away Total Shots fields as you type
+- Totals are updated silently when auto-filled; if the user manually enters a total that doesn't match the rink sum, an inline warning is shown (submission is not blocked)
+- Auto-sum also fires after photo AI parse and Excel import so totals are always in sync with populated rink scores
+
+
 ### v7.1.43
 - **Fix:** Cup scorecard modal now shows the correct round date as the fixture date — pulled from `dates[ri]` at card-click time and passed through to the scorecard form
 - **Fix:** Cup name (Senior Cup / Junior Cup / Midweek Cup etc.) now used as the division label in the scorecard form — read from `data.title` in the bracket JSON
