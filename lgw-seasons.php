@@ -230,21 +230,16 @@ function lgw_seasons_handle_posts() {
         exit;
     }
 
-    // ── Add backloaded (historical) season ────────────────────────────────────
+    // ── Add or update backloaded (historical) season ─────────────────────────
     if (isset($_POST['lgw_add_archived_season']) && check_admin_referer('lgw_seasons_nonce')) {
-        $id        = sanitize_text_field($_POST['lgw_backload_id']    ?? '');
-        $label     = sanitize_text_field($_POST['lgw_backload_label'] ?? '');
-        $div_names = isset($_POST['lgw_bl_div_name'])    ? array_map('sanitize_text_field', $_POST['lgw_bl_div_name'])    : array();
-        $div_urls  = isset($_POST['lgw_bl_div_csv_url']) ? array_map('esc_url_raw',         $_POST['lgw_bl_div_csv_url']) : array();
+        $id          = sanitize_text_field($_POST['lgw_backload_id']       ?? '');
+        $editing_id  = sanitize_text_field($_POST['lgw_editing_season_id'] ?? '');
+        $label       = sanitize_text_field($_POST['lgw_backload_label']    ?? '');
+        $div_names   = isset($_POST['lgw_bl_div_name'])    ? array_map('sanitize_text_field', $_POST['lgw_bl_div_name'])    : array();
+        $div_urls    = isset($_POST['lgw_bl_div_csv_url']) ? array_map('esc_url_raw',         $_POST['lgw_bl_div_csv_url']) : array();
 
         if (!$id) {
             wp_redirect(admin_url('admin.php?page=lgw-seasons&error=missing_id'));
-            exit;
-        }
-
-        // Don't add duplicate ID
-        if (lgw_get_season_by_id($id)) {
-            wp_redirect(admin_url('admin.php?page=lgw-seasons&error=duplicate_id&id=' . urlencode($id)));
             exit;
         }
 
@@ -257,7 +252,35 @@ function lgw_seasons_handle_posts() {
             }
         }
 
-        $seasons   = lgw_get_seasons();
+        $seasons = lgw_get_seasons();
+
+        if ($editing_id) {
+            // ── Update existing archived season ───────────────────────────────
+            $found = false;
+            foreach ($seasons as &$s) {
+                if ($s['id'] === $editing_id && empty($s['active'])) {
+                    $s['label']     = $label ?: ($id . ' Season');
+                    $s['divisions'] = $divisions;
+                    $found = true;
+                    break;
+                }
+            }
+            unset($s);
+            if (!$found) {
+                wp_redirect(admin_url('admin.php?page=lgw-seasons&error=not_found'));
+                exit;
+            }
+            update_option('lgw_seasons', $seasons);
+            wp_redirect(admin_url('admin.php?page=lgw-seasons&updated=1'));
+            exit;
+        }
+
+        // ── Add new season — reject duplicates ────────────────────────────────
+        if (lgw_get_season_by_id($id)) {
+            wp_redirect(admin_url('admin.php?page=lgw-seasons&error=duplicate_id&id=' . urlencode($id)));
+            exit;
+        }
+
         $seasons[] = array(
             'id'        => $id,
             'label'     => $label ?: ($id . ' Season'),
@@ -343,6 +366,9 @@ function lgw_seasons_admin_page() {
     <?php endif; ?>
     <?php if (isset($_GET['backloaded'])): ?>
         <div class="notice notice-success is-dismissible"><p>Historical season added.</p></div>
+    <?php endif; ?>
+    <?php if (isset($_GET['updated'])): ?>
+        <div class="notice notice-success is-dismissible"><p>Season updated.</p></div>
     <?php endif; ?>
     <?php if (isset($_GET['deleted'])): ?>
         <div class="notice notice-success is-dismissible"><p>Season deleted.</p></div>

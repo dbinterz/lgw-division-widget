@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.51
+Stable tag: 7.1.52
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,8 +71,9 @@ Parameters:
 
 == Changelog ==
 
-= 7.1.51 =
+= 7.1.52 =
 * Fix: season switcher now matches archived divisions to the shortcode title even when the title includes a trailing year (e.g. "Division 1 2026" matches archived "Division 1" or "Division 1 2025") — year suffix is stripped from both sides before comparison
+* Fix: Seasons admin — editing an existing archived season no longer triggers "season already exists" error; Edit form now correctly updates in place
 
 = 7.1.50 =
 * Cup admin: added "Download Draw (.xlsx)" export button on cup edit page — downloads the full bracket as an Excel spreadsheet matching the reference cup draw format (draw number, round columns, dates)

@@ -108,10 +108,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
-### v7.1.51
-- **Fix:** Season switcher now matches archived divisions to the shortcode `title` attribute even when the title includes a trailing year — e.g. `title="Division 1 2026"` correctly matches an archived division stored as `"Division 1"` or `"Division 1 2025"`. Year suffix is stripped from both sides before comparison.
-
-### v7.1.50
+### v7.1.52
+- **Fix:** Season switcher now matches archived divisions to the shortcode `title` even when the title includes a trailing year — e.g. `"Division 1 2026"` matches `"Division 1"` or `"Division 1 2025"`. Year suffix stripped from both sides before comparison.
+- **Fix:** Seasons admin — editing an existing archived season no longer triggers "season already exists" error; the Edit form now correctly updates the season in place
 - **New:** Cup admin: "Download Draw (.xlsx)" export button on cup edit page
 - **New:** Championship admin: "Download Draw (.xlsx)" export button on championship edit page
 - **New:** `lgw-export.php` — pure-PHP xlsx generation via ZipArchive, no server dependencies
