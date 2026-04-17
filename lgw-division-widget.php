@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.1.50
+ * Version: 7.1.51
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.1.50');
+define('LGW_VERSION', '7.1.51');
 
 
 // ── Admin page logo header helper ────────────────────────────────────────────
@@ -517,9 +517,14 @@ function lgw_division_shortcode($atts) {
             if (!in_array($s['id'], $wanted_ids)) continue;
             // Find CSV URL for this division in the archived season
             $csv_url = '';
+            // Normalise both sides by stripping a trailing 4-digit year so that
+            // "Division 1 2026" matches archived entries stored as "Division 1"
+            // or "Division 1 2025".
+            $norm_title = $division_title ? trim(preg_replace('/\s+\d{4}$/', '', $division_title)) : '';
             foreach (($s['divisions'] ?? array()) as $d) {
                 // Match by division title if set, else take first division
-                if ($division_title && strcasecmp($d['division'], $division_title) === 0) {
+                $norm_div = trim(preg_replace('/\s+\d{4}$/', '', $d['division']));
+                if ($division_title && strcasecmp($norm_div, $norm_title) === 0) {
                     $csv_url = $d['csv_url']; break;
                 } elseif (!$division_title && !empty($d['csv_url'])) {
                     $csv_url = $d['csv_url']; break;

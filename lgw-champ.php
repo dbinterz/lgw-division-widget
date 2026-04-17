@@ -1057,14 +1057,6 @@ function lgw_champs_list_page() {
           <a href="<?php echo admin_url('admin.php?page=lgw-champs&edit=' . urlencode($id)); ?>" class="button button-small">Edit</a>
           <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=lgw-champs&action=delete&id=' . urlencode($id)), 'lgw_champ_delete_' . $id); ?>"
              class="button button-small button-link-delete" onclick="return confirm('Delete this championship?')">Delete</a>
-          <?php if ($drawn): ?>
-          <form method="post" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>" style="display:inline">
-            <input type="hidden" name="action" value="lgw_export_champ">
-            <input type="hidden" name="champ_id" value="<?php echo esc_attr($id); ?>">
-            <input type="hidden" name="nonce" value="<?php echo esc_attr(wp_create_nonce('lgw_export_nonce')); ?>">
-            <button type="submit" class="button button-small">📥 Export</button>
-          </form>
-          <?php endif; ?>
         </td>
       </tr>
       <?php endforeach; ?>
@@ -1772,6 +1764,18 @@ function lgw_champ_edit_page($champ_id) {
     <hr>
     <h2>Shortcode</h2>
     <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block">[lgw_champ id="<?php echo esc_html($champ_id); ?>"]</pre>
+
+    <?php if ($drawn): ?>
+    <hr>
+    <h2>Export Draw</h2>
+    <p>Download the current draw as an Excel spreadsheet — one sheet per section<?php echo $final_bracket ? ', plus a Final Stage sheet' : ''; ?>.</p>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>">
+      <input type="hidden" name="action" value="lgw_export_champ">
+      <input type="hidden" name="champ_id" value="<?php echo esc_attr($champ_id); ?>">
+      <input type="hidden" name="nonce" value="<?php echo esc_attr(wp_create_nonce('lgw_export_nonce')); ?>">
+      <?php submit_button('📥 Download Draw (.xlsx)', 'secondary'); ?>
+    </form>
+    <?php endif; ?>
 
     <?php endif; ?>
     </div>

@@ -875,14 +875,6 @@ function lgw_cups_list_page() {
           <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=lgw-cups&action=delete&id=' . urlencode($id)), 'lgw_cup_delete_' . $id); ?>"
              class="button button-small button-link-delete"
              onclick="return confirm('Delete this cup and all its data?')">Delete</a>
-          <?php if (($cup['draw_version'] ?? 0) > 0): ?>
-          <form method="post" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>" style="display:inline">
-            <input type="hidden" name="action" value="lgw_export_cup">
-            <input type="hidden" name="cup_id" value="<?php echo esc_attr($id); ?>">
-            <input type="hidden" name="nonce" value="<?php echo esc_attr(wp_create_nonce('lgw_export_nonce')); ?>">
-            <button type="submit" class="button button-small">📥 Export</button>
-          </form>
-          <?php endif; ?>
         </td>
       </tr>
       <?php endforeach; ?>
@@ -1049,6 +1041,18 @@ function lgw_cup_edit_page($cup_id) {
     <h2>Shortcode</h2>
     <p>Add this shortcode to any page to display the cup bracket:</p>
     <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block">[lgw_cup id="<?php echo esc_html($cup_id); ?>" title="<?php echo esc_attr($cup['title'] ?? ''); ?>"]</pre>
+
+    <?php if ($drawn): ?>
+    <hr>
+    <h2>Export Draw</h2>
+    <p>Download the current draw as an Excel spreadsheet.</p>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>">
+      <input type="hidden" name="action" value="lgw_export_cup">
+      <input type="hidden" name="cup_id" value="<?php echo esc_attr($cup_id); ?>">
+      <input type="hidden" name="nonce" value="<?php echo esc_attr(wp_create_nonce('lgw_export_nonce')); ?>">
+      <?php submit_button('📥 Download Draw (.xlsx)', 'secondary'); ?>
+    </form>
+    <?php endif; ?>
 
     <?php endif; ?>
     </div>

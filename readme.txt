@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.50
+Stable tag: 7.1.51
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,9 +71,13 @@ Parameters:
 
 == Changelog ==
 
+= 7.1.51 =
+* Fix: season switcher now matches archived divisions to the shortcode title even when the title includes a trailing year (e.g. "Division 1 2026" matches archived "Division 1" or "Division 1 2025") — year suffix is stripped from both sides before comparison
+
 = 7.1.50 =
-* Cup and championship management list pages: "📥 Export" button now appears inline next to Edit/Delete for each drawn competition — no longer requires navigating into the edit page to download the draw spreadsheet
-* Export Draw section removed from cup and championship edit pages
+* Cup admin: added "Download Draw (.xlsx)" export button on cup edit page — downloads the full bracket as an Excel spreadsheet matching the reference cup draw format (draw number, round columns, dates)
+* Championship admin: added "Download Draw (.xlsx)" export button on championship edit page — downloads all drawn sections as separate sheets, plus a Final Stage sheet if drawn, matching the reference championship draw format
+* New module: lgw-export.php handles all xlsx generation in pure PHP (ZipArchive), no server-side dependencies required
 
 = 7.1.48 =
 * Scorecard modal: Date Played field now displays in the same format as the fixture date (e.g. "Sat 9-May-2026") after blur, making it easier to confirm the correct day was entered
