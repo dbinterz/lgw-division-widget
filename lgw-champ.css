@@ -189,6 +189,14 @@
   opacity: .7;
 }
 
+.lgw-champ-placeholder {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--lgw-text-muted, #888);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
 /* ── Match team row ──────────────────────────────────────────────────────────── */
 .lgw-champ-team {
   display: flex;

@@ -88,6 +88,34 @@
     return comma !== -1 ? entry.slice(comma + 1).trim() : '';
   }
 
+  // Abbreviate a championship entry for use as a bracket placeholder.
+  // Entry format: "F Surname/G Other, ClubName"  →  "Other, Clu"
+  // Uses the last player listed (after the last '/') and the first 3 chars of the club.
+  function abbrevChampEntry(entry) {
+    if (!entry) return '?';
+    var comma = entry.indexOf(',');
+    var players = comma !== -1 ? entry.slice(0, comma).trim() : entry.trim();
+    var club    = comma !== -1 ? entry.slice(comma + 1).trim() : '';
+    // Last player is after the last '/'
+    var slashIdx = players.lastIndexOf('/');
+    var lastPlayer = slashIdx !== -1 ? players.slice(slashIdx + 1).trim() : players;
+    // Extract surname (last word of last player)
+    var nameParts = lastPlayer.trim().split(/\s+/);
+    var surname = nameParts[nameParts.length - 1];
+    var clubAbbrev = club ? club.slice(0, 3) : '';
+    return clubAbbrev ? surname + ', ' + clubAbbrev : surname;
+  }
+
+  // Build a placeholder string for a TBD slot from the predecessor match.
+  // Returns "Surname1, Clu/Surname2, Clu" or null if not enough info.
+  function buildChampPlaceholder(prevMatch) {
+    if (!prevMatch || prevMatch.bye) return null;
+    var h = prevMatch.home ? abbrevChampEntry(prevMatch.home) : null;
+    var a = prevMatch.away ? abbrevChampEntry(prevMatch.away) : null;
+    if (h && a) return h + '/' + a;
+    return null;
+  }
+
   function champBadge(entry) {
     if (!entry) return '';
     // Try exact match on full entry string first (unlikely but safe)
@@ -120,7 +148,9 @@
     var badge = team ? champBadge(team) : '';
     var isTbd = !team;
     var nameCls = 'lgw-champ-team-name' + (isTbd ? ' tbd' : '');
-    var nameStr = team ? escHtml(team) : escHtml(placeholder || 'TBD');
+    var nameStr = team ? escHtml(team)
+                : (placeholder ? '<span class="lgw-champ-placeholder">' + escHtml(placeholder) + '</span>'
+                               : 'TBD');
     var scoreStr = (score !== null && score !== undefined && score !== '') ? escHtml(score) : '';
     return '<div class="' + cls + '">'
       + badge
@@ -129,7 +159,7 @@
       + '</div>';
   }
 
-  function renderMatch(match) {
+  function renderMatch(match, homePlaceholder, awayPlaceholder) {
     var home       = match.home  || '';
     var away       = match.away  || '';
     var hs         = match.home_score;
@@ -139,11 +169,12 @@
     var homeWin    = hasResult && parseFloat(hs) > parseFloat(as);
     var awayWin    = hasResult && parseFloat(as) > parseFloat(hs);
 
-    // Placeholders for null slots — PHP stores which game feeds each slot
-    var homePlaceholder = home ? null
-      : (match.prev_game_home ? 'Winner of Game ' + match.prev_game_home : 'TBD');
-    var awayPlaceholder = away ? null
-      : (match.prev_game_away ? 'Winner of Game ' + match.prev_game_away : 'TBD');
+    // Placeholders for null slots — prefer computed predecessor placeholders,
+    // fall back to "Winner of Game N" if available, then generic TBD.
+    var homePh = home ? null
+      : (homePlaceholder || (match.prev_game_home ? 'Winner of Game ' + match.prev_game_home : null));
+    var awayPh = away ? null
+      : (awayPlaceholder || (match.prev_game_away ? 'Winner of Game ' + match.prev_game_away : null));
 
     var cls = 'lgw-champ-match';
     if (match.bye)      cls += ' lgw-champ-bye';
@@ -155,8 +186,8 @@
 
     return '<div class="' + cls + '">'
       + gameNumHtml
-      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, homePlaceholder)
-      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, awayPlaceholder)
+      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, homePh)
+      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, awayPh)
       + '</div>';
   }
 
@@ -184,8 +215,13 @@
     if (!bracketEl) return;
     bracketEl.innerHTML = '';
 
-    // Game numbers and prev_game links are stored in the match data by PHP at draw time.
-    // No JS pre-pass needed — just read match.game_num, match.prev_game_home, match.prev_game_away.
+    // Build a game_num → match index for predecessor placeholder lookups.
+    var gameNumIndex = {};
+    matches.forEach(function (roundMatches) {
+      (roundMatches || []).forEach(function (m) {
+        if (m && m.game_num) gameNumIndex[m.game_num] = m;
+      });
+    });
 
     rounds.forEach(function (roundName, ri) {
       var roundMatches = matches[ri] || [];
@@ -208,8 +244,20 @@
 
       var slotsEl = qs('.lgw-champ-round-slots', roundEl);
       roundMatches.forEach(function (match, mi) {
+        // Build predecessor placeholders for TBD slots using game_num index
+        var homePlaceholder = null, awayPlaceholder = null;
+        if (!match.home || !match.away) {
+          if (!match.home && match.prev_game_home) {
+            var prevH = gameNumIndex[match.prev_game_home];
+            if (prevH) homePlaceholder = buildChampPlaceholder(prevH);
+          }
+          if (!match.away && match.prev_game_away) {
+            var prevA = gameNumIndex[match.prev_game_away];
+            if (prevA) awayPlaceholder = buildChampPlaceholder(prevA);
+          }
+        }
         var matchEl = document.createElement('div');
-        matchEl.innerHTML = renderMatch(match);
+        matchEl.innerHTML = renderMatch(match, homePlaceholder, awayPlaceholder);
         var card = matchEl.firstElementChild;
         card.dataset.round = ri;
         card.dataset.match = mi;
