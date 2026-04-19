@@ -862,7 +862,8 @@ function lgw_render_submit_form($csv_url = '', $cup_id = '') {
           <div class="lgw-stab-panel active" data-panel="photo">
             <p class="lgw-hint">Upload a photo of the scorecard. AI will read it and pre-fill the form below.</p>
             <div class="lgw-upload-area" id="lgw-photo-drop">
-              <input type="file" id="lgw-photo-input" accept="image/*" capture="environment" style="display:none">
+              <input type="file" id="lgw-photo-input" accept="image/*,image/heic,image/heif" style="display:none">
+              <input type="file" id="lgw-camera-input" accept="image/*" capture="environment" style="display:none">
               <div class="lgw-upload-inner" id="lgw-photo-trigger">
                 <span class="lgw-upload-icon">📷</span>
                 <span>Tap to take a photo or choose an image</span>

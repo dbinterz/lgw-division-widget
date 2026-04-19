@@ -1,4 +1,4 @@
-/* LGW Scorecard JS - v5.17.15 */
+/* LGW Scorecard JS - v5.17.16 */
 (function(){
   'use strict';
 
@@ -196,6 +196,7 @@
 
   // ── Photo upload ──────────────────────────────────────────────────────────────
   var photoInput    = qs('#lgw-photo-input');
+  var cameraInput   = qs('#lgw-camera-input');
   var photoTrigger  = qs('#lgw-photo-trigger');
   var photoDrop     = qs('#lgw-photo-drop');
   var photoPreview  = qs('#lgw-photo-preview');
@@ -203,7 +204,65 @@
   var photoStatus   = qs('#lgw-parse-photo-status');
   var photoFile     = null;
 
-  if (photoTrigger) photoTrigger.addEventListener('click', function(){ if(photoInput) photoInput.click(); });
+  // Detect touch/mobile so we offer camera vs file choice
+  var isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+  function showPhotoChoice() {
+    var existing = qs('#lgw-photo-choice');
+    if (existing) existing.parentNode.removeChild(existing);
+
+    var popup = document.createElement('div');
+    popup.id = 'lgw-photo-choice';
+    popup.style.cssText = 'position:absolute;z-index:999;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:220px';
+
+    var btnCamera = document.createElement('button');
+    btnCamera.type = 'button';
+    btnCamera.className = 'lgw-btn lgw-btn-secondary';
+    btnCamera.innerHTML = '📷 Take a photo';
+
+    var btnFile = document.createElement('button');
+    btnFile.type = 'button';
+    btnFile.className = 'lgw-btn lgw-btn-secondary';
+    btnFile.innerHTML = '🖼️ Choose from gallery / files';
+
+    popup.appendChild(btnCamera);
+    popup.appendChild(btnFile);
+
+    var rect = photoTrigger.getBoundingClientRect();
+    popup.style.top  = (rect.bottom + window.scrollY + 6) + 'px';
+    popup.style.left = Math.max(8, rect.left + window.scrollX) + 'px';
+
+    document.body.appendChild(popup);
+
+    btnCamera.addEventListener('click', function(){
+      if (popup.parentNode) popup.parentNode.removeChild(popup);
+      if (cameraInput) cameraInput.click();
+    });
+    btnFile.addEventListener('click', function(){
+      if (popup.parentNode) popup.parentNode.removeChild(popup);
+      if (photoInput) photoInput.click();
+    });
+
+    function onOutside(e) {
+      if (!popup.contains(e.target) && e.target !== photoTrigger) {
+        if (popup.parentNode) popup.parentNode.removeChild(popup);
+        document.removeEventListener('click', onOutside, true);
+      }
+    }
+    setTimeout(function(){ document.addEventListener('click', onOutside, true); }, 50);
+  }
+
+  if (photoTrigger) {
+    photoTrigger.addEventListener('click', function(){
+      if (isMobile) {
+        showPhotoChoice();
+      } else {
+        if (photoInput) photoInput.click();
+      }
+    });
+  }
+
+  if (cameraInput) cameraInput.addEventListener('change', function(){ if(cameraInput.files[0]) handlePhotoFile(cameraInput.files[0]); });
   if (photoDrop) {
     photoDrop.addEventListener('dragover',  function(e){ e.preventDefault(); photoDrop.classList.add('drag-over'); });
     photoDrop.addEventListener('dragleave', function(){  photoDrop.classList.remove('drag-over'); });
