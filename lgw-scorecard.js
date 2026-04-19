@@ -1248,8 +1248,10 @@
       }
       if (res.success && res.data) {
         // Scorecard exists — show it with inline confirm/amend if pending and second club
-        containerEl.innerHTML = lgwRenderScorecardHtml(res.data, {
-          authClub:       opts.authClub || authClub || '',
+        var scData      = res.data;
+        var resolvedClub = opts.authClub || authClub || '';
+        containerEl.innerHTML = lgwRenderScorecardHtml(scData, {
+          authClub:       resolvedClub,
           isAdmin:        opts.isAdmin,
           canSubmit:      opts.canSubmit,
           submissionMode: opts.submissionMode,
@@ -1258,7 +1260,15 @@
         // Bind confirm/amend actions if rendered
         var reviewEl = containerEl.querySelector('.lgw-sc-review-inline');
         if (reviewEl) {
-          lgwBindInlineReview(reviewEl, res.data, containerEl, opts, home, away, date);
+          lgwBindInlineReview(reviewEl, scData, containerEl, opts, home, away, date);
+        }
+        // If scorecard is pending and no club is authenticated, show a compact
+        // login gate so the second club can confirm/amend from this modal.
+        var scStatus = scData['_status'] || 'pending';
+        var canConfirmMode = opts.submissionMode !== 'disabled'
+          && (opts.submissionMode !== 'admin_only' || opts.isAdmin);
+        if (scStatus === 'pending' && !resolvedClub && canConfirmMode) {
+          lgwRenderModalLoginGate(containerEl, scData, opts, home, away, date);
         }
       } else if (opts.canSubmit) {
         // No scorecard yet — offer submission
@@ -2278,6 +2288,108 @@
         }
       });
     }
+  }
+
+  // ── Compact login gate for confirming a pending scorecard from the modal ────────
+  // Appended below the scorecard when status=pending and no club is authenticated.
+  // On successful login re-fetches the scorecard so confirm/amend buttons appear.
+  function lgwRenderModalLoginGate(containerEl, scData, opts, home, away, date) {
+    var allClubs = (typeof lgwSubmit !== 'undefined' && lgwSubmit.clubs) ? lgwSubmit.clubs : [];
+    var homeTeam = scData.home_team || home;
+    var awayTeam = scData.away_team || away;
+
+    // Filter to clubs involved in this fixture (same logic as the main login gate)
+    var fixtureClubs = allClubs.filter(function(c){
+      return lgwClubMatchesTeam(c, homeTeam) || lgwClubMatchesTeam(c, awayTeam);
+    });
+    var clubs = fixtureClubs.length ? fixtureClubs : allClubs;
+
+    var clubOpts = clubs.map(function(c){
+      return '<option value="'+esc(c)+'">'+esc(c)+'</option>';
+    }).join('');
+
+    var gateId   = 'lgw-modal-confirm-gate';
+    var gateHtml = '<div id="'+gateId+'" class="lgw-submit-card" style="margin-top:16px;border-top:2px solid #e0e4f0;padding-top:16px">'
+      +'<p style="margin:0 0 10px;font-weight:600;color:#1a2e5a">Are you the opposing club? Log in to confirm or amend these scores.</p>'
+      +(clubs.length
+        ? '<div class="lgw-form-row" style="margin-bottom:8px">'
+          +'<label style="font-size:13px;margin-bottom:4px;display:block">Your club</label>'
+          +'<select id="lgw-modal-gate-club" style="width:100%;padding:8px 10px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px">'
+          +'<option value="">— Select your club —</option>'
+          +clubOpts
+          +'</select>'
+          +'</div>'
+        : '<div class="lgw-form-row" style="margin-bottom:8px">'
+          +'<label style="font-size:13px;margin-bottom:4px;display:block">Your club</label>'
+          +'<input type="text" id="lgw-modal-gate-club" placeholder="Club name" style="width:100%;padding:8px 10px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px">'
+          +'</div>'
+      )
+      +'<div class="lgw-form-row" style="margin-bottom:12px">'
+      +'<label style="font-size:13px;margin-bottom:4px;display:block">Passphrase</label>'
+      +'<input type="password" id="lgw-modal-gate-pass" placeholder="Enter your club passphrase" style="width:100%;padding:8px 10px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px">'
+      +'</div>'
+      +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-gate-submit" style="width:100%">🔓 Log in to confirm</button>'
+      +'<p id="lgw-modal-gate-status" class="lgw-notice" style="display:none;margin-top:8px"></p>'
+      +'</div>';
+
+    containerEl.insertAdjacentHTML('beforeend', gateHtml);
+
+    var gateEl    = containerEl.querySelector('#'+gateId);
+    var clubEl    = gateEl.querySelector('#lgw-modal-gate-club');
+    var passEl    = gateEl.querySelector('#lgw-modal-gate-pass');
+    var submitBtn = gateEl.querySelector('#lgw-modal-gate-submit');
+    var statusEl  = gateEl.querySelector('#lgw-modal-gate-status');
+
+    // Allow Enter key in passphrase field
+    passEl.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') submitBtn.click();
+    });
+
+    submitBtn.addEventListener('click', function(){
+      var club = clubEl.value.trim();
+      var pass = passEl.value.trim();
+      if (!club) { showStatus(statusEl, '❌ Please select your club.', 'error'); return; }
+      if (!pass) { showStatus(statusEl, '❌ Please enter your passphrase.', 'error'); return; }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ Logging in…';
+
+      var fd = new FormData();
+      fd.append('action', 'lgw_check_pin');
+      fd.append('nonce',  nonce);
+      fd.append('club',   club);
+      fd.append('pin',    pass);
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', ajaxUrl);
+      xhr.onload = function(){
+        var res;
+        try { res = JSON.parse(xhr.responseText || '{}'); } catch(e) { res = {}; }
+        submitBtn.disabled = false;
+        if (res.success) {
+          // Session is now authenticated — update module-level authClub and re-fetch
+          authClub = club;
+          // Re-fetch the scorecard with the authenticated club so confirm/amend renders
+          window.lgwFetchScorecardOrSubmit(home, away, date, containerEl, {
+            canSubmit:      opts.canSubmit,
+            division:       opts.division || scData.division || '',
+            maxPts:         (opts.maxPts !== undefined && opts.maxPts !== null) ? opts.maxPts : 7,
+            isAdmin:        opts.isAdmin,
+            submissionMode: opts.submissionMode,
+            authClub:       club,
+            context:        opts.context || '',
+          });
+        } else {
+          submitBtn.textContent = '🔓 Log in to confirm';
+          showStatus(statusEl, '❌ ' + (res.data || 'Incorrect passphrase — please try again.'), 'error');
+        }
+      };
+      xhr.onerror = function(){
+        submitBtn.disabled = false;
+        submitBtn.textContent = '🔓 Log in to confirm';
+        showStatus(statusEl, '❌ Network error — please try again.', 'error');
+      };
+      xhr.send(fd);
+    });
   }
 
   // ── Helper: resolve club name from team name using lgwSubmit.clubs if available ─

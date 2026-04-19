@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.82
+Stable tag: 7.1.83
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,18 +71,21 @@ Parameters:
 
 == Changelog ==
 
+= 7.1.83 =
+* Feature: Scorecard modal now shows a compact login gate when a pending scorecard is displayed and no club is authenticated — the opposing club can log in directly in the modal and immediately confirm or amend without needing the [lgw_submit] shortcode page
+
 = 7.1.82 =
 * Fix: Live points hint in scorecard modal used parseInt — half-point values (e.g. 2.5+4.5) showed total as 6 instead of 7; fixed to parseFloat with tolerance comparison
 
 = 7.1.81 =
 * Fix: Rink score inputs (modal and standalone form) now have step="0.5" so browsers accept half-scores without rounding
 * Fix: Auto-sum of rink scores rounds to 1 decimal to prevent float accumulation noise
-* Fix: Scorecard admin page stripped half-points — all scores, totals and points now use floatval (not intval); admin number inputs gain step="0.5"
-* Fix: Points validation uses parseFloat and tolerance comparison throughout instead of parseInt and strict equality
+* Fix: Scorecard admin page stripped half-points — all scores, totals and points now use floatval; admin number inputs gain step="0.5"
+* Fix: Points validation uses parseFloat and tolerance comparison throughout
 
 = 7.1.80 =
-* Fix: Drive upload now respects submitted_for — when submitting on behalf of one team only, PDF is saved to that team's folder only, not both
-* Fix: Resubmitting a scorecard no longer creates duplicate PDFs in Drive — existing file is replaced in-place; admin edits still produce versioned copies (-v2, -v3 etc.)
+* Fix: Drive upload now respects submitted_for — PDF saved to that team's folder only when submitting for one team
+* Fix: Resubmitting a scorecard replaces existing PDF in Drive rather than creating a duplicate; admin edits still produce versioned copies
 
 = 7.1.78 =
 * Feature: Cup and Championship bracket draws on mobile now support horizontal swipe scrolling — all rounds are visible side-by-side with scroll-snap for clean swiping between them
