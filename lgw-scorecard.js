@@ -1011,10 +1011,10 @@
       var total = 0;
       var anyFilled = false;
       scope.querySelectorAll('.lgw-score-' + side).forEach(function(inp){
-        var v = inp.value === '' ? null : parseInt(inp.value, 10);
+        var v = inp.value === '' ? null : parseFloat(inp.value);
         if(v !== null && !isNaN(v)){ total += v; anyFilled = true; }
       });
-      return anyFilled ? total : null;
+      return anyFilled ? Math.round(total * 10) / 10 : null;
     }
 
     function updateTotals() {
@@ -1027,7 +1027,7 @@
         var sum = sumSide(side);
         if(sum === null) return; // no rink scores yet — leave total field alone
 
-        var existing = totalEl.value === '' ? null : parseInt(totalEl.value, 10);
+        var existing = totalEl.value === '' ? null : parseFloat(totalEl.value);
 
         // Remove previous warning
         var oldWarn = (scope.querySelector ? scope.querySelector('#' + warnId) : qs('#' + warnId));
@@ -1037,7 +1037,7 @@
           // Field empty or was previously auto-set — silently update
           totalEl.value = sum;
           totalEl.setAttribute('data-auto-sum', '1');
-        } else if(existing !== sum){
+        } else if(Math.abs(existing - sum) > 0.001){
           // Manual value that doesn't match — warn but don't overwrite
           var warn = document.createElement('p');
           warn.id = warnId;
@@ -1103,6 +1103,8 @@
       // Sum rinks as fallback for overall calculation
       hTotal = 0; aTotal = 0;
       rinks.forEach(function(rk){ hTotal += rk.home_score || 0; aTotal += rk.away_score || 0; });
+      hTotal = Math.round(hTotal * 10) / 10;
+      aTotal = Math.round(aTotal * 10) / 10;
     }
     if(hTotal > aTotal)       { homeRinkPts += lgwPtsOverall; }
     else if(aTotal > hTotal)  { awayRinkPts += lgwPtsOverall; }
@@ -1192,8 +1194,8 @@
         for(var r=1;r<=4;r++){
           var hs = qs('.lgw-score-home[data-rink="'+r+'"]');
           var as = qs('.lgw-score-away[data-rink="'+r+'"]');
-          var hv = hs && hs.value !== '' ? parseInt(hs.value,10) : null;
-          var av = as && as.value !== '' ? parseInt(as.value,10) : null;
+          var hv = hs && hs.value !== '' ? parseFloat(hs.value) : null;
+          var av = as && as.value !== '' ? parseFloat(as.value) : null;
           if(hv !== null || av !== null) rinks.push({home_score:hv, away_score:av});
         }
         return rinks;
@@ -1409,8 +1411,8 @@
           '<tr class="lgw-modal-rink-row" data-rink="'+r+'">'
           +'<td class="lgw-modal-rink-num">'+r+'</td>'
           +'<td><textarea class="lgw-modal-players lgw-modal-players-home lgw-autoresize" placeholder="Player names, comma separated" data-rink="'+r+'" rows="1"></textarea></td>'
-          +'<td style="text-align:center"><input type="number" class="lgw-score-home" data-rink="'+r+'" min="0" style="width:60px;text-align:center"></td>'
-          +'<td style="text-align:center"><input type="number" class="lgw-score-away" data-rink="'+r+'" min="0" style="width:60px;text-align:center"></td>'
+          +'<td style="text-align:center"><input type="number" class="lgw-score-home" data-rink="'+r+'" min="0" step="0.5" style="width:60px;text-align:center"></td>'
+          +'<td style="text-align:center"><input type="number" class="lgw-score-away" data-rink="'+r+'" min="0" step="0.5" style="width:60px;text-align:center"></td>'
           +'<td><textarea class="lgw-modal-players lgw-modal-players-away lgw-autoresize" placeholder="Player names, comma separated" data-rink="'+r+'" rows="1"></textarea></td>'
           +'</tr>';
       }
@@ -1576,9 +1578,9 @@
           rink:         parseInt(r,10),
           home_players: hpRaw.split(',').map(function(s){return s.trim();}).filter(Boolean),
           away_players: apRaw.split(',').map(function(s){return s.trim();}).filter(Boolean),
-          home_score:   (function(v){return v===''||v===null?null:parseInt(v,10);})(
+          home_score:   (function(v){return v===''||v===null?null:parseFloat(v);})(
                           (row.querySelector('.lgw-score-home')||{}).value),
-          away_score:   (function(v){return v===''||v===null?null:parseInt(v,10);})(
+          away_score:   (function(v){return v===''||v===null?null:parseFloat(v);})(
                           (row.querySelector('.lgw-score-away')||{}).value),
         });
       });
@@ -1629,7 +1631,7 @@
         return false;
       }
       var total = hp + ap;
-      if (total !== maxPts) {
+      if (Math.abs(total - maxPts) > 0.001) {
         showStatus(statusEl, '❌ Home and away points must total '+maxPts+' (currently '+total+'). Max per match is '+maxPts+'.', 'error');
         return false;
       }
@@ -1837,11 +1839,11 @@
         var apEl = el.querySelector('#lgw-modal-away-pts');
         var hint = el.querySelector('#lgw-modal-pts-hint');
         if(!hpEl||!apEl||!hint) return;
-        var hp = hpEl.value === '' ? null : parseInt(hpEl.value, 10);
-        var ap = apEl.value === '' ? null : parseInt(apEl.value, 10);
+        var hp = hpEl.value === '' ? null : parseFloat(hpEl.value);
+        var ap = apEl.value === '' ? null : parseFloat(apEl.value);
         if(hp === null && ap === null){ hint.textContent=''; hint.style.color=''; return; }
-        var total = (hp||0)+(ap||0);
-        if(total === maxPts){
+        var total = Math.round(((hp||0)+(ap||0)) * 10) / 10;
+        if(Math.abs(total - maxPts) < 0.001){
           hint.textContent = '✓ '+total+'/'+maxPts;
           hint.style.color = '#2a7a2a';
         } else {

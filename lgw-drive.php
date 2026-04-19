@@ -166,28 +166,42 @@ function lgw_drive_save_scorecard($post_id, $is_edit = false) {
     $photo_mime  = $photo_bytes ? lgw_drive_mime_from_ext($photo_ext) : '';
     $photo_name  = $photo_bytes ? ($base_name . '-original.' . $photo_ext) : '';
 
-    // Upload to home team folder and away team folder
-    foreach (array($home_team_folder, $away_team_folder) as $team_folder) {
+    // Determine which team folders to upload to based on submitted_for
+    $submitted_for = get_post_meta($post_id, 'lgw_submitted_for', true) ?: 'home';
+    if ($submitted_for === 'away') {
+        $team_folders = array($away_team_folder);
+    } elseif ($submitted_for === 'both') {
+        $team_folders = array($home_team_folder, $away_team_folder);
+    } else {
+        // 'home' or any unrecognised value — default to home only
+        $team_folders = array($home_team_folder);
+    }
+
+    foreach ($team_folders as $team_folder) {
         $folder_id = lgw_drive_ensure_path($token, $root_id, array($year, $division, $team_folder));
         if (!$folder_id) {
             lgw_drive_log($post_id, 'error', 'Could not create folder path for ' . $team_folder);
             continue;
         }
 
-        // PDF — versioned filename on admin edits
-        $pdf_name = lgw_drive_versioned_name($token, $folder_id, $base_name . '.pdf', $is_edit);
-        $pdf_id   = lgw_drive_upload_file($token, $folder_id, $pdf_name, $pdf_bytes, 'application/pdf', $pdf_error);
+        // PDF — on admin edits use versioned name; on new/updated submissions overwrite existing
+        if ($is_edit) {
+            $pdf_name = lgw_drive_versioned_name($token, $folder_id, $base_name . '.pdf', true);
+            $pdf_id   = lgw_drive_upload_file($token, $folder_id, $pdf_name, $pdf_bytes, 'application/pdf', $pdf_error);
+        } else {
+            $pdf_id = lgw_drive_replace_or_upload($token, $folder_id, $base_name . '.pdf', $pdf_bytes, 'application/pdf', $pdf_error);
+        }
         if ($pdf_id) {
-            lgw_drive_log($post_id, 'success', 'PDF uploaded to ' . $team_folder . ': ' . $pdf_name);
+            lgw_drive_log($post_id, 'success', 'PDF saved to ' . $team_folder . ': ' . $base_name . '.pdf');
         } else {
             lgw_drive_log($post_id, 'error', 'PDF upload failed for ' . $team_folder . ($pdf_error ? ': ' . $pdf_error : ''));
         }
 
         // Photo
         if ($photo_bytes) {
-            $pid = lgw_drive_upload_file($token, $folder_id, $photo_name, $photo_bytes, $photo_mime);
+            $pid = lgw_drive_replace_or_upload($token, $folder_id, $photo_name, $photo_bytes, $photo_mime);
             if ($pid) {
-                lgw_drive_log($post_id, 'success', 'Photo uploaded to ' . $team_folder . ': ' . $photo_name);
+                lgw_drive_log($post_id, 'success', 'Photo saved to ' . $team_folder . ': ' . $photo_name);
             }
         }
     }
@@ -262,6 +276,38 @@ function lgw_drive_upload_file($token, $parent_id, $filename, $content, $mime, &
         $error
     );
     return $res['id'] ?? false;
+}
+
+/**
+ * Upload a file, replacing any existing file with the same name in the folder.
+ * Uses Drive PATCH to update content in-place (preserves file ID / sharing links).
+ * Falls back to a fresh upload if no existing file is found.
+ *
+ * @return string|false  File ID on success, false on failure.
+ */
+function lgw_drive_replace_or_upload($token, $parent_id, $filename, $content, $mime, &$error = null) {
+    // Check for an existing file with this exact name
+    $q   = "name='" . addslashes($filename) . "'"
+         . " and '" . $parent_id . "' in parents and trashed=false";
+    $url = 'https://www.googleapis.com/drive/v3/files'
+         . '?q=' . urlencode($q) . '&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true';
+    $res = lgw_drive_request($token, 'GET', $url);
+
+    if (!empty($res['files'][0]['id'])) {
+        // Existing file found — PATCH its content
+        $file_id = $res['files'][0]['id'];
+        $patch = lgw_drive_request(
+            $token, 'PATCH',
+            'https://www.googleapis.com/upload/drive/v3/files/' . $file_id . '?uploadType=media&supportsAllDrives=true',
+            array('Content-Type' => $mime),
+            $content,
+            $error
+        );
+        return $patch ? $file_id : false;
+    }
+
+    // No existing file — fresh upload
+    return lgw_drive_upload_file($token, $parent_id, $filename, $content, $mime, $error);
 }
 
 /**

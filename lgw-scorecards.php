@@ -963,7 +963,7 @@ function lgw_render_submit_form($csv_url = '', $cup_id = '') {
                 <?php endfor; ?>
                 <div class="lgw-score-row">
                   <label>Score</label>
-                  <input type="number" class="lgw-score lgw-score-home" data-rink="<?php echo $r; ?>" min="0" placeholder="0">
+                  <input type="number" class="lgw-score lgw-score-home" data-rink="<?php echo $r; ?>" min="0" step="0.5" placeholder="0">
                 </div>
               </div>
               <div class="lgw-rink-col lgw-rink-away">
@@ -973,7 +973,7 @@ function lgw_render_submit_form($csv_url = '', $cup_id = '') {
                 <?php endfor; ?>
                 <div class="lgw-score-row">
                   <label>Score</label>
-                  <input type="number" class="lgw-score lgw-score-away" data-rink="<?php echo $r; ?>" min="0" placeholder="0">
+                  <input type="number" class="lgw-score lgw-score-away" data-rink="<?php echo $r; ?>" min="0" step="0.5" placeholder="0">
                 </div>
               </div>
             </div>

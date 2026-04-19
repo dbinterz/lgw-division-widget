@@ -127,10 +127,10 @@ function lgw_ajax_admin_edit_scorecard() {
         'venue'       => sanitize_text_field($_POST['venue']       ?? ''),
         'division'    => sanitize_text_field($_POST['division']    ?? ''),
         'competition' => sanitize_text_field($_POST['competition'] ?? ''),
-        'home_total'  => intval($_POST['home_total']  ?? 0),
-        'away_total'  => intval($_POST['away_total']  ?? 0),
-        'home_points' => intval($_POST['home_points'] ?? 0),
-        'away_points' => intval($_POST['away_points'] ?? 0),
+        'home_total'  => floatval($_POST['home_total']  ?? 0),
+        'away_total'  => floatval($_POST['away_total']  ?? 0),
+        'home_points' => floatval($_POST['home_points'] ?? 0),
+        'away_points' => floatval($_POST['away_points'] ?? 0),
         'rinks'       => array(),
     );
 
@@ -148,8 +148,8 @@ function lgw_ajax_admin_edit_scorecard() {
             explode(',', $away_players[$i] ?? '')));
         $after['rinks'][] = array(
             'rink'         => intval($rn),
-            'home_score'   => intval($home_scores[$i] ?? 0),
-            'away_score'   => intval($away_scores[$i] ?? 0),
+            'home_score'   => floatval($home_scores[$i] ?? 0),
+            'away_score'   => floatval($away_scores[$i] ?? 0),
             'home_players' => array_values($hp),
             'away_players' => array_values($ap),
         );
@@ -281,13 +281,13 @@ function lgw_render_admin_edit_form($post_id, $sc) {
                     </td>
                     <td>
                         <input type="number" name="rink_home_score[]"
-                            value="<?php echo intval($rk['home_score']); ?>"
-                            min="0" class="small-text">
+                            value="<?php echo floatval($rk['home_score']); ?>"
+                            min="0" step="0.5" class="small-text">
                     </td>
                     <td>
                         <input type="number" name="rink_away_score[]"
-                            value="<?php echo intval($rk['away_score']); ?>"
-                            min="0" class="small-text">
+                            value="<?php echo floatval($rk['away_score']); ?>"
+                            min="0" step="0.5" class="small-text">
                     </td>
                     <td>
                         <input type="text" name="rink_away_players[]"
@@ -303,19 +303,19 @@ function lgw_render_admin_edit_form($post_id, $sc) {
         <div class="lgw-edit-grid">
             <div class="lgw-edit-row">
                 <label>Home Total Shots</label>
-                <input type="number" name="home_total" value="<?php echo intval($sc['home_total'] ?? 0); ?>" min="0" class="small-text">
+                <input type="number" name="home_total" value="<?php echo floatval($sc['home_total'] ?? 0); ?>" min="0" step="0.5" class="small-text">
             </div>
             <div class="lgw-edit-row">
                 <label>Away Total Shots</label>
-                <input type="number" name="away_total" value="<?php echo intval($sc['away_total'] ?? 0); ?>" min="0" class="small-text">
+                <input type="number" name="away_total" value="<?php echo floatval($sc['away_total'] ?? 0); ?>" min="0" step="0.5" class="small-text">
             </div>
             <div class="lgw-edit-row">
                 <label>Home Points</label>
-                <input type="number" name="home_points" value="<?php echo intval($sc['home_points'] ?? 0); ?>" min="0" max="7" class="small-text">
+                <input type="number" name="home_points" value="<?php echo floatval($sc['home_points'] ?? 0); ?>" min="0" max="7" step="0.5" class="small-text">
             </div>
             <div class="lgw-edit-row">
                 <label>Away Points</label>
-                <input type="number" name="away_points" value="<?php echo intval($sc['away_points'] ?? 0); ?>" min="0" max="7" class="small-text">
+                <input type="number" name="away_points" value="<?php echo floatval($sc['away_points'] ?? 0); ?>" min="0" max="7" step="0.5" class="small-text">
             </div>
         </div>
 
