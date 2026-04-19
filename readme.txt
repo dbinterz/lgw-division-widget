@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.73
+Stable tag: 7.1.74
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.74 =
+* Fix: scorecard photo camera option on Chromium browsers (Chrome, Brave etc) now uses the browser's native camera API (getUserMedia) instead of a capture="environment" file input — which Chromium locks to camera-only with no way to switch to gallery/files; both options now work correctly across all browsers
 
 = 7.1.73 =
 * Scorecard photo upload on mobile now prompts the user to choose between "📷 Take a photo" (camera) or "🖼️ Choose from gallery / files" instead of immediately launching the camera — desktop behaviour (file picker) unchanged

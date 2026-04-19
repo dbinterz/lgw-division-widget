@@ -1,4 +1,4 @@
-/* LGW Scorecard JS - v5.17.16 */
+/* LGW Scorecard JS - v5.17.17 */
 (function(){
   'use strict';
 
@@ -196,7 +196,6 @@
 
   // ── Photo upload ──────────────────────────────────────────────────────────────
   var photoInput    = qs('#lgw-photo-input');
-  var cameraInput   = qs('#lgw-camera-input');
   var photoTrigger  = qs('#lgw-photo-trigger');
   var photoDrop     = qs('#lgw-photo-drop');
   var photoPreview  = qs('#lgw-photo-preview');
@@ -204,16 +203,101 @@
   var photoStatus   = qs('#lgw-parse-photo-status');
   var photoFile     = null;
 
-  // Detect touch/mobile so we offer camera vs file choice
+  // Detect mobile/touch — offer camera vs file choice
   var isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
+  // ── In-page camera (getUserMedia) ────────────────────────────────────────────
+  // Uses the browser camera API directly — avoids the Chromium issue where
+  // capture="environment" on a file input locks it to camera-only with no way
+  // to switch to gallery/files.
+  var cameraStream   = null;
+  var cameraOverlay  = null;
+
+  function openCameraOverlay() {
+    if (cameraOverlay) return; // already open
+
+    cameraOverlay = document.createElement('div');
+    cameraOverlay.id = 'lgw-camera-overlay';
+    cameraOverlay.style.cssText = [
+      'position:fixed','inset:0','z-index:99999',
+      'background:rgba(0,0,0,.92)',
+      'display:flex','flex-direction:column',
+      'align-items:center','justify-content:center',
+      'gap:12px','padding:16px','box-sizing:border-box'
+    ].join(';');
+
+    var video = document.createElement('video');
+    video.setAttribute('autoplay', '');
+    video.setAttribute('playsinline', ''); // essential on iOS Safari
+    video.setAttribute('muted', '');
+    video.style.cssText = 'max-width:100%;max-height:60vh;border-radius:8px;background:#000';
+
+    var statusMsg = document.createElement('p');
+    statusMsg.style.cssText = 'color:#fff;font-size:14px;margin:0;text-align:center';
+    statusMsg.textContent = 'Starting camera…';
+
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;justify-content:center';
+
+    var snapBtn = document.createElement('button');
+    snapBtn.type = 'button';
+    snapBtn.className = 'lgw-btn lgw-btn-primary';
+    snapBtn.textContent = '📸 Capture';
+    snapBtn.disabled = true;
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'lgw-btn lgw-btn-secondary';
+    cancelBtn.textContent = '✕ Cancel';
+
+    btnRow.appendChild(snapBtn);
+    btnRow.appendChild(cancelBtn);
+    cameraOverlay.appendChild(statusMsg);
+    cameraOverlay.appendChild(video);
+    cameraOverlay.appendChild(btnRow);
+    document.body.appendChild(cameraOverlay);
+
+    // Request rear camera on mobile, any camera on desktop
+    var constraints = { video: { facingMode: isMobile ? 'environment' : 'user' }, audio: false };
+    navigator.mediaDevices.getUserMedia(constraints).then(function(stream){
+      cameraStream = stream;
+      video.srcObject = stream;
+      video.onloadedmetadata = function(){ video.play(); snapBtn.disabled = false; statusMsg.textContent = 'Position the scorecard and tap Capture.'; };
+    }).catch(function(err){
+      statusMsg.textContent = '⚠️ Camera unavailable: ' + (err.message || err) + '. Use "Choose file" instead.';
+      snapBtn.style.display = 'none';
+    });
+
+    snapBtn.addEventListener('click', function(){
+      var canvas = document.createElement('canvas');
+      canvas.width  = video.videoWidth  || 1280;
+      canvas.height = video.videoHeight || 720;
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(function(blob){
+        closeCameraOverlay();
+        // Wrap blob in a File so handlePhotoFile works normally
+        var f = new File([blob], 'scorecard-photo.jpg', { type: 'image/jpeg' });
+        handlePhotoFile(f);
+      }, 'image/jpeg', 0.92);
+    });
+
+    cancelBtn.addEventListener('click', closeCameraOverlay);
+  }
+
+  function closeCameraOverlay() {
+    if (cameraStream) { cameraStream.getTracks().forEach(function(t){ t.stop(); }); cameraStream = null; }
+    if (cameraOverlay && cameraOverlay.parentNode) cameraOverlay.parentNode.removeChild(cameraOverlay);
+    cameraOverlay = null;
+  }
+
+  // ── Choice popup (mobile) ────────────────────────────────────────────────────
   function showPhotoChoice() {
     var existing = qs('#lgw-photo-choice');
     if (existing) existing.parentNode.removeChild(existing);
 
     var popup = document.createElement('div');
     popup.id = 'lgw-photo-choice';
-    popup.style.cssText = 'position:absolute;z-index:999;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:220px';
+    popup.style.cssText = 'position:absolute;z-index:9999;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:220px';
 
     var btnCamera = document.createElement('button');
     btnCamera.type = 'button';
@@ -231,38 +315,28 @@
     var rect = photoTrigger.getBoundingClientRect();
     popup.style.top  = (rect.bottom + window.scrollY + 6) + 'px';
     popup.style.left = Math.max(8, rect.left + window.scrollX) + 'px';
-
     document.body.appendChild(popup);
 
-    btnCamera.addEventListener('click', function(){
+    function dismiss() {
       if (popup.parentNode) popup.parentNode.removeChild(popup);
-      if (cameraInput) cameraInput.click();
-    });
-    btnFile.addEventListener('click', function(){
-      if (popup.parentNode) popup.parentNode.removeChild(popup);
-      if (photoInput) photoInput.click();
-    });
+      document.removeEventListener('click', onOutside, true);
+    }
+
+    btnCamera.addEventListener('click', function(){ dismiss(); openCameraOverlay(); });
+    btnFile.addEventListener('click',   function(){ dismiss(); if (photoInput) photoInput.click(); });
 
     function onOutside(e) {
-      if (!popup.contains(e.target) && e.target !== photoTrigger) {
-        if (popup.parentNode) popup.parentNode.removeChild(popup);
-        document.removeEventListener('click', onOutside, true);
-      }
+      if (!popup.contains(e.target) && e.target !== photoTrigger) dismiss();
     }
     setTimeout(function(){ document.addEventListener('click', onOutside, true); }, 50);
   }
 
   if (photoTrigger) {
     photoTrigger.addEventListener('click', function(){
-      if (isMobile) {
-        showPhotoChoice();
-      } else {
-        if (photoInput) photoInput.click();
-      }
+      if (isMobile) { showPhotoChoice(); } else { if (photoInput) photoInput.click(); }
     });
   }
 
-  if (cameraInput) cameraInput.addEventListener('change', function(){ if(cameraInput.files[0]) handlePhotoFile(cameraInput.files[0]); });
   if (photoDrop) {
     photoDrop.addEventListener('dragover',  function(e){ e.preventDefault(); photoDrop.classList.add('drag-over'); });
     photoDrop.addEventListener('dragleave', function(){  photoDrop.classList.remove('drag-over'); });

@@ -108,6 +108,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### 7.1.74
+- Fix: photo capture on Chromium browsers (Chrome, Brave) now uses getUserMedia camera API instead of `capture="environment"` file input, which Chromium locks to camera-only — both Take a Photo and Choose from Gallery now work on all browsers
+
 ### 7.1.73
 - Scorecard photo upload on mobile now prompts the user to choose between 📷 Take a photo (camera) or 🖼️ Choose from gallery / files instead of immediately launching the camera — desktop behaviour (file picker) unchanged
 
