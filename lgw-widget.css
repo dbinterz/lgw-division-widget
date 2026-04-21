@@ -210,7 +210,8 @@ table.lg{width:100%;border-collapse:collapse;font-size:13px}
 .fx-sc{display:flex;align-items:center;justify-content:center;white-space:nowrap}
 .fx-sb{background:var(--lgw-bg-alt);border:1px solid var(--lgw-border);border-radius:3px;min-width:26px;padding:2px 5px;text-align:center;font-weight:700;font-size:14px;color:var(--lgw-navy)}
 .fx-sep{padding:0 4px;color:var(--lgw-text-muted);font-size:12px}
-.fx-time{grid-column:1/-1;text-align:right;font-size:11px;color:var(--lgw-gold);font-weight:700;padding:0 2px 4px;margin-top:-4px}
+.fx-time{grid-column:1/-1;display:flex;justify-content:center;padding:2px 10px 6px;margin-top:-2px}
+.fx-time span{background:var(--lgw-navy);color:var(--lgw-gold);font-size:13px;font-weight:800;letter-spacing:.05em;padding:3px 14px;border-radius:20px;display:inline-flex;align-items:center;gap:5px}
 .fx-played-date{grid-column:1/-1;font-size:11px;color:var(--lgw-text-muted);font-style:italic;padding:0 2px 4px;margin-top:-2px;opacity:.8}
 .fx-row.played .fx-sb{background:var(--lgw-navy);color:#fff;border-color:var(--lgw-navy-mid)}
 

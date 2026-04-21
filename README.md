@@ -108,6 +108,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### 7.1.87
+- **Fix:** Fixture time note (e.g. 5:30) now correctly displayed for all divisions; scan range extended past APts column and `HH:MM:SS` format normalised to `HH:MM`
+
 ### 7.1.86
 - **Fix:** Player tracking — female status from confirmed scorecards (asterisk-marked players) now correctly saved to player record; new `lgw_ensure_female_flag()` upgrades `false→true` only, never resets manual edits
 - **Fix:** Player tracking — toggling the female checkbox no longer incorrectly sets the starred flag; `update_flags` handler now reads actual submitted field values instead of `isset()` check

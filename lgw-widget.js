@@ -146,8 +146,20 @@
         var awayTeam =(r[colATeam] ||'').trim();
         var ptsAway  =(r[colPtsA]  ||'').trim();
         var timeNote='';
-        for(var x=colATeam+1;x<Math.min(colPtsA,r.length);x++){
-          if(/^\d{1,2}:\d{2}$/.test((r[x]||'').trim())) timeNote=r[x].trim();
+        for(var x=colATeam+1;x<Math.min(colPtsA+6,r.length);x++){
+          var tv=(r[x]||'').trim();
+          if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(tv)){
+            // String time e.g. "17:30" or "17:30:00" — only strip trailing seconds if HH:MM:SS
+            timeNote=(tv.split(':').length>2)?tv.replace(/:\d{2}$/,''):tv;
+          } else {
+            // Excel/Sheets time serial: fraction of a day e.g. 0.729166... = 17:30
+            var fv=parseFloat(tv);
+            if(!isNaN(fv) && fv>0 && fv<1){
+              var mins=Math.round(fv*1440);
+              var hh=Math.floor(mins/60), mm=mins%60;
+              timeNote=(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;
+            }
+          }
         }
         if(homeTeam && awayTeam){
           var played=(shotsHome!=='0'||shotsAway!=='0'||ptsHome!=='0'||ptsAway!=='0');
@@ -574,7 +586,7 @@
           +'<div class="fx-sc"><span class="fx-sb">'+m.shotsHome+'</span><span class="fx-sep">v</span><span class="fx-sb">'+m.shotsAway+'</span></div>'
           +'<div class="fx-a"><span class="lgw-team-link" data-team="'+m.awayTeam+'">'+badgeImg(m.awayTeam)+m.awayTeam+'</span></div>'
           +'<div class="fx-pa">'+(m.played?m.ptsAway:'')+'</div>'
-          +(m.timeNote?'<div class="fx-time">&#9200; '+m.timeNote+'</div>':'')
+          +(m.timeNote?'<div class="fx-time"><span>&#9200; '+m.timeNote+'</span></div>':'')
           +playedNote
           +'</div>';
       });

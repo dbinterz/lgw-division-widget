@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.86
+Stable tag: 7.1.87
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.87 =
+* Fix: Fixture time note (e.g. 5:30) now correctly displayed for all divisions; scan range extended past APts column and HH:MM:SS format normalised to HH:MM
 
 = 7.1.86 =
 * Fix: Player tracking — female status from confirmed scorecards (asterisk-marked players) now correctly saved to player record; lgw_ensure_female_flag() upgrades false→true only, never resets manual edits
