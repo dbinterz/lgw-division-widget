@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.87
+Stable tag: 7.1.88
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.88 =
+* Fix: Fixture time note (e.g. 5:30) now correctly displayed for all divisions; column scan extended past APts, HH:MM:SS and Excel time-serial formats both handled, plain HH:MM no longer truncated to hours-only
+* Feature: Fixture time note displayed as a styled navy/gold pill centred below the fixture on the main panel, in the team modal, and in the print output
 
 = 7.1.87 =
 * Fix: Fixture time note (e.g. 5:30) now correctly displayed for all divisions; scan range extended past APts column and HH:MM:SS format normalised to HH:MM

@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### 7.1.88
+- **Fix:** Fixture time note (e.g. 5:30) now correctly displayed for all divisions; column scan extended past APts, `HH:MM:SS` and Excel time-serial formats handled, plain `HH:MM` no longer truncated to hours-only
+- **Feature:** Fixture time note rendered as a styled navy/gold pill — centred below fixture on main panel, next to date in team modal and print output (wraps below date on small screens)
+
 ### 7.1.87
 - **Fix:** Fixture time note (e.g. 5:30) now correctly displayed for all divisions; scan range extended past APts column and `HH:MM:SS` format normalised to `HH:MM`
 

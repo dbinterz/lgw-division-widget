@@ -257,7 +257,9 @@
     +'.fx-away{text-align:left;font-weight:600;width:35%}'
     +'.fx-score{text-align:center;font-weight:700;white-space:nowrap;width:30%}'
     +'.fx-pts{font-size:11px;color:#999}'
-    +'@media print{body{padding:0}}';
+    +'@media print{body{padding:0}}'
+    +'.fx-score-wrap{display:flex;flex-direction:column;align-items:center;gap:3px}'
+    +'.fx-time-pill{display:inline-block;background:#1a2e5a;color:#e8b400;font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;letter-spacing:.04em}';
 
   function printFixturesData(groups, title){
     var html='<h2>'+(title||'Fixtures &amp; Results')+'</h2>';
@@ -267,9 +269,10 @@
       g.matches.forEach(function(m){
         var scoreStr = m.played ? m.shotsHome+' – '+m.shotsAway : 'v';
         var ptsStr   = m.played ? '<span class="fx-pts">('+m.ptsHome+' – '+m.ptsAway+')</span>' : '';
+        var printTimePill=m.timeNote?'<span class="fx-time-pill">&#9200; '+m.timeNote+'</span>':'';
         html+='<tr>'
           +'<td class="fx-home">'+badgeImg(m.homeTeam)+m.homeTeam+'</td>'
-          +'<td class="fx-score">'+scoreStr+' '+ptsStr+'</td>'
+          +'<td class="fx-score"><div class="fx-score-wrap">'+scoreStr+' '+ptsStr+printTimePill+'</div></td>'
           +'<td class="fx-away">'+badgeImg(m.awayTeam)+m.awayTeam+'</td>'
           +'</tr>';
       });
@@ -426,8 +429,9 @@
         var scAttrs=m.played
           ? ' data-home="'+m.homeTeam.replace(/"/g,'&quot;')+'" data-away="'+m.awayTeam.replace(/"/g,'&quot;')+'" data-scrowid="'+scRowId+'" title="Click to view scorecard"'
           : '';
+        var timePill=(!m.played&&m.timeNote)?'<span class="modal-fx-time">&#9200; '+m.timeNote+'</span>':'';
         fixtureRows+='<tr class="modal-fx-row'+(rowCls?' '+rowCls:'')+'"'+scAttrs+'>'
-          +'<td>'+g.date+'</td>'
+          +'<td><div class="modal-fx-date">'+g.date+timePill+'</div></td>'
           +'<td style="text-align:center;font-weight:700;color:'+(isHome?'#1a2e5a':'#c0202a')+'">'+ha+'</td>'
           +'<td>'+badgeImg(opponent)+opponent+'</td>'
           +'<td style="text-align:center">'+scoreStr+'</td>'
