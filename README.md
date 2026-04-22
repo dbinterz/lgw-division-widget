@@ -108,6 +108,18 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.1.98
+- **New:** Player tracking auto-merges dotted-initial name variants — `lgw_normalise_player_name()` strips dots from single-letter initials (`D. Bintley` → `D Bintley`) before DB lookup; new scorecards never create duplicates; Merge Duplicates tab shows a detected-pairs preview table with a one-click Auto-merge button; keep rule: most appearances wins, ties prefer the already-normalised (no-dot) form
+
+### v7.1.97
+- **Fix:** "Skip Google writeback" checkbox now also suppresses Google Drive PDF upload — uses a `lgw_skip_google` post meta flag so Drive's anonymous action hooks are correctly bypassed; checkbox label updated to "Skip Google Drive & Sheets writeback"
+
+### v7.1.96
+- **Improvement:** Excel/xlsx parse errors now return actionable diagnostic messages — ZipArchive error codes, missing worksheet details, empty grid diagnostics (sheet name, size, shared string count), and rink-mapping failures include row samples and field detection summary
+
+### v7.1.95
+- **New:** Admin scorecard form now includes a "Skip Google Drive & Sheets writeback" checkbox (visible to admins only); use when backfilling historical scorecards to avoid overwriting the live sheet
+
 ### 7.1.94
 - **Feature:** Player history modal — each appearance row now shows the scorecard ID as a `#NNN ↗` link directly to the WP admin edit screen (opens in new tab), making it easy to inspect, edit or trash test/duplicate scorecards
 
