@@ -599,28 +599,37 @@
     return h;
   }
 
-  // ── Results ticker: horizontal scrolling strip of latest results ─────────────
-  function renderResultsTicker() {
+  // ── Results ticker: horizontal scrolling strip of latest results ─────────────────────
+  // Filters to results for a specific division (current season only — PHP already
+  // constrains recentResults to the active season before passing to JS).
+  function renderResultsTicker(divisionName) {
     if (!recentResults || !recentResults.length) return '';
-    var items = recentResults.map(function(r) {
+    // Filter to the current division only (case-insensitive trim match)
+    var divNorm = divisionName ? divisionName.trim().toLowerCase() : '';
+    var filtered = divNorm
+      ? recentResults.filter(function(r) {
+          return r.division && r.division.trim().toLowerCase() === divNorm;
+        })
+      : recentResults;
+    if (!filtered.length) return '';
+    var items = filtered.map(function(r) {
       var ht  = (r.home_total  !== null && r.home_total  !== undefined) ? r.home_total  : '?';
       var at  = (r.away_total  !== null && r.away_total  !== undefined) ? r.away_total  : '?';
       var pts = (r.home_points !== null && r.home_points !== undefined &&
                  r.away_points !== null && r.away_points !== undefined)
         ? '<span class="lgw-ticker-pts">(' + r.home_points + '–' + r.away_points + ' pts)</span>'
         : '';
-      var div = r.division ? '<span class="lgw-ticker-div">' + r.division + '</span>' : '';
-      var dt  = r.date     ? '<span class="lgw-ticker-date">' + r.date    + '</span>' : '';
+      var dt  = r.date ? '<span class="lgw-ticker-date">' + r.date + '</span>' : '';
       return '<span class="lgw-ticker-item">'
         + badgeImg(r.home_team, 'lgw-ticker-badge') + r.home_team
         + '<strong class="lgw-ticker-score"> ' + ht + ' – ' + at + ' </strong>'
         + badgeImg(r.away_team, 'lgw-ticker-badge') + r.away_team
-        + pts + div + dt
+        + pts + dt
         + '</span>';
     });
     // Duplicate content so CSS animation loops seamlessly
     var inner = items.join('<span class="lgw-ticker-sep">●</span>');
-    inner = inner + '<span class="lgw-ticker-sep"> </span>' + inner;
+    inner = inner + '<span class="lgw-ticker-sep"> </span>' + inner;
     return '<div class="lgw-results-ticker" aria-label="Latest results" role="marquee">'
       + '<div class="lgw-ticker-label">Latest Results</div>'
       + '<div class="lgw-ticker-track">'
@@ -639,23 +648,20 @@
     return h+'</div>';
   }
 
-  // ── Init widget ───────────────────────────────────────────────────────────────
-  // Track whether the results ticker has already been injected on this page
-  var lgwTickerInjected = false;
-
+  // ── Init widget ─────────────────────────────────────────────────────────────────
   function initWidget(widget){
-    // -- Results ticker -- injected once per page above the first widget wrap
-    if (!lgwTickerInjected) {
-      var tickerHtml = renderResultsTicker();
-      if (tickerHtml) {
-        var wrap = widget.closest('.lgw-widget-wrap') || widget.parentElement;
-        if (wrap) {
-          var tickerEl = document.createElement('div');
-          tickerEl.innerHTML = tickerHtml;
-          var ticker = tickerEl.firstChild;
-          wrap.parentNode.insertBefore(ticker, wrap);
-          lgwTickerInjected = true;
-        }
+    // -- Results ticker -- injected per widget, inside the wrap, below sponsor/title,
+    //    above the lgw-w element. Filtered to this division's results only.
+    var divisionName = widget.getAttribute('data-division') || '';
+    var tickerHtml = renderResultsTicker(divisionName);
+    if (tickerHtml) {
+      var wrap = widget.closest('.lgw-widget-wrap') || widget.parentElement;
+      if (wrap) {
+        var tickerEl = document.createElement('div');
+        tickerEl.innerHTML = tickerHtml;
+        var ticker = tickerEl.firstChild;
+        // Insert inside the wrap, immediately before the lgw-w widget div
+        wrap.insertBefore(ticker, widget);
       }
     }
     var csvUrl   =widget.getAttribute('data-csv');

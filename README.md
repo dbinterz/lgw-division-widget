@@ -108,8 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
-### v7.1.102
-- **New:** Scorecards admin table gains a Season column — inline dropdown on every row lets you directly retag any scorecard to any season (or untagged); fires immediately via AJAX with ✅/❌ inline feedback; no page reload needed
+### v7.1.103
+- **Fix:** Results ticker now shows only scores for the current division and current season; hidden if no matching results
+- **Fix:** Ticker positioned inside the widget wrap, below the sponsor banner, full-width and inline with the rest of the widget
+- **New:** Added `data-division` attribute to widget element for division-scoped result filtering
 
 ### v7.1.101
 - **Fix:** Scorecards admin season backfill now correctly reassigns cards tagged to the wrong season (not just untagged ones) — banner appears on all seasons that have date ranges configured, counts scorecards whose match date falls in the season but carry a different season tag, and 'Reassign to this season' button retags them all via date-range matching

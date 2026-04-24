@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.102
+Stable tag: 7.1.103
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,8 +71,11 @@ Parameters:
 
 == Changelog ==
 
-= 7.1.102 =
-* New: Scorecards admin table now has a Season column — inline dropdown on every row lets admin directly retag any scorecard to any season (or untagged); change fires immediately via AJAX with ✅/❌ feedback; new lgw_retag_scorecard AJAX handler; nonce per-post for security
+= 7.1.103 =
+* Fix: Results ticker now shows only scores for the current division (filtered by division name) and only for the current season — ticker hidden if no matching results
+* Fix: Results ticker positioned inside the widget wrap, below the sponsor banner, full-width and inline with the rest of the widget
+* Fix: Removed redundant division label from ticker items (already division-scoped)
+* New: Added data-division attribute to lgw-w element so JS can match results to the correct division
 
 
 = 7.1.101 =
