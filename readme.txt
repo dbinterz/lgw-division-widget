@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.103
+Stable tag: 7.1.105
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.105 =
+* Fix: Fixture time detection scan window now stops at colPtsA (exclusive) instead of colPtsA+6 — prevents summary/mirror columns after ptsAway from being misread as a time value (e.g. 0.5 pts being shown as 12:00)
 
 = 7.1.103 =
 * Fix: Results ticker now shows only scores for the current division (filtered by division name) and only for the current season — ticker hidden if no matching results

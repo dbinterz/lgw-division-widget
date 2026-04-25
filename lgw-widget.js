@@ -146,7 +146,7 @@
         var awayTeam =(r[colATeam] ||'').trim();
         var ptsAway  =(r[colPtsA]  ||'').trim();
         var timeNote='';
-        for(var x=colATeam+1;x<Math.min(colPtsA+6,r.length);x++){
+        for(var x=colATeam+1;x<colPtsA;x++){
           var tv=(r[x]||'').trim();
           if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(tv)){
             // String time e.g. "17:30" or "17:30:00" — only strip trailing seconds if HH:MM:SS
@@ -154,7 +154,9 @@
           } else {
             // Excel/Sheets time serial: fraction of a day e.g. 0.729166... = 17:30
             var fv=parseFloat(tv);
-            if(!isNaN(fv) && fv>0 && fv<1){
+            // Excel time serial: fraction of a day (0=midnight, 1=midnight next day)
+            // Restrict to 08:00–22:30 (0.333–0.938) to avoid mistaking 0.5 pts for 12:00
+            if(!isNaN(fv) && fv>=0.333 && fv<=0.938){
               var mins=Math.round(fv*1440);
               var hh=Math.floor(mins/60), mm=mins%60;
               timeNote=(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;

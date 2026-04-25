@@ -108,6 +108,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.1.105
+- **Fix:** Fixture time scan window now ends at `colPtsA` (exclusive) — prevents summary columns after ptsAway being misread as a time (e.g. `0.5` pts showing as 12:00)
+
 ### v7.1.103
 - **Fix:** Results ticker now shows only scores for the current division and current season; hidden if no matching results
 - **Fix:** Ticker positioned inside the widget wrap, below the sponsor banner, full-width and inline with the rest of the widget
