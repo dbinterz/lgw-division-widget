@@ -110,9 +110,25 @@
     i++;
     if(i>=rows.length) return [];
 
-    var colPtsH=0,colHTeam=2,colHScore=7,colAScore=9,colATeam=10,colPtsA=15;
+    var colPtsH=0,colHTeam=2,colHScore=7,colAScore=9,colATeam=10,colPtsA=15,colTime=-1;
     for(var h=i;h<Math.min(i+5,rows.length);h++){
-      if(rows[h].join('').indexOf('HPts')!==-1){
+      var rowJoined=rows[h].join('').toLowerCase();
+      // New-style reference row: uses labels like 'homepts','home','home shots','awaypts','time'
+      if(rowJoined.indexOf('homepts')!==-1){
+        for(var c=0;c<rows[h].length;c++){
+          var hv=rows[h][c].trim().toLowerCase();
+          if(hv==='homepts')    colPtsH=c;
+          if(hv==='home')       colHTeam=c;
+          if(hv==='home shots') colHScore=c;
+          if(hv==='away shots') colAScore=c;
+          if(hv==='away')       colATeam=c;
+          if(hv==='awaypts')    colPtsA=c;
+          if(hv==='time')       colTime=c;
+        }
+        i=h+1; break;
+      }
+      // Legacy-style header row: HPts, HTeam, HScore, AScore, ATeam, APts
+      if(rowJoined.indexOf('hpts')!==-1){
         for(var c=0;c<rows[h].length;c++){
           var hv=rows[h][c].trim();
           if(hv==='HPts')   colPtsH=c;
@@ -146,20 +162,34 @@
         var awayTeam =(r[colATeam] ||'').trim();
         var ptsAway  =(r[colPtsA]  ||'').trim();
         var timeNote='';
-        for(var x=colATeam+1;x<colPtsA;x++){
-          var tv=(r[x]||'').trim();
+        if(colTime>=0){
+          // Reference row provided a 'time' column — read directly, no scanning needed
+          var tv=(r[colTime]||'').trim();
           if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(tv)){
-            // String time e.g. "17:30" or "17:30:00" — only strip trailing seconds if HH:MM:SS
             timeNote=(tv.split(':').length>2)?tv.replace(/:\d{2}$/,''):tv;
           } else {
-            // Excel/Sheets time serial: fraction of a day e.g. 0.729166... = 17:30
             var fv=parseFloat(tv);
-            // Excel time serial: fraction of a day (0=midnight, 1=midnight next day)
-            // Restrict to 08:00–22:30 (0.333–0.938) to avoid mistaking 0.5 pts for 12:00
-            if(!isNaN(fv) && fv>=0.333 && fv<=0.938){
+            if(!isNaN(fv) && fv>0 && fv<1){
               var mins=Math.round(fv*1440);
               var hh=Math.floor(mins/60), mm=mins%60;
               timeNote=(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;
+            }
+          }
+        } else {
+          // No reference row — scan between awayTeam and awayPts (legacy fallback)
+          for(var x=colATeam+1;x<colPtsA;x++){
+            var tv=(r[x]||'').trim();
+            if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(tv)){
+              timeNote=(tv.split(':').length>2)?tv.replace(/:\d{2}$/,''):tv;
+              break;
+            } else {
+              var fv=parseFloat(tv);
+              if(!isNaN(fv) && fv>=0.333 && fv<=0.938){
+                var mins=Math.round(fv*1440);
+                var hh=Math.floor(mins/60), mm=mins%60;
+                timeNote=(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;
+                break;
+              }
             }
           }
         }

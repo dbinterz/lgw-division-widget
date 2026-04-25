@@ -108,8 +108,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
-### v7.1.105
-- **Fix:** Fixture time scan window now ends at `colPtsA` (exclusive) — prevents summary columns after ptsAway being misread as a time (e.g. `0.5` pts showing as 12:00)
+### v7.1.106
+- **New:** CSV reference row support — parser detects `homepts`/`home`/`home shots`/`away shots`/`away`/`awaypts`/`time` labels and maps columns directly; time read from explicit index, no scanning
+- **Fix:** Legacy fallback (no reference row) breaks on first time match and uses narrowed serial range
 
 ### v7.1.103
 - **Fix:** Results ticker now shows only scores for the current division and current season; hidden if no matching results
