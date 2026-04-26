@@ -108,6 +108,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.1.113
+- **Fix:** Scorecard modal stuck on "Loading scorecard…" — `lgwFetchScorecard` referenced `opts.context` which is undefined in that function scope, throwing a ReferenceError and preventing the AJAX request from firing; removed the stray reference (context is correctly handled in `lgwFetchScorecardOrSubmit` which is used for the played-fixture path)
+
 ### v7.1.112
 - **Fix:** Player stats popup now correctly resolves players with apostrophes in their names (e.g. `K O'Neill`) — WordPress magic-quotes were stripping the apostrophe before the DB lookup; fixed with `wp_unslash()` wrapping all relevant `$_POST` reads in `lgw_ajax_get_player_stats`, `add_player`, and `rename_player` handlers
 - **Fix:** Stats lookup now passes the name through `lgw_clean_player_name()` to strip any trailing `*` female marker before querying, preventing lookup failures for female-flagged players

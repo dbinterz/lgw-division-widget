@@ -1,4 +1,4 @@
-/* LGW Scorecard JS - v5.18.2 */
+/* LGW Scorecard JS - v5.18.3 */
 (function(){
   'use strict';
 
@@ -1216,7 +1216,6 @@
       +'&home='+encodeURIComponent(home)
       +'&away='+encodeURIComponent(away)
       +'&date='+encodeURIComponent(date)
-      +(opts.context ? '&context='+encodeURIComponent(opts.context) : '')
       +'&_='+Date.now());
     xhr.onload = function(){
       var res = JSON.parse(xhr.responseText || '{}');

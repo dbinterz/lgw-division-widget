@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.112
+Stable tag: 7.1.113
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,15 +71,15 @@ Parameters:
 
 == Changelog ==
 
+= 7.1.113 =
+* Fix: Scorecard modal stuck on "Loading scorecard..." — lgwFetchScorecard referenced opts.context which is undefined in that function scope, throwing a ReferenceError and preventing the AJAX request from firing; removed the stray reference
+
 = 7.1.112 =
-* Fix: Player stats popup now correctly finds players with apostrophes in their names (e.g. K O'Neill) — WordPress magic-quotes were stripping apostrophes before the DB lookup; fixed by applying wp_unslash() before sanitize_text_field() in all relevant POST handlers
+* Fix: Player stats popup now correctly finds players with apostrophes in their names (e.g. K O Neill) — WordPress magic-quotes were stripping apostrophes before the DB lookup; fixed by applying wp_unslash() before sanitize_text_field() in all relevant POST handlers
 * Fix: Player name passed to stats lookup now stripped of trailing asterisk (female marker) via lgw_clean_player_name(), preventing lookup failures for female-flagged players
 
 = 7.1.111 =
 * New: Players admin screen — Club filter dropdown (defaults to All Clubs), Team filter dropdown (cascading — options narrow based on other active filters), and Name search field with live client-side filtering; player count and Clear filters button included
-
-= 7.1.112 =
-* New: Player stats popover is now draggable — a grab-handle bar at the top lets users reposition it by mouse or touch; once moved, auto-positioning is suppressed until the popover is closed and reopened
 
 = 7.1.109 =
 * New: Player stats popover now includes full games list for the current season — match title, date, rink, score, and W/D/L badge per game, ordered newest first
