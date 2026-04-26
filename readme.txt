@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.108
+Stable tag: 7.1.109
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.109 =
+* New: Player stats popover now includes full games list for the current season — match title, date, rink, score, and W/D/L badge per game, ordered newest first
+* Fix: Popover uses fixed positioning with viewport-aware placement (flips above button if insufficient space below); scrollable inner body with dynamic max-height prevents overflow off-screen
 
 = 7.1.108 =
 * New: Player name links in scorecard modal — clicking any player name opens a stats popover showing their current-season W/D/L record, games played, and which teams they have appeared for

@@ -1,4 +1,4 @@
-/* LGW Scorecard JS - v5.18.0 */
+/* LGW Scorecard JS - v5.18.1 */
 (function(){
   'use strict';
 
@@ -2516,22 +2516,48 @@
     }
   }
 
+  function lgwPositionPopover(pop, btn) {
+    var rect    = btn.getBoundingClientRect();
+    var vw      = window.innerWidth;
+    var vh      = window.innerHeight;
+    var popW    = 300;
+    var gap     = 6;
+    var padding = 8;
+
+    // Horizontal: prefer aligning left edge to button, shift left if it clips
+    var left = rect.left;
+    if (left + popW > vw - padding) left = vw - popW - padding;
+    if (left < padding) left = padding;
+
+    // Vertical: prefer below, flip above if not enough room
+    var spaceBelow = vh - rect.bottom - gap;
+    var spaceAbove = rect.top - gap;
+    var maxH = Math.min(420, Math.max(spaceBelow, spaceAbove) - padding);
+
+    pop.style.position  = 'fixed';
+    pop.style.width     = popW + 'px';
+    pop.style.maxHeight = maxH + 'px';
+
+    if (spaceBelow >= 180 || spaceBelow >= spaceAbove) {
+      pop.style.top    = (rect.bottom + gap) + 'px';
+      pop.style.bottom = 'auto';
+    } else {
+      pop.style.bottom = (vh - rect.top + gap) + 'px';
+      pop.style.top    = 'auto';
+    }
+    pop.style.left = left + 'px';
+  }
+
   function lgwShowPlayerStats(btn, playerName, club) {
-    var pop = lgwEnsurePopover();
+    var pop  = lgwEnsurePopover();
     var body = pop.querySelector('.lgw-player-popover-body');
 
-    // Position popover near the button
-    var rect = btn.getBoundingClientRect();
-    var scrollY = window.pageYOffset || document.documentElement.scrollTop;
-    var scrollX = window.pageXOffset || document.documentElement.scrollLeft;
-    pop.style.top  = (rect.bottom + scrollY + 6) + 'px';
-    pop.style.left = Math.max(8, Math.min(rect.left + scrollX, window.innerWidth - 280)) + 'px';
-
-    // Show loading state
-    var badgeUrl = lgwGetClubBadgeUrl(club);
+    var badgeUrl  = lgwGetClubBadgeUrl(club);
     var badgeHtml = badgeUrl
       ? '<img class="lgw-player-popover-badge" src="'+badgeUrl+'" alt="'+esc(club)+'">'
       : '';
+
+    // Show immediately with loading state, then position
     body.innerHTML = '<div class="lgw-player-popover-header">'
       + badgeHtml
       + '<div class="lgw-player-popover-name">'+esc(playerName)+'</div>'
@@ -2539,6 +2565,7 @@
       + '<div class="lgw-player-popover-loading">Loading stats…</div>';
 
     pop.classList.add('lgw-player-popover-visible');
+    lgwPositionPopover(pop, btn);
 
     var n  = lgwGetPublicNonce();
     var fd = new FormData();
@@ -2552,12 +2579,18 @@
       var r;
       try { r = JSON.parse(xhr.responseText || '{}'); } catch(e) { r = {success:false}; }
       if (!r.success) {
-        body.querySelector('.lgw-player-popover-loading').innerHTML
-          = '<p class="lgw-player-popover-none">No stats found for this player yet.</p>';
+        body.innerHTML = '<div class="lgw-player-popover-header">'
+          + badgeHtml
+          + '<div class="lgw-player-popover-name">'+esc(playerName)+'</div>'
+          + '</div>'
+          + '<p class="lgw-player-popover-none">No stats found for this player yet.</p>';
+        lgwPositionPopover(pop, btn);
         return;
       }
-      var d = r.data;
+      var d      = r.data;
       var played = d.played || 0;
+
+      // ── Header ──
       var html = '<div class="lgw-player-popover-header">'
         + badgeHtml
         + '<div>'
@@ -2567,25 +2600,67 @@
         + '</div>';
 
       if (played > 0) {
+        // ── W/D/L tiles ──
         html += '<div class="lgw-player-popover-stats">'
           + '<div class="lgw-player-popover-stat lgw-pps-w"><span class="lgw-pps-val">'+d.won+'</span><span class="lgw-pps-lbl">Won</span></div>'
           + '<div class="lgw-player-popover-stat lgw-pps-d"><span class="lgw-pps-val">'+d.drawn+'</span><span class="lgw-pps-lbl">Drawn</span></div>'
           + '<div class="lgw-player-popover-stat lgw-pps-l"><span class="lgw-pps-val">'+d.lost+'</span><span class="lgw-pps-lbl">Lost</span></div>'
           + '<div class="lgw-player-popover-stat lgw-pps-p"><span class="lgw-pps-val">'+played+'</span><span class="lgw-pps-lbl">Played</span></div>'
           + '</div>';
+
+        // ── Teams chips ──
         if (d.teams && d.teams.length) {
           html += '<div class="lgw-player-popover-teams"><span class="lgw-ppt-label">Teams this season:</span>'
             + d.teams.map(function(t){ return '<span class="lgw-ppt-team">'+esc(t)+'</span>'; }).join('')
             + '</div>';
         }
+
+        // ── Games list ──
+        if (d.games && d.games.length) {
+          html += '<div class="lgw-player-popover-games">'
+            + '<div class="lgw-ppg-heading">Results this season</div>';
+          d.games.forEach(function(g) {
+            var resultCls = g.result === 'W' ? 'lgw-ppg-w'
+                          : g.result === 'D' ? 'lgw-ppg-d'
+                          : g.result === 'L' ? 'lgw-ppg-l' : 'lgw-ppg-u';
+            var resultLbl = g.result || '–';
+            var scoreHtml = (g['for'] !== null && g.against !== null)
+              ? '<span class="lgw-ppg-score">'+g['for']+'–'+g.against+'</span>'
+              : '';
+            var typePill = g.type && g.type !== 'league'
+              ? '<span class="lgw-ppg-type">'+esc(g.type)+'</span>'
+              : '';
+            html += '<div class="lgw-ppg-row">'
+              + '<div class="lgw-ppg-left">'
+                + '<div class="lgw-ppg-match">'+esc(g.match)+'</div>'
+                + '<div class="lgw-ppg-meta">'
+                  + (g.date ? '<span>'+esc(g.date)+'</span>' : '')
+                  + (g.rink ? '<span>Rink '+g.rink+'</span>' : '')
+                  + typePill
+                + '</div>'
+              + '</div>'
+              + '<div class="lgw-ppg-right">'
+                + scoreHtml
+                + '<span class="lgw-ppg-result '+resultCls+'">'+resultLbl+'</span>'
+              + '</div>'
+              + '</div>';
+          });
+          html += '</div>';
+        }
       } else {
         html += '<p class="lgw-player-popover-none">No appearances recorded this season yet.</p>';
       }
+
       body.innerHTML = html;
+      lgwPositionPopover(pop, btn);
     };
     xhr.onerror = function() {
-      body.querySelector('.lgw-player-popover-loading').innerHTML
-        = '<p class="lgw-player-popover-none">Could not load stats — check your connection.</p>';
+      body.innerHTML = '<div class="lgw-player-popover-header">'
+        + badgeHtml
+        + '<div class="lgw-player-popover-name">'+esc(playerName)+'</div>'
+        + '</div>'
+        + '<p class="lgw-player-popover-none">Could not load stats — check your connection.</p>';
+      lgwPositionPopover(pop, btn);
     };
     xhr.send(fd);
   }

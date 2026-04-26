@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.1.109
+- **New:** Player stats popover now includes a full games list for the current season — each row shows the match title, date, rink number, score, and a colour-coded W/D/L badge, ordered newest first; cup games tagged with a type pill
+- **Fix:** Popover switched to `position:fixed` with viewport-aware placement — flips above the button when space below is insufficient; inner body is `overflow-y:auto` with a dynamically calculated `max-height` so it never goes off-screen
+
 ### v7.1.108
 - **New:** Player name links in scorecard modal — clicking a player's name opens a stats popover showing their current-season W/D/L record, total games played, and which teams they have appeared for this season
 - **New:** Public AJAX endpoint `lgw_get_player_stats` — returns current-season stats by player name and club, nonce-protected, no authentication required

@@ -616,6 +616,30 @@ function lgw_ajax_get_player_stats() {
         $player->id
     ));
 
+    // Individual game records for this season, newest first
+    $games_raw = $wpdb->get_results($wpdb->prepare(
+        "SELECT a.match_title, a.match_date, a.team, a.rink,
+                a.shots_for, a.shots_against, a.result, a.game_type
+         FROM $at a
+         WHERE a.player_id = %d $sw
+         ORDER BY STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') DESC, a.id DESC",
+        $player->id
+    ));
+
+    $games = array();
+    foreach ($games_raw as $g) {
+        $games[] = array(
+            'match'   => $g->match_title,
+            'date'    => $g->match_date,
+            'team'    => $g->team,
+            'rink'    => (int)$g->rink,
+            'for'     => $g->shots_for !== null ? (int)$g->shots_for : null,
+            'against' => $g->shots_against !== null ? (int)$g->shots_against : null,
+            'result'  => $g->result,
+            'type'    => $g->game_type ?: 'league',
+        );
+    }
+
     wp_send_json_success(array(
         'name'   => $player->name,
         'club'   => $player->club,
@@ -624,6 +648,7 @@ function lgw_ajax_get_player_stats() {
         'drawn'  => $d,
         'lost'   => $l,
         'teams'  => array_values($teams),
+        'games'  => $games,
     ));
 }
 

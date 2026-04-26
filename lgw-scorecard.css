@@ -261,21 +261,30 @@
 
 /* ── Player stats popover ── */
 .lgw-player-popover{
-  position:absolute;z-index:99999;
+  position:fixed;z-index:99999;
   background:#fff;border-radius:10px;
   box-shadow:0 6px 32px rgba(0,0,0,.18),0 1px 4px rgba(0,0,0,.10);
-  width:260px;padding:14px 16px 14px;
+  width:300px;
   font-family:'Saira',Arial,sans-serif;font-size:13px;
-  display:none;box-sizing:border-box
+  display:none;box-sizing:border-box;
+  overflow:hidden;
+  /* max-height set dynamically by JS */
 }
-.lgw-player-popover.lgw-player-popover-visible{display:block}
+.lgw-player-popover.lgw-player-popover-visible{display:flex;flex-direction:column}
+/* Sticky close button sits above scrollable body */
 .lgw-player-popover-close{
   position:absolute;top:8px;right:10px;
   background:none;border:none;cursor:pointer;
   font-size:18px;color:#aaa;line-height:1;padding:0;
-  transition:color .15s
+  transition:color .15s;z-index:1
 }
 .lgw-player-popover-close:hover{color:#333}
+/* Scrollable inner body */
+.lgw-player-popover-body{
+  overflow-y:auto;overflow-x:hidden;
+  padding:14px 16px;
+  flex:1;min-height:0
+}
 .lgw-player-popover-header{
   display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-right:18px
 }
@@ -304,7 +313,9 @@
 .lgw-pps-p{background:#e8edf8;color:#1a2e5a}
 /* Teams section */
 .lgw-player-popover-teams{
-  border-top:1px solid #e8edf8;padding-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center
+  border-top:1px solid #e8edf8;padding-top:8px;
+  display:flex;flex-wrap:wrap;gap:4px;align-items:center;
+  margin-bottom:10px
 }
 .lgw-ppt-label{
   font-size:10px;font-weight:600;text-transform:uppercase;
@@ -314,6 +325,51 @@
   background:#e8edf8;color:#1a2e5a;font-size:11px;font-weight:600;
   border-radius:4px;padding:2px 7px
 }
+/* Games list */
+.lgw-player-popover-games{
+  border-top:1px solid #e8edf8;padding-top:8px
+}
+.lgw-ppg-heading{
+  font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;color:#888;margin-bottom:6px
+}
+.lgw-ppg-row{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:8px;padding:6px 0;border-bottom:1px solid #f0f3fa
+}
+.lgw-ppg-row:last-child{border-bottom:none}
+.lgw-ppg-left{flex:1;min-width:0}
+.lgw-ppg-match{
+  font-size:12px;font-weight:600;color:#1a2e5a;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.lgw-ppg-meta{
+  display:flex;flex-wrap:wrap;gap:4px;margin-top:2px
+}
+.lgw-ppg-meta span{
+  font-size:10px;color:#888
+}
+.lgw-ppg-meta span+span::before{content:'·';margin-right:4px}
+.lgw-ppg-type{
+  font-size:9px;font-weight:700;text-transform:uppercase;
+  background:#e8edf8;color:#1a2e5a;border-radius:3px;padding:1px 4px;
+  letter-spacing:.04em
+}
+.lgw-ppg-right{
+  display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0
+}
+.lgw-ppg-score{
+  font-size:13px;font-weight:700;color:#333;white-space:nowrap
+}
+.lgw-ppg-result{
+  font-size:11px;font-weight:800;border-radius:4px;
+  padding:1px 6px;text-align:center;min-width:22px;
+  display:inline-block
+}
+.lgw-ppg-w{background:#d1f5d8;color:#145a1c}
+.lgw-ppg-d{background:#fff3cd;color:#7a5000}
+.lgw-ppg-l{background:#fde8e8;color:#7a1010}
+.lgw-ppg-u{background:#e8edf8;color:#888}
 .lgw-player-popover-loading{
   color:#888;font-size:12px;text-align:center;padding:8px 0
 }
@@ -330,6 +386,11 @@
 [data-lgw-theme="dark"] .lgw-pps-p{background:#2a3a5a;color:#c8d6f8}
 [data-lgw-theme="dark"] .lgw-ppt-team{background:#2a3a5a;color:#c8d6f8}
 [data-lgw-theme="dark"] .lgw-player-popover-teams{border-top-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-player-popover-games{border-top-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-ppg-match{color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-ppg-row{border-bottom-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-ppg-score{color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-ppg-type{background:#2a3a5a;color:#c8d6f8}
 [data-lgw-theme="dark"] .lgw-player-link{text-decoration-color:rgba(200,214,248,.3)}
 [data-lgw-theme="dark"] .lgw-player-link:hover,[data-lgw-theme="dark"] .lgw-player-link:focus-visible{
   color:#7ab0ff;text-decoration-color:#7ab0ff;background:rgba(122,176,255,.1)
