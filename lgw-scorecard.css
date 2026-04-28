@@ -410,3 +410,43 @@
 [data-lgw-theme="dark"] .lgw-player-link:hover,[data-lgw-theme="dark"] .lgw-player-link:focus-visible{
   color:#7ab0ff;text-decoration-color:#7ab0ff;background:rgba(122,176,255,.1)
 }
+
+/* ── Stats popover tab switcher ───────────────────────────────────────────────── */
+.lgw-pp-tabs{display:flex;gap:0;border-bottom:2px solid #e0e4f0;margin:10px 0 0;overflow:hidden;border-radius:4px 4px 0 0}
+.lgw-pp-tab{flex:1;padding:6px 4px;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;border:none;background:#f0f2f8;color:#555;text-transform:uppercase;letter-spacing:.04em;transition:background .12s,color .12s}
+.lgw-pp-tab:hover{background:#e0e4f0;color:#1a2e5a}
+.lgw-pp-tab-active{background:#1a2e5a;color:#fff}
+.lgw-pp-panel{padding-top:2px}
+
+/* ── Champ bracket player name links ─────────────────────────────────────────── */
+.lgw-champ-player-link{
+  display:inline;
+  background:none;
+  border:none;
+  padding:0;
+  font:inherit;
+  cursor:pointer;
+  color:inherit;
+  text-decoration:underline dotted rgba(0,0,0,.25);
+  transition:color .12s,text-decoration-color .12s
+}
+.lgw-champ-player-link:hover,.lgw-champ-player-link:focus-visible{
+  color:var(--lgw-navy,#1a2e5a);
+  text-decoration-color:var(--lgw-navy,#1a2e5a);
+  outline:none
+}
+.lgw-champ-name-links{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0}
+.lgw-champ-entry-sep{color:#aaa;font-size:.85em;padding:0 1px}
+.lgw-champ-entry-club{color:var(--lgw-text-muted,#888);font-size:.88em}
+
+/* ── Dark mode: tab switcher ─────────────────────────────────────────────────── */
+[data-lgw-theme="dark"] .lgw-pp-tabs{border-bottom-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-pp-tab{background:#1e2a42;color:#7a8eb0}
+[data-lgw-theme="dark"] .lgw-pp-tab:hover{background:#2a3a5a;color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-pp-tab-active{background:#1a2e5a;color:#fff}
+
+/* ── Dark mode: champ player links ──────────────────────────────────────────── */
+[data-lgw-theme="dark"] .lgw-champ-player-link{text-decoration-color:rgba(200,214,248,.3)}
+[data-lgw-theme="dark"] .lgw-champ-player-link:hover,[data-lgw-theme="dark"] .lgw-champ-player-link:focus-visible{
+  color:#7ab0ff;text-decoration-color:#7ab0ff
+}

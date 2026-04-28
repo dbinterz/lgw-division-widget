@@ -23,7 +23,16 @@ function lgw_champ_enqueue() {
     wp_enqueue_style('lgw-saira',  'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
     wp_enqueue_style('lgw-widget', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-widget.css', array('lgw-saira'), LGW_VERSION);
     wp_enqueue_style('lgw-champ',  plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-champ.css',  array('lgw-widget'), LGW_VERSION);
-    wp_enqueue_script('lgw-champ', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-champ.js',   array(), LGW_VERSION, true);
+    // Enqueue scorecard script for player stats popover (even without [lgw_division] on page)
+    if (!wp_script_is('lgw-scorecard', 'registered')) {
+        wp_register_script('lgw-scorecard', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-scorecard.js', array(), LGW_VERSION, true);
+        wp_register_style('lgw-scorecard',  plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-scorecard.css', array(), LGW_VERSION);
+    }
+    if (!wp_script_is('lgw-scorecard', 'enqueued')) {
+        wp_enqueue_script('lgw-scorecard');
+        wp_enqueue_style('lgw-scorecard');
+    }
+    wp_enqueue_script('lgw-champ', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-champ.js',   array('lgw-scorecard'), LGW_VERSION, true);
     if (!wp_script_is('lgw-widget', 'enqueued')) {
         wp_localize_script('lgw-champ', 'lgwData', array(
             'ajaxUrl'    => admin_url('admin-ajax.php'),
@@ -39,6 +48,7 @@ function lgw_champ_enqueue() {
         'drawPassphraseSet' => get_option('lgw_draw_passphrase', '') !== '' ? 1 : 0,
         'champNonce'        => wp_create_nonce('lgw_champ_nonce'),
         'searchNonce'       => wp_create_nonce('lgw_champ_search'),
+        'statsNonce'        => wp_create_nonce('lgw_submit_nonce'),
         'drawSpeed'         => (float) get_option('lgw_draw_speed', 1.0),
         'badges'            => get_option('lgw_badges',      array()),
         'clubBadges'        => get_option('lgw_club_badges', array()),
@@ -136,6 +146,49 @@ function lgw_ajax_champ_save_score() {
         }
     }
 
+    // ── Log / clear championship appearances BEFORE cascade modifies team names ──
+    if ( !empty($champ['stats_eligible']) && function_exists('lgw_log_champ_appearance') ) {
+        $home_entry = $match['home'] ?? '';
+        $away_entry = $match['away'] ?? '';
+
+        // Resolve round date
+        $sec_dates = array();
+        if ( $section === 'final' ) {
+            $sec_dates = $champ['dates'] ?? array();
+        } else {
+            $sec_dates_raw = $champ['section_' . $section . '_dates'] ?? '';
+            if ( $sec_dates_raw ) {
+                $sec_dates = array_values( array_filter( array_map( 'trim', explode( "\n", $sec_dates_raw ) ) ) );
+            }
+            if ( empty( $sec_dates ) ) $sec_dates = $champ['dates'] ?? array();
+        }
+        $round_date = $sec_dates[$round_idx] ?? '';
+
+        // Use a stable positional key as match_title — immune to entry name changes.
+        // Format: "section:round_idx:match_idx" e.g. "0:2:1"
+        // Human-readable match name is derived from entry strings for display only.
+        $match_pos_key   = $section . ':' . $round_idx . ':' . $match_idx;
+        $match_title_log = $home_entry . ' v ' . $away_entry; // for display in history modal
+
+        error_log( "LGW_CHAMP_SAVE_SCORE: champ_id={$champ_id} section={$section} round={$round_idx} match={$match_idx} home_score=" . var_export($home_score,true) . " away_score=" . var_export($away_score,true) . " home={$home_entry} away={$away_entry} pos_key={$match_pos_key}" );
+
+        if ( $home_score !== null && $away_score !== null && $home_entry && $away_entry ) {
+            // Score being set: always wipe existing appearances for this position first,
+            // then cascade-clear downstream positions so stale winner propagations are removed.
+            lgw_clear_champ_appearances_by_key( $champ_id, $match_pos_key, $match_title_log );
+            lgw_champ_cascade_clear_appearances( $champ_id, $bracket, $round_idx + 1,
+                lgw_champ_find_next_match_idx( $bracket, $round_idx, $match_idx ), $section );
+            if ( $home_score !== $away_score ) {
+                $home_win = $home_score > $away_score;
+                lgw_log_champ_appearance( $champ_id, $home_entry, $home_win ? 'W' : 'L', $round_date, $match_title_log, $home_score, $away_score, $match_pos_key );
+                lgw_log_champ_appearance( $champ_id, $away_entry, $home_win ? 'L' : 'W', $round_date, $match_title_log, $away_score, $home_score, $match_pos_key );
+            }
+        } elseif ( $home_score === null && $away_score === null ) {
+            // Score cleared — cascade-clear this match AND all downstream while names are intact.
+            lgw_champ_cascade_clear_appearances( $champ_id, $bracket, $round_idx, $match_idx, $section );
+        }
+    }
+
     // Reset: if both scores cleared, cascade-clear all downstream rounds
     if ($home_score === null && $away_score === null) {
         lgw_champ_cascade_reset($bracket, $round_idx, $match_idx);
@@ -147,6 +200,7 @@ function lgw_ajax_champ_save_score() {
     }
 
     update_option('lgw_champ_' . $champ_id, $champ);
+
     wp_send_json_success(array(
         'bracket'       => $bracket,
         'final_bracket' => $champ['final_bracket'] ?? null,
@@ -209,6 +263,78 @@ function lgw_champ_cascade_reset(&$bracket, $round_idx, $match_idx) {
     }
 }
 
+/**
+ * Mirror of lgw_champ_cascade_reset that clears Player Tracking appearances
+ * for every match at and downstream of the given position.
+ *
+ * Uses a stable positional key (section:round:match) so clearing is immune
+ * to entry name changes or normalisation differences.
+ *
+ * MUST be called BEFORE lgw_champ_cascade_reset so team names are still intact
+ * for the path-following logic.
+ */
+function lgw_champ_cascade_clear_appearances( $champ_id, &$bracket, $round_idx, $match_idx, $section = '' ) {
+    if ( !function_exists('lgw_clear_champ_appearances_by_key') ) return;
+    if ( $match_idx === null || $match_idx === false ) return;
+
+    $all_matches = &$bracket['matches'];
+    if ( !isset( $all_matches[$round_idx][$match_idx] ) ) return;
+
+    // Clear by positional key — stable regardless of entry string content.
+    // Also pass match_title so any legacy rows (match_key IS NULL) are cleaned up too.
+    $m       = $all_matches[$round_idx][$match_idx];
+    $pos_key = $section . ':' . $round_idx . ':' . $match_idx;
+    $title   = ( !empty($m['home']) && !empty($m['away']) ) ? ( $m['home'] . ' v ' . $m['away'] ) : '';
+    lgw_clear_champ_appearances_by_key( $champ_id, $pos_key, $title );
+
+    // Follow winner propagation into next round
+    $next_round = $round_idx + 1;
+    if ( !isset( $all_matches[$next_round] ) ) return;
+
+    $this_game = $m['game_num'] ?? null;
+    $found_nm  = null;
+
+    if ( $this_game ) {
+        foreach ( $all_matches[$next_round] as $nm => $nm_ref ) {
+            if ( ($nm_ref['prev_game_home'] ?? null) == $this_game
+              || ($nm_ref['prev_game_away'] ?? null) == $this_game ) {
+                $found_nm = $nm;
+                break;
+            }
+        }
+    }
+    if ( $found_nm === null ) {
+        $fb_nm = intval( floor( $match_idx / 2 ) );
+        if ( isset( $all_matches[$next_round][$fb_nm] ) ) $found_nm = $fb_nm;
+    }
+
+    if ( $found_nm !== null ) {
+        lgw_champ_cascade_clear_appearances( $champ_id, $bracket, $next_round, $found_nm, $section );
+    }
+}
+
+/**
+ * Given a match at round_idx/match_idx, return the index of the next-round match
+ * that will receive this match's winner. Returns null if no next round exists.
+ */
+function lgw_champ_find_next_match_idx( &$bracket, $round_idx, $match_idx ) {
+    $all_matches = $bracket['matches'] ?? array();
+    $next_round  = $round_idx + 1;
+    if ( !isset( $all_matches[$next_round] ) ) return null;
+
+    $this_game = $all_matches[$round_idx][$match_idx]['game_num'] ?? null;
+    if ( $this_game ) {
+        foreach ( $all_matches[$next_round] as $nm => $nm_ref ) {
+            if ( ($nm_ref['prev_game_home'] ?? null) == $this_game
+              || ($nm_ref['prev_game_away'] ?? null) == $this_game ) {
+                return $nm;
+            }
+        }
+    }
+    $fb_nm = intval( floor( $match_idx / 2 ) );
+    return isset( $all_matches[$next_round][$fb_nm] ) ? $fb_nm : null;
+}
+
 // ── AJAX: admin manual draw edit ──────────────────────────────────────────────
 add_action('wp_ajax_lgw_champ_edit_match', 'lgw_ajax_champ_edit_match');
 /**
@@ -262,6 +388,11 @@ function lgw_ajax_champ_edit_match() {
     }
 
     $match = &$bracket['matches'][$round_idx][$match_idx];
+
+    // ── Clear appearances BEFORE modifying the bracket (while team names intact) ──
+    if ( !empty($champ['stats_eligible']) ) {
+        lgw_champ_cascade_clear_appearances( $champ_id, $bracket, $round_idx, $match_idx, $section );
+    }
 
     // Apply changes
     if ($new_home !== '') $match['home'] = $new_home;
@@ -1286,13 +1417,14 @@ function lgw_champ_handle_admin_actions() {
         $sections = $draw_started ? $existing_sections : lgw_champ_build_sections($entries);
 
         $champ_data = array_merge($existing, array(
-            'title'       => sanitize_text_field(wp_unslash($_POST['lgw_champ_title'] ?? '')),
-            'discipline'  => sanitize_text_field($_POST['lgw_champ_discipline'] ?? 'singles'),
-            'season'      => sanitize_text_field(wp_unslash($_POST['lgw_champ_season'] ?? '')),
-            'entries'     => $entries,
-            'sections'    => $sections,
-            'dates'       => $dates,
-            'multi_green' => $multi_green,
+            'title'          => sanitize_text_field(wp_unslash($_POST['lgw_champ_title'] ?? '')),
+            'discipline'     => sanitize_text_field($_POST['lgw_champ_discipline'] ?? 'singles'),
+            'season'         => sanitize_text_field(wp_unslash($_POST['lgw_champ_season'] ?? '')),
+            'entries'        => $entries,
+            'sections'       => $sections,
+            'dates'          => $dates,
+            'multi_green'    => $multi_green,
+            'stats_eligible' => isset($_POST['lgw_champ_stats_eligible']) ? 1 : 0,
         ));
         // Save per-section dates
         $sec_dates_post = $_POST['lgw_champ_section_dates'] ?? array();
@@ -1345,6 +1477,11 @@ function lgw_champ_handle_admin_actions() {
             unset($champ['draw_timestamp']);
             update_option('lgw_champ_' . $champ_id, $champ);
 
+            // Clear all player appearances for this championship
+            if ( function_exists('lgw_clear_all_champ_appearances') ) {
+                lgw_clear_all_champ_appearances( $champ_id );
+            }
+
             // Release all green bookings for this championship
             lgw_champ_release_bookings($champ_id);
 
@@ -1357,6 +1494,10 @@ function lgw_champ_handle_admin_actions() {
     if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
         $del_id = sanitize_key($_GET['id']);
         if (wp_verify_nonce($_GET['_wpnonce'] ?? '', 'lgw_champ_delete_' . $del_id)) {
+            // Clear all player appearances before deleting
+            if ( function_exists('lgw_clear_all_champ_appearances') ) {
+                lgw_clear_all_champ_appearances( $del_id );
+            }
             delete_option('lgw_champ_' . $del_id);
             wp_redirect(admin_url('admin.php?page=lgw-champs&deleted=1'));
             exit;
@@ -1850,6 +1991,17 @@ function lgw_champ_edit_page($champ_id) {
                       placeholder="Club: greens&#10;Ballymena: 2&#10;Salisbury: 2"><?php echo esc_textarea($champ['multi_green'] ?? ''); ?></textarea>
             <p class="description">Clubs with more than one green can host more than 6 home games per round.<br>
             Format: <code>Club Name: number_of_greens</code> — one per line. The draw limit becomes 6 × greens.</p>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="lgw_champ_stats_eligible">Stats Tracking</label></th>
+          <td>
+            <label>
+              <input type="checkbox" id="lgw_champ_stats_eligible" name="lgw_champ_stats_eligible" value="1"
+                     <?php checked(!empty($champ['stats_eligible'])); ?>>
+              Enable player stats collection for this championship
+            </label>
+            <p class="description">When enabled, match results are logged to the Player Tracking system so participants appear in the stats modal under the <strong>Championships</strong> tab. Only enable for competitions where all participants are individually named. Pairs/triples entries must list all player names separated by <code>/</code>.</p>
           </td>
         </tr>
       </table>
@@ -2476,7 +2628,8 @@ function lgw_champ_shortcode($atts) {
              data-draw-version="<?php echo esc_attr($version); ?>"
              data-draw-in-progress="<?php echo ($in_progress) ? '1' : '0'; ?>"
              data-bracket="<?php echo esc_attr($bracket_json); ?>"
-             data-sponsors="<?php echo $extra_json; ?>">
+             data-sponsors="<?php echo $extra_json; ?>"
+             data-stats-eligible="<?php echo !empty($champ['stats_eligible']) ? '1' : '0'; ?>">
 
           <div class="lgw-champ-header">
             <span class="lgw-champ-title">🏅 <?php echo esc_html($title); ?> — Section <?php echo esc_html($sec['label']); ?></span>
@@ -2543,7 +2696,8 @@ function lgw_champ_shortcode($atts) {
              data-draw-version="<?php echo esc_attr($fb_version); ?>"
              data-draw-in-progress="<?php echo $fb_in_prog ? '1' : '0'; ?>"
              data-bracket="<?php echo esc_attr($fb_json); ?>"
-             data-sponsors="<?php echo $extra_json; ?>">
+             data-sponsors="<?php echo $extra_json; ?>"
+             data-stats-eligible="<?php echo !empty($champ['stats_eligible']) ? '1' : '0'; ?>">
 
           <div class="lgw-champ-header">
             <span class="lgw-champ-title">🏆 <?php echo esc_html($title); ?> — Final Stage</span>

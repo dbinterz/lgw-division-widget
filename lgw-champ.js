@@ -1,4 +1,4 @@
-/* LGW Championships JS - v7.1.121 */
+/* LGW Championships JS - v7.1.122 */
 (function () {
   'use strict';
 
@@ -141,25 +141,59 @@
     return bestImg ? '<img class="lgw-champ-team-badge" src="' + bestImg + '" alt="">' : '';
   }
 
-  function renderTeamRow(team, score, isWinner, isLoser, placeholder) {
+  // Extract club from champ entry string "Player Name(s), ClubName"
+  function entryClubFromStr(entry) {
+    if (!entry) return '';
+    var c = entry.lastIndexOf(',');
+    return c !== -1 ? entry.slice(c + 1).trim() : '';
+  }
+
+  // Render a clickable player name button for stats popover
+  // Only activates when statsEligible=true and the entry is not a TBD placeholder
+  function renderEntryNameHtml(entry, statsEligible) {
+    if (!entry || !statsEligible) return '<span class="lgw-champ-team-name">' + escHtml(entry || 'TBD') + '</span>';
+    var club = entryClubFromStr(entry);
+    // For multi-player entries (pairs etc.), split by '/' and render each as a link
+    var comma = entry.lastIndexOf(',');
+    var playersPart = comma !== -1 ? entry.slice(0, comma) : entry;
+    var players = playersPart.split('/').map(function(p){ return p.trim(); }).filter(Boolean);
+    var clubPart = comma !== -1 ? entry.slice(comma + 1).trim() : '';
+    var links = players.map(function(p) {
+      return '<button type="button" class="lgw-player-link lgw-champ-player-link"'
+        + ' data-player="' + escHtml(p) + '"'
+        + ' data-club="' + escHtml(club) + '">'
+        + escHtml(p)
+        + '</button>';
+    }).join('<span class="lgw-champ-entry-sep"> / </span>');
+    return '<span class="lgw-champ-team-name lgw-champ-name-links">'
+      + links
+      + (clubPart ? '<span class="lgw-champ-entry-club">, ' + escHtml(clubPart) + '</span>' : '')
+      + '</span>';
+  }
+
+  function renderTeamRow(team, score, isWinner, isLoser, placeholder, statsEligible) {
     var cls = 'lgw-champ-team';
     if (isWinner) cls += ' lgw-champ-winner';
     if (isLoser)  cls += ' lgw-champ-loser';
     var badge = team ? champBadge(team) : '';
     var isTbd = !team;
-    var nameCls = 'lgw-champ-team-name' + (isTbd ? ' tbd' : '');
-    var nameStr = team ? escHtml(team)
-                : (placeholder ? '<span class="lgw-champ-placeholder">' + escHtml(placeholder) + '</span>'
-                               : 'TBD');
+    var nameHtml;
+    if (isTbd) {
+      nameHtml = '<span class="lgw-champ-team-name tbd">'
+        + (placeholder ? '<span class="lgw-champ-placeholder">' + escHtml(placeholder) + '</span>' : 'TBD')
+        + '</span>';
+    } else {
+      nameHtml = renderEntryNameHtml(team, statsEligible);
+    }
     var scoreStr = (score !== null && score !== undefined && score !== '') ? escHtml(score) : '';
     return '<div class="' + cls + '">'
       + badge
-      + '<span class="' + nameCls + '">' + nameStr + '</span>'
+      + nameHtml
       + (scoreStr !== '' ? '<span class="lgw-champ-score">' + scoreStr + '</span>' : '')
       + '</div>';
   }
 
-  function renderMatch(match, homePlaceholder, awayPlaceholder) {
+  function renderMatch(match, homePlaceholder, awayPlaceholder, statsEligible) {
     var home       = match.home  || '';
     var away       = match.away  || '';
     var hs         = match.home_score;
@@ -186,15 +220,16 @@
 
     return '<div class="' + cls + '">'
       + gameNumHtml
-      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, homePh)
-      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, awayPh)
+      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, homePh, statsEligible)
+      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, awayPh, statsEligible)
       + '</div>';
   }
 
   function renderBracket(wrap, data) {
-    var rounds  = data.rounds  || [];
-    var matches = data.matches || [];
-    var dates   = data.dates   || [];
+    var rounds        = data.rounds  || [];
+    var matches       = data.matches || [];
+    var dates         = data.dates   || [];
+    var statsEligible = wrap && wrap.dataset && wrap.dataset.statsEligible === '1';
 
     // ── Mobile tabs
     var tabsEl = qs('.lgw-champ-tabs', wrap);
@@ -257,7 +292,7 @@
           }
         }
         var matchEl = document.createElement('div');
-        matchEl.innerHTML = renderMatch(match, homePlaceholder, awayPlaceholder);
+        matchEl.innerHTML = renderMatch(match, homePlaceholder, awayPlaceholder, statsEligible);
         var card = matchEl.firstElementChild;
         card.dataset.round = ri;
         card.dataset.match = mi;

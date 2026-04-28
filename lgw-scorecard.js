@@ -2452,13 +2452,15 @@
   // ── Player stats popover ─────────────────────────────────────────────────────
   // Resolves the best nonce available (scorecard page or widget page)
   function lgwGetPublicNonce() {
-    if (typeof lgwSubmit !== 'undefined' && lgwSubmit.nonce) return lgwSubmit.nonce;
-    if (typeof lgwData   !== 'undefined' && lgwData.scNonce)  return lgwData.scNonce;
+    if (typeof lgwSubmit    !== 'undefined' && lgwSubmit.nonce)      return lgwSubmit.nonce;
+    if (typeof lgwData      !== 'undefined' && lgwData.scNonce)      return lgwData.scNonce;
+    if (typeof lgwChampData !== 'undefined' && lgwChampData.statsNonce) return lgwChampData.statsNonce;
     return '';
   }
   function lgwGetAjaxUrl() {
-    if (typeof lgwSubmit !== 'undefined' && lgwSubmit.ajaxUrl) return lgwSubmit.ajaxUrl;
-    if (typeof lgwData   !== 'undefined' && lgwData.ajaxUrl)   return lgwData.ajaxUrl;
+    if (typeof lgwSubmit    !== 'undefined' && lgwSubmit.ajaxUrl)    return lgwSubmit.ajaxUrl;
+    if (typeof lgwData      !== 'undefined' && lgwData.ajaxUrl)      return lgwData.ajaxUrl;
+    if (typeof lgwChampData !== 'undefined' && lgwChampData.ajaxUrl) return lgwChampData.ajaxUrl;
     return '/wp-admin/admin-ajax.php';
   }
 
@@ -2657,6 +2659,13 @@
       }
       var d      = r.data;
       var played = d.played || 0;
+      var sbt    = d.stats_by_type || {};
+      var tot    = sbt.total  || { w: d.won || 0, d: d.drawn || 0, l: d.lost || 0, sf: 0, sa: 0 };
+      var lge    = sbt.league || { w: 0, d: 0, l: 0, sf: 0, sa: 0 };
+      var cup    = sbt.cup    || { w: 0, d: 0, l: 0, sf: 0, sa: 0 };
+      var champ  = sbt.champ  || { w: 0, d: 0, l: 0, sf: 0, sa: 0 };
+      var hasChamp = (champ.w + champ.d + champ.l) > 0;
+      var hasLgeCup = (lge.w + lge.d + lge.l + cup.w + cup.d + cup.l) > 0;
 
       // ── Header ──
       var html = '<div class="lgw-player-popover-header">'
@@ -2668,58 +2677,127 @@
         + '</div>';
 
       if (played > 0) {
-        // ── W/D/L tiles ──
-        html += '<div class="lgw-player-popover-stats">'
-          + '<div class="lgw-player-popover-stat lgw-pps-w"><span class="lgw-pps-val">'+d.won+'</span><span class="lgw-pps-lbl">Won</span></div>'
-          + '<div class="lgw-player-popover-stat lgw-pps-d"><span class="lgw-pps-val">'+d.drawn+'</span><span class="lgw-pps-lbl">Drawn</span></div>'
-          + '<div class="lgw-player-popover-stat lgw-pps-l"><span class="lgw-pps-val">'+d.lost+'</span><span class="lgw-pps-lbl">Lost</span></div>'
-          + '<div class="lgw-player-popover-stat lgw-pps-p"><span class="lgw-pps-val">'+played+'</span><span class="lgw-pps-lbl">Played</span></div>'
-          + '</div>';
+        // ── Tab bar ──
+        var showChampTab = hasChamp;
+        var tabs = [];
+        if (hasLgeCup) tabs.push({ id: 'lgecup', label: 'League / Cup' });
+        if (showChampTab) tabs.push({ id: 'champ', label: 'Championships' });
+        if (tabs.length > 1) tabs.push({ id: 'total', label: 'Total' });
+        var activeTab = tabs.length > 0 ? tabs[0].id : 'total';
 
-        // ── Teams chips ──
-        if (d.teams && d.teams.length) {
-          html += '<div class="lgw-player-popover-teams"><span class="lgw-ppt-label">Teams this season:</span>'
-            + d.teams.map(function(t){ return '<span class="lgw-ppt-team">'+esc(t)+'</span>'; }).join('')
-            + '</div>';
-        }
-
-        // ── Games list ──
-        if (d.games && d.games.length) {
-          html += '<div class="lgw-player-popover-games">'
-            + '<div class="lgw-ppg-heading">Results this season</div>';
-          d.games.forEach(function(g) {
-            var resultCls = g.result === 'W' ? 'lgw-ppg-w'
-                          : g.result === 'D' ? 'lgw-ppg-d'
-                          : g.result === 'L' ? 'lgw-ppg-l' : 'lgw-ppg-u';
-            var resultLbl = g.result || '–';
-            var scoreHtml = (g['for'] !== null && g.against !== null)
-              ? '<span class="lgw-ppg-score">'+g['for']+'–'+g.against+'</span>'
-              : '';
-            var typePill = g.type && g.type !== 'league'
-              ? '<span class="lgw-ppg-type">'+esc(g.type)+'</span>'
-              : '';
-            html += '<div class="lgw-ppg-row">'
-              + '<div class="lgw-ppg-left">'
-                + '<div class="lgw-ppg-match">'+esc(g.match)+'</div>'
-                + '<div class="lgw-ppg-meta">'
-                  + (g.date ? '<span>'+esc(g.date)+'</span>' : '')
-                  + (g.rink ? '<span>Rink '+g.rink+'</span>' : '')
-                  + typePill
-                + '</div>'
-              + '</div>'
-              + '<div class="lgw-ppg-right">'
-                + scoreHtml
-                + '<span class="lgw-ppg-result '+resultCls+'">'+resultLbl+'</span>'
-              + '</div>'
-              + '</div>';
+        if (tabs.length > 1) {
+          html += '<div class="lgw-pp-tabs">';
+          tabs.forEach(function(tab) {
+            html += '<button type="button" class="lgw-pp-tab'
+              + (tab.id === activeTab ? ' lgw-pp-tab-active' : '')
+              + '" data-tab="'+tab.id+'">'+tab.label+'</button>';
           });
           html += '</div>';
+        }
+
+        // ── Helper: render a stat panel for a given type ──
+        function statPanel(typeKey) {
+          var s = typeKey === 'total' ? tot
+                : typeKey === 'league' ? lge
+                : typeKey === 'cup' ? cup
+                : typeKey === 'champ' ? champ
+                : tot;
+          var typeGames = typeKey === 'total'
+            ? d.games
+            : d.games ? d.games.filter(function(g){
+                if (typeKey === 'lgecup') return g.type === 'league' || g.type === 'cup';
+                return g.type === typeKey;
+              }) : [];
+
+          var panPlayed = (typeKey === 'total') ? played
+            : (typeKey === 'lgecup') ? (lge.w+lge.d+lge.l + cup.w+cup.d+cup.l)
+            : (s.w + s.d + s.l);
+          var panW = (typeKey === 'lgecup') ? (lge.w + cup.w) : s.w;
+          var panD = (typeKey === 'lgecup') ? (lge.d + cup.d) : s.d;
+          var panL = (typeKey === 'lgecup') ? (lge.l + cup.l) : s.l;
+
+          var ph = '';
+          ph += '<div class="lgw-player-popover-stats">'
+            + '<div class="lgw-player-popover-stat lgw-pps-w"><span class="lgw-pps-val">'+panW+'</span><span class="lgw-pps-lbl">Won</span></div>'
+            + '<div class="lgw-player-popover-stat lgw-pps-d"><span class="lgw-pps-val">'+panD+'</span><span class="lgw-pps-lbl">Drawn</span></div>'
+            + '<div class="lgw-player-popover-stat lgw-pps-l"><span class="lgw-pps-val">'+panL+'</span><span class="lgw-pps-lbl">Lost</span></div>'
+            + '<div class="lgw-player-popover-stat lgw-pps-p"><span class="lgw-pps-val">'+panPlayed+'</span><span class="lgw-pps-lbl">Played</span></div>'
+            + '</div>';
+
+          // Teams (only for league/cup)
+          if ((typeKey === 'lgecup' || typeKey === 'total') && d.teams && d.teams.length) {
+            ph += '<div class="lgw-player-popover-teams"><span class="lgw-ppt-label">Teams this season:</span>'
+              + d.teams.map(function(t){ return '<span class="lgw-ppt-team">'+esc(t)+'</span>'; }).join('')
+              + '</div>';
+          }
+
+          // Games list
+          if (typeGames && typeGames.length) {
+            ph += '<div class="lgw-player-popover-games">'
+              + '<div class="lgw-ppg-heading">Results this season</div>';
+            typeGames.forEach(function(g) {
+              var resultCls = g.result === 'W' ? 'lgw-ppg-w'
+                            : g.result === 'D' ? 'lgw-ppg-d'
+                            : g.result === 'L' ? 'lgw-ppg-l' : 'lgw-ppg-u';
+              var resultLbl = g.result || '–';
+              var scoreHtml = (g['for'] !== null && g.against !== null)
+                ? '<span class="lgw-ppg-score">'+g['for']+'–'+g.against+'</span>'
+                : '';
+              var typePill  = (typeKey === 'lgecup' || typeKey === 'total') && g.type && g.type !== 'league'
+                ? '<span class="lgw-ppg-type">'+esc(g.type)+'</span>'
+                : '';
+              ph += '<div class="lgw-ppg-row">'
+                + '<div class="lgw-ppg-left">'
+                  + '<div class="lgw-ppg-match">'+esc(g.match)+'</div>'
+                  + '<div class="lgw-ppg-meta">'
+                    + (g.date ? '<span>'+esc(g.date)+'</span>' : '')
+                    + (g.rink ? '<span>Rink '+g.rink+'</span>' : '')
+                    + typePill
+                  + '</div>'
+                + '</div>'
+                + '<div class="lgw-ppg-right">'
+                  + scoreHtml
+                  + '<span class="lgw-ppg-result '+resultCls+'">'+resultLbl+'</span>'
+                + '</div>'
+                + '</div>';
+            });
+            ph += '</div>';
+          }
+          return ph;
+        }
+
+        // ── Build panel divs ──
+        if (tabs.length <= 1) {
+          // No tab bar — show all combined
+          html += statPanel('total');
+        } else {
+          tabs.forEach(function(tab) {
+            var typeKey = tab.id;
+            html += '<div class="lgw-pp-panel" data-panel="'+typeKey+'"'
+              + (typeKey === activeTab ? '' : ' style="display:none"')
+              + '>'
+              + statPanel(typeKey)
+              + '</div>';
+          });
         }
       } else {
         html += '<p class="lgw-player-popover-none">No appearances recorded this season yet.</p>';
       }
 
       body.innerHTML = html;
+
+      // ── Tab switching ──
+      body.querySelectorAll('.lgw-pp-tab').forEach(function(tb) {
+        tb.addEventListener('click', function() {
+          var tid = tb.getAttribute('data-tab');
+          body.querySelectorAll('.lgw-pp-tab').forEach(function(t){ t.classList.remove('lgw-pp-tab-active'); });
+          body.querySelectorAll('.lgw-pp-panel').forEach(function(p){ p.style.display = 'none'; });
+          tb.classList.add('lgw-pp-tab-active');
+          var panel = body.querySelector('.lgw-pp-panel[data-panel="'+tid+'"]');
+          if (panel) panel.style.display = '';
+        });
+      });
+
       lgwPositionPopover(pop, btn);
     };
     xhr.onerror = function() {

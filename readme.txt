@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.113
+Stable tag: 7.1.123
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,36 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.1.126 =
+* Fix: championship appearance delete now clears both new (match_key) and legacy (match_key IS NULL) rows — prevents duplicates on re-save for existing data
+* lgw_clear_champ_appearances_by_key() now accepts optional match_title to wipe legacy rows in the same query
+* lgw_log_champ_appearance() delete condition covers both key and title in one query
+
+= 7.1.125 =
+* Fix: championship appearances now use a stable positional key (section:round:match) for delete — prevents duplicates on re-save and ensures clear actually removes the row
+* New match_key column added to appearances table (auto-migrated)
+* lgw_clear_champ_appearances_by_key() added; lgw_champ_cascade_clear_appearances() updated to use positional keys
+* lgw_log_champ_appearance() stores match_key and deletes by it when available
+
+= 7.1.124 =
+* Championship appearance dates normalised to dd/mm/yyyy regardless of admin input format
+* Added lgw_normalise_date_dmy() helper handling dd/mm/yyyy, d/m/yy, yyyy-mm-dd, and natural language dates
+
+= 7.1.123 =
+* Player Tracker: "Division" column renamed to "Competition" throughout
+* Championship appearances now show the championship title in the Competition column
+* History modal stats summary now includes a Championships row alongside League/Cup
+* CHAMP pill added to match title column for championship appearances
+
+= 7.1.122 =
+* Championship stats tracking: new `Stats Eligible` flag on championship admin enables W/L logging to Player Tracking
+* Player stats popover now has a tab switcher — League/Cup | Championships | Total — when data exists across multiple types
+* Championship bracket entries are now clickable player-name links that open the stats popover (when stats eligible)
+* `lgw-scorecard.js` popover now resolves nonce/ajaxUrl from `lgwChampData` so it works on champ-only pages
+* DB: `champ_id` column added to appearances table for championship appearance attribution
+* `lgw_log_champ_appearance()` and `lgw_clear_champ_appearances()` helpers added to lgw-players.php
+* `lgw_ajax_get_player_stats` returns `stats_by_type` breakdown (league/cup/champ/total)
 
 = 7.1.121 =
 * Fix: Copy as Text — away fixture scores now shown in display order (matched player score first) instead of always home–away order

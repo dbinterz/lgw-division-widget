@@ -108,6 +108,27 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### 7.1.126
+- Fix: appearance delete covers both `match_key` rows and legacy `match_key IS NULL` rows — no more duplicates from existing data
+- `lgw_clear_champ_appearances_by_key()` accepts `$match_title` param for combined delete
+- `lgw_log_champ_appearance()` uses combined `OR` condition in delete
+
+### 7.1.125
+- Fix: champ appearances use stable positional key (section:round:match) — no more duplicates on re-save, clears work reliably
+- `match_key` column added to appearances table; `lgw_clear_champ_appearances_by_key()` helper added
+- `lgw_champ_cascade_clear_appearances()` and `lgw_log_champ_appearance()` updated to use positional key
+
+### 7.1.124
+- Championship appearance dates normalised to dd/mm/yyyy via new `lgw_normalise_date_dmy()` helper
+
+### 7.1.123
+- Championship stats tracking: `Stats Eligible` flag on championship admin logs W/L to Player Tracking
+- Player stats popover: 3-tab switcher (League/Cup | Championships | Total) when data spans multiple types
+- Championship bracket entries are clickable player-name links opening the stats popover
+- `lgw-scorecard.js` popover resolves nonce/ajaxUrl from `lgwChampData` for champ-only pages
+- `champ_id` column added to appearances table; `lgw_log_champ_appearance()` / `lgw_clear_champ_appearances()` helpers
+- `lgw_ajax_get_player_stats` returns `stats_by_type` (league/cup/champ/total)
+
 ### 7.1.121
 - **Fix:** Copy as Text — away fixture scores now shown in display order (matched player score first) to match the name order
 

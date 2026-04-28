@@ -37,7 +37,9 @@ function lgw_create_player_tables() {
         shots_for    SMALLINT     NULL DEFAULT NULL,
         shots_against SMALLINT    NULL DEFAULT NULL,
         result       CHAR(1)      NULL DEFAULT NULL COMMENT 'W, D, or L',
-        game_type    VARCHAR(20)  NOT NULL DEFAULT 'league' COMMENT 'league or cup',
+        game_type    VARCHAR(20)  NOT NULL DEFAULT 'league' COMMENT 'league, cup, or champ',
+        champ_id     VARCHAR(100) NULL DEFAULT NULL COMMENT 'Championship ID for champ game_type',
+        match_key    VARCHAR(100) NULL DEFAULT NULL COMMENT 'Positional key section:round:match for champ rows',
         PRIMARY KEY (id),
         KEY player_id (player_id),
         KEY scorecard_id (scorecard_id)
@@ -87,6 +89,14 @@ function lgw_maybe_create_player_tables() {
             WHERE a.scorecard_id > 0
         ");
     }
+    // Migrate appearances table: add champ_id column for championship appearance attribution
+    if (!in_array('champ_id', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN champ_id VARCHAR(100) NULL DEFAULT NULL");
+    }
+    // Migrate appearances table: add match_key column for stable positional delete on champ rows
+    if (!in_array('match_key', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN match_key VARCHAR(100) NULL DEFAULT NULL");
+    }
 }
 
 // ── Season helpers ────────────────────────────────────────────────────────────
@@ -124,6 +134,48 @@ function lgw_season_where() {
         );
     }
     return ''; // no filter — show all time
+}
+
+/**
+ * Normalise an arbitrary date string to dd/mm/yyyy for consistent storage.
+ *
+ * Handles the common formats admins type into round-date fields:
+ *   01/05/2025   dd/mm/yyyy  → as-is
+ *   01/05/25     dd/mm/yy    → expand 2-digit year
+ *   2025-05-01   yyyy-mm-dd  → reformat
+ *   01-05-2025   dd-mm-yyyy  → reformat
+ *   1/5/2025     d/m/yyyy    → zero-pad
+ * Falls back to today's date if the string is empty or unrecognised.
+ */
+function lgw_normalise_date_dmy( $date_str ) {
+    $s = trim( $date_str );
+    if ( $s === '' ) return date( 'd/m/Y' );
+
+    // Already dd/mm/yyyy or d/m/yyyy (with optional 2-digit year)
+    if ( preg_match( '/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/', $s, $m ) ) {
+        $d = intval( $m[1] );
+        $mo = intval( $m[2] );
+        $y  = intval( $m[3] );
+        if ( $y < 100 ) $y += ( $y < 50 ) ? 2000 : 1900;
+        // Validate: if day > 12 it's definitely dd/mm, otherwise assume dd/mm too
+        if ( checkdate( $mo, $d, $y ) ) {
+            return sprintf( '%02d/%02d/%04d', $d, $mo, $y );
+        }
+    }
+
+    // yyyy-mm-dd
+    if ( preg_match( '/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/', $s, $m ) ) {
+        $y = intval( $m[1] ); $mo = intval( $m[2] ); $d = intval( $m[3] );
+        if ( checkdate( $mo, $d, $y ) ) {
+            return sprintf( '%02d/%02d/%04d', $d, $mo, $y );
+        }
+    }
+
+    // Try PHP's strtotime as a last resort (handles "1st May 2025" etc.)
+    $ts = strtotime( $s );
+    if ( $ts !== false ) return date( 'd/m/Y', $ts );
+
+    return date( 'd/m/Y' ); // unrecognised — use today
 }
 
 // ── Core: log appearances from a scorecard ────────────────────────────────────
@@ -229,6 +281,167 @@ function lgw_log_appearances($scorecard_post_id) {
             ), array('%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s'));
         }
     }
+}
+
+/**
+ * Log a single championship match appearance for W/L tracking.
+ *
+ * @param string   $match_key  Positional key "section:round:match" — used for idempotent deletes.
+ */
+function lgw_log_champ_appearance( $champ_id, $entry, $result, $match_date = '', $match_title = '', $shots_for = null, $shots_against = null, $match_key = '' ) {
+    global $wpdb;
+    $comma       = strrpos( $entry, ',' );
+    $players_str = $comma !== false ? substr( $entry, 0, $comma ) : $entry;
+    $club_raw    = $comma !== false ? trim( substr( $entry, $comma + 1 ) ) : '';
+    $club        = $club_raw ?: $entry;
+    $player_names = array_filter( array_map( 'trim', explode( '/', $players_str ) ) );
+    if ( empty( $player_names ) ) return;
+
+    // Normalise date to dd/mm/yyyy — fallback to today if empty or unparseable
+    $stored_date = lgw_normalise_date_dmy( $match_date );
+
+    $at = lgw_appearances_table();
+    // Log which columns exist (once per request, to diagnose migration issues)
+    static $lgw_cols_logged = false;
+    if ( !$lgw_cols_logged ) {
+        $cols = $wpdb->get_col( "SHOW COLUMNS FROM $at" );
+        error_log( "LGW_CHAMP_COLS: " . implode( ', ', $cols ) );
+        $lgw_cols_logged = true;
+    }
+    error_log( "LGW_CHAMP_LOG: entry={$entry} result={$result} champ_id={$champ_id} match_key={$match_key} match_title={$match_title} date={$stored_date}" );
+
+    foreach ( $player_names as $raw_name ) {
+        $name = lgw_clean_player_name( $raw_name );
+        if ( !$name ) continue;
+        $player_id = lgw_get_or_create_player( $club, $name );
+
+        // Count rows that will be deleted (scoped to champ_id for accurate before/after)
+        $before_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, champ_id, match_key, match_title FROM $at WHERE player_id = %d AND game_type = 'champ' AND (champ_id = %s OR champ_id IS NULL)",
+            $player_id, $champ_id
+        ) );
+        $before  = count( $before_rows );
+        $keys_in_db = array_unique( array_map( function($r){ return var_export($r->match_key, true); }, $before_rows ) );
+        error_log( "LGW_CHAMP_PRE_DELETE: player_id={$player_id} rows_to_delete={$before} keys_in_db=[" . implode(',', $keys_in_db) . "] deleting_champ_id={$champ_id} new_match_key={$match_key}" );
+
+        // Delete ALL champ rows for this player+champ_id — a player has exactly one
+        // appearance record per championship (no rink splits), so this is always safe.
+        // This also clears any malformed rows from earlier versions regardless of
+        // what was stored in match_key or match_title.
+        $del_sql  = $wpdb->prepare(
+            "DELETE FROM $at WHERE player_id = %d AND game_type = 'champ'
+              AND (champ_id = %s OR champ_id IS NULL)",
+            $player_id, $champ_id
+        );
+        $del_rows = $wpdb->query( $del_sql );
+        if ( $del_rows === false ) {
+            error_log( "LGW_CHAMP_DELETE_ERROR: " . $wpdb->last_error . " | SQL: " . $del_sql );
+        }
+
+        $ins_result = $wpdb->insert( $at, array(
+            'player_id'    => $player_id,
+            'team'         => $club,
+            'match_title'  => $match_title,
+            'match_date'   => $stored_date,
+            'rink'         => 0,
+            'scorecard_id' => 0,
+            'played_at'    => current_time( 'mysql' ),
+            'shots_for'    => $shots_for,
+            'shots_against'=> $shots_against,
+            'result'       => $result,
+            'game_type'    => 'champ',
+            'champ_id'     => $champ_id,
+            'match_key'    => $match_key ?: null,
+        ), array( '%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s','%s' ) );
+
+        $after = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM $at WHERE player_id = %d AND champ_id = %s AND game_type = 'champ'",
+            $player_id, $champ_id
+        ) );
+        error_log( "LGW_CHAMP_LOG: player_id={$player_id} name={$name} before={$before} deleted={$del_rows} inserted=" . ($ins_result === false ? 'FAIL:' . $wpdb->last_error : 'OK') . " after={$after}" );
+    }
+}
+
+/**
+ * Remove all championship appearance records for a given champ_id + match_title.
+ */
+function lgw_clear_champ_appearances( $champ_id, $match_title ) {
+    global $wpdb;
+    $at = lgw_appearances_table();
+    $wpdb->query( $wpdb->prepare(
+        "DELETE FROM $at WHERE champ_id = %s AND match_title = %s AND game_type = 'champ'",
+        $champ_id, $match_title
+    ) );
+}
+
+/**
+ * Remove all championship appearance records for a given champ_id + positional match_key.
+ * Preferred over lgw_clear_champ_appearances — key is stable across entry renames.
+ */
+function lgw_clear_champ_appearances_by_key( $champ_id, $match_key, $match_title = '' ) {
+    global $wpdb;
+    $at = lgw_appearances_table();
+    // Delete by match_title (the human-readable "A v B" string) which is always populated
+    // and immune to match_key format changes across versions.
+    // Falls back to match_key if no title supplied.
+    if ( $match_title !== '' ) {
+        $before = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ' AND match_title = %s",
+            $champ_id, $match_title
+        ) );
+        $rows = $wpdb->query( $wpdb->prepare(
+            "DELETE FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ' AND match_title = %s",
+            $champ_id, $match_title
+        ) );
+    } else {
+        // No title — fall back to deleting all rows for this champ (used when teams not yet known)
+        $before = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ'",
+            $champ_id
+        ) );
+        $rows = $wpdb->query( $wpdb->prepare(
+            "DELETE FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ'",
+            $champ_id
+        ) );
+    }
+    error_log( "LGW_CHAMP_CLEAR_KEY: champ_id={$champ_id} key={$match_key} title=" . var_export($match_title,true) . " before={$before} deleted={$rows}" );
+}
+
+/**
+ * Remove ALL championship appearance records for an entire championship.
+ * Used when a full draw reset occurs.
+ */
+function lgw_clear_all_champ_appearances( $champ_id ) {
+    global $wpdb;
+    $at = lgw_appearances_table();
+    $wpdb->query( $wpdb->prepare(
+        "DELETE FROM $at WHERE champ_id = %s AND game_type = 'champ'",
+        $champ_id
+    ) );
+}
+
+// ── AJAX: debug champ appearances (admin only, temp) ─────────────────────────
+add_action('wp_ajax_lgw_debug_champ_appearances', 'lgw_ajax_debug_champ_appearances');
+function lgw_ajax_debug_champ_appearances() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    global $wpdb;
+    $at       = lgw_appearances_table();
+    $champ_id = sanitize_key($_POST['champ_id'] ?? '');
+    $rows     = $wpdb->get_results(
+        $champ_id
+            ? $wpdb->prepare( "SELECT id, player_id, match_title, match_date, result, game_type, champ_id, match_key FROM $at WHERE champ_id = %s AND game_type = 'champ' ORDER BY id DESC LIMIT 100", $champ_id )
+            : "SELECT id, player_id, match_title, match_date, result, game_type, champ_id, match_key FROM $at WHERE game_type = 'champ' ORDER BY id DESC LIMIT 100",
+        ARRAY_A
+    );
+    // Also check if match_key column exists
+    $cols = $wpdb->get_col("SHOW COLUMNS FROM $at");
+    wp_send_json_success( array(
+        'count'           => count($rows),
+        'rows'            => $rows,
+        'columns'         => $cols,
+        'table'           => $at,
+        'last_wpdb_error' => $wpdb->last_error,
+    ) );
 }
 
 function lgw_clean_player_name($name) {
@@ -380,24 +593,41 @@ function lgw_ajax_get_player_history() {
 
     $appearances = $wpdb->get_results($wpdb->prepare(
         "SELECT a.id, a.team, a.match_title, a.match_date, a.rink, a.scorecard_id, a.played_at,
-                a.shots_for, a.shots_against, a.result, a.game_type
+                a.shots_for, a.shots_against, a.result, a.game_type, a.champ_id
          FROM $at a
          WHERE a.player_id = %d
          ORDER BY STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') DESC, a.played_at DESC",
         $player_id
     ));
 
-    // Enrich with scorecard status/division where available
+    // Pre-load championship titles for any champ appearances
+    $champ_titles = array();
+    foreach ( $appearances as $app ) {
+        if ( $app->game_type === 'champ' && $app->champ_id && !isset( $champ_titles[$app->champ_id] ) ) {
+            $champ_data = get_option( 'lgw_champ_' . $app->champ_id, array() );
+            $champ_titles[$app->champ_id] = $champ_data['title'] ?? $app->champ_id;
+        }
+    }
+
+    // Enrich with scorecard status/competition where available
     $enriched = array();
     foreach ($appearances as $app) {
         $sc_data   = $app->scorecard_id ? get_post_meta($app->scorecard_id, 'lgw_scorecard_data', true) : null;
         $sc_status = $app->scorecard_id ? get_post_meta($app->scorecard_id, 'lgw_sc_status', true) : '';
+
+        // Build competition label: championship title for champ type, division for league/cup
+        if ( $app->game_type === 'champ' ) {
+            $competition = $champ_titles[$app->champ_id] ?? '';
+        } else {
+            $competition = $sc_data['division'] ?? '';
+        }
+
         $enriched[] = array(
             'match_title'   => $app->match_title,
             'match_date'    => $app->match_date,
             'team'          => $app->team,
             'rink'          => $app->rink,
-            'division'      => $sc_data['division'] ?? '',
+            'competition'   => $competition,
             'home_score'    => $sc_data['home_total'] ?? '',
             'away_score'    => $sc_data['away_total'] ?? '',
             'shots_for'     => $app->shots_for,
@@ -406,6 +636,7 @@ function lgw_ajax_get_player_history() {
             'game_type'     => $app->game_type ?: 'league',
             'status'        => $sc_status,
             'scorecard_id'  => $app->scorecard_id,
+            'champ_id'      => $app->champ_id,
         );
     }
 
@@ -590,28 +821,56 @@ function lgw_ajax_get_player_stats() {
     // Current-season WHERE clause
     $sw = lgw_season_where();
 
-    // W / D / L counts for current season
-    $results = $wpdb->get_results($wpdb->prepare(
-        "SELECT result, COUNT(*) AS cnt
+    // Per-type W/D/L counts for current season
+    $results_raw = $wpdb->get_results($wpdb->prepare(
+        "SELECT game_type, result, COUNT(*) AS cnt
          FROM $at a
          WHERE a.player_id = %d AND a.result IS NOT NULL $sw
-         GROUP BY a.result",
+         GROUP BY a.game_type, a.result",
         $player->id
     ));
 
-    $w = $d = $l = 0;
-    foreach ($results as $r) {
-        if ($r->result === 'W') $w = (int)$r->cnt;
-        if ($r->result === 'D') $d = (int)$r->cnt;
-        if ($r->result === 'L') $l = (int)$r->cnt;
+    $stats = array(
+        'total'  => array( 'w' => 0, 'd' => 0, 'l' => 0, 'sf' => 0, 'sa' => 0 ),
+        'league' => array( 'w' => 0, 'd' => 0, 'l' => 0, 'sf' => 0, 'sa' => 0 ),
+        'cup'    => array( 'w' => 0, 'd' => 0, 'l' => 0, 'sf' => 0, 'sa' => 0 ),
+        'champ'  => array( 'w' => 0, 'd' => 0, 'l' => 0, 'sf' => 0, 'sa' => 0 ),
+    );
+    foreach ( $results_raw as $r ) {
+        $gt = in_array( $r->game_type, array( 'league', 'cup', 'champ' ) ) ? $r->game_type : 'league';
+        $key = $r->result === 'W' ? 'w' : ( $r->result === 'D' ? 'd' : 'l' );
+        $stats[$gt][$key]   += (int)$r->cnt;
+        $stats['total'][$key] += (int)$r->cnt;
     }
+
+    // Shots for/against breakdown
+    $shots_raw = $wpdb->get_results($wpdb->prepare(
+        "SELECT game_type,
+                SUM(CASE WHEN shots_for IS NOT NULL THEN shots_for ELSE 0 END) as sf,
+                SUM(CASE WHEN shots_against IS NOT NULL THEN shots_against ELSE 0 END) as sa
+         FROM $at a
+         WHERE a.player_id = %d $sw
+         GROUP BY a.game_type",
+        $player->id
+    ));
+    foreach ( $shots_raw as $sr ) {
+        $gt = in_array( $sr->game_type, array( 'league', 'cup', 'champ' ) ) ? $sr->game_type : 'league';
+        $stats[$gt]['sf'] += (int)$sr->sf;
+        $stats[$gt]['sa'] += (int)$sr->sa;
+        $stats['total']['sf'] += (int)$sr->sf;
+        $stats['total']['sa'] += (int)$sr->sa;
+    }
+
+    $w = $stats['total']['w'];
+    $d = $stats['total']['d'];
+    $l = $stats['total']['l'];
     $played = $w + $d + $l;
 
-    // Distinct teams played for this season
+    // Distinct teams played for this season (non-champ only)
     $teams = $wpdb->get_col($wpdb->prepare(
         "SELECT DISTINCT a.team
          FROM $at a
-         WHERE a.player_id = %d $sw
+         WHERE a.player_id = %d AND a.game_type != 'champ' $sw
          ORDER BY a.team ASC",
         $player->id
     ));
@@ -619,7 +878,7 @@ function lgw_ajax_get_player_stats() {
     // Individual game records for this season, newest first
     $games_raw = $wpdb->get_results($wpdb->prepare(
         "SELECT a.match_title, a.match_date, a.team, a.rink,
-                a.shots_for, a.shots_against, a.result, a.game_type
+                a.shots_for, a.shots_against, a.result, a.game_type, a.champ_id
          FROM $at a
          WHERE a.player_id = %d $sw
          ORDER BY STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') DESC, a.id DESC",
@@ -637,18 +896,20 @@ function lgw_ajax_get_player_stats() {
             'against' => $g->shots_against !== null ? (int)$g->shots_against : null,
             'result'  => $g->result,
             'type'    => $g->game_type ?: 'league',
+            'champ_id'=> $g->champ_id ?: null,
         );
     }
 
     wp_send_json_success(array(
-        'name'   => $player->name,
-        'club'   => $player->club,
-        'played' => $played,
-        'won'    => $w,
-        'drawn'  => $d,
-        'lost'   => $l,
-        'teams'  => array_values($teams),
-        'games'  => $games,
+        'name'     => $player->name,
+        'club'     => $player->club,
+        'played'   => $played,
+        'won'      => $w,
+        'drawn'    => $d,
+        'lost'     => $l,
+        'teams'    => array_values($teams),
+        'games'    => $games,
+        'stats_by_type' => $stats,
     ));
 }
 
@@ -1138,9 +1399,14 @@ function lgw_players_admin_page() {
                 }
 
                 // Calculate stats summary broken down by game type
-                var stats = { all:{apps:0,w:0,d:0,l:0,sf:0,sa:0}, league:{apps:0,w:0,d:0,l:0,sf:0,sa:0}, cup:{apps:0,w:0,d:0,l:0,sf:0,sa:0} };
+                var stats = {
+                    all:   {apps:0,w:0,d:0,l:0,sf:0,sa:0},
+                    league:{apps:0,w:0,d:0,l:0,sf:0,sa:0},
+                    cup:   {apps:0,w:0,d:0,l:0,sf:0,sa:0},
+                    champ: {apps:0,w:0,d:0,l:0,sf:0,sa:0}
+                };
                 apps.forEach(function(a) {
-                    var gt = (a.game_type === 'cup') ? 'cup' : 'league';
+                    var gt = (a.game_type === 'cup') ? 'cup' : (a.game_type === 'champ') ? 'champ' : 'league';
                     stats.all.apps++;
                     stats[gt].apps++;
                     if (a.result === 'W') { stats.all.w++; stats[gt].w++; }
@@ -1175,6 +1441,7 @@ function lgw_players_admin_page() {
                         + statRow('Total', stats.all)
                         + statRow('League', stats.league)
                         + statRow('Cup', stats.cup)
+                        + statRow('Championships', stats.champ)
                         + '</tbody></table>';
                 }
 
@@ -1182,7 +1449,7 @@ function lgw_players_admin_page() {
                     + '<p style="margin:0 0 10px;color:#555;font-size:13px">'
                     + apps.length + ' appearance' + (apps.length !== 1 ? 's' : '') + ' recorded</p>'
                     + '<table class="lgw-history-table">'
-                    + '<thead><tr><th>Date</th><th>Match</th><th>Division</th>'
+                    + '<thead><tr><th>Date</th><th>Match</th><th>Competition</th>'
                     + '<th style="text-align:center">Rink</th><th>Team</th>'
                     + '<th style="text-align:center">Rink Score</th>'
                     + '<th style="text-align:center">Result</th>'
@@ -1206,6 +1473,8 @@ function lgw_players_admin_page() {
                     }
                     var typeLabel = a.game_type === 'cup'
                         ? '<span style="font-size:10px;background:#072a82;color:#fff;border-radius:3px;padding:1px 5px;margin-left:4px">CUP</span>'
+                        : a.game_type === 'champ'
+                        ? '<span style="font-size:10px;background:#138211;color:#fff;border-radius:3px;padding:1px 5px;margin-left:4px">CHAMP</span>'
                         : '';
                     var scLink = a.scorecard_id
                         ? '<a href="' + lgwAdminUrl + 'post.php?post=' + a.scorecard_id + '&action=edit" target="_blank" title="Edit scorecard #' + a.scorecard_id + '" style="font-size:11px;color:#072a82;text-decoration:none;white-space:nowrap">#' + a.scorecard_id + ' &#8599;</a>'
@@ -1213,7 +1482,7 @@ function lgw_players_admin_page() {
                     html += '<tr>'
                         + '<td style="white-space:nowrap">' + lgwEsc(a.match_date) + '</td>'
                         + '<td>' + lgwEsc(a.match_title) + typeLabel + '</td>'
-                        + '<td>' + lgwEsc(a.division) + '</td>'
+                        + '<td>' + lgwEsc(a.competition) + '</td>'
                         + '<td style="text-align:center">' + (a.rink || '\u2014') + '</td>'
                         + '<td>' + lgwEsc(a.team) + '</td>'
                         + '<td style="text-align:center;white-space:nowrap">' + lgwEsc(rinkScoreTxt) + '</td>'
