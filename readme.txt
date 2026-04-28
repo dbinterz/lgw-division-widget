@@ -71,6 +71,9 @@ Parameters:
 
 == Changelog ==
 
+= 7.1.121 =
+* Fix: Copy as Text — away fixture scores now shown in display order (matched player score first) instead of always home–away order
+
 = 7.1.120 =
 * Fix: Section and Round columns now correctly hidden on Chromium mobile browsers — explicit th/td element selectors with !important override Chromium table layout defaults
 

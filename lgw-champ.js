@@ -1,4 +1,4 @@
-/* LGW Championships JS - v7.1.120 */
+/* LGW Championships JS - v7.1.121 */
 (function () {
   'use strict';
 
@@ -1480,8 +1480,9 @@
           var self_    = isHome ? (m.home || 'TBD') : (m.away || 'TBD');
           var line     = '  ' + escPlain(m.section) + ' · ' + escPlain(m.round) + ' · ' + escPlain(self_) + ' v ' + escPlain(opponent);
           if (mode === 'results' && m.has_result) {
-            if (isHome) line += '  (' + m.home_score + '–' + m.away_score + ')';
-            else        line += '  (' + m.home_score + '–' + m.away_score + ')';
+            var s1 = isHome ? m.home_score : m.away_score;
+            var s2 = isHome ? m.away_score : m.home_score;
+            line += '  (' + s1 + '–' + s2 + ')';
           }
           lines.push(line);
         });

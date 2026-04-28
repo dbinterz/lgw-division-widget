@@ -108,6 +108,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### 7.1.121
+- **Fix:** Copy as Text — away fixture scores now shown in display order (matched player score first) to match the name order
+
 ### 7.1.120
 - **Fix:** Section and Round columns hidden correctly on Chromium mobile — `th`/`td` element selectors with `!important` fix Chromium table layout quirk (was already working in Firefox)
 
