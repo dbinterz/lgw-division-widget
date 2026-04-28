@@ -108,6 +108,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### 7.1.118
+- **Fix:** Search modal in landscape on mobile — collapses chrome, makes entire box scrollable; sticky header and sticky export bar preserve usability without eating screen height
+
 ### 7.1.117
 - **Fix:** Match display changed to inline "A vs B" format; wraps to vertical only when needed
 - **Fix:** Section and Round `<th>` headers now also hidden on mobile, matching their hidden `<td>` cells

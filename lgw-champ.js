@@ -1,4 +1,4 @@
-/* LGW Championships JS - v7.1.117 */
+/* LGW Championships JS - v7.1.118 */
 (function () {
   'use strict';
 

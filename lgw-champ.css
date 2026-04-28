@@ -1,4 +1,4 @@
-/* LGW Championships CSS - v7.1.117 */
+/* LGW Championships CSS - v7.1.118 */
 
 /* ── Default light-mode CSS variables ──────────────────────────────────────── */
 /* These mirror the division widget defaults so the cup widget looks correct    */
@@ -1563,4 +1563,37 @@
   .lgw-champ-search-copy-btn,
   .lgw-champ-search-pdf-btn,
   .lgw-champ-search-csv-btn { flex: 1 1 40%; font-size: 12px; padding: 7px 8px; text-align: center; }
+}
+
+/* Landscape on short screens (phones rotated): collapse chrome, make whole box scroll */
+@media (max-height: 500px) and (orientation: landscape) {
+  .lgw-champ-search-modal { align-items: flex-start; padding: 8px; }
+  .lgw-champ-search-box {
+    max-height: 100%;
+    height: calc(100vh - 16px);
+    overflow-y: auto;
+    display: block;          /* drop flex column — everything scrolls as one */
+  }
+  .lgw-champ-search-header { padding: 8px 14px; position: sticky; top: 0; z-index: 1; border-radius: 10px 10px 0 0; }
+  .lgw-champ-search-title { font-size: 14px; }
+  .lgw-champ-search-hint { padding: 6px 14px 0; font-size: 11px; }
+  .lgw-champ-search-controls { padding: 6px 14px; gap: 6px; }
+  .lgw-champ-search-input { font-size: 16px; padding: 5px 9px; }
+  .lgw-champ-search-mode-btn { padding: 5px 10px; font-size: 12px; }
+  .lgw-champ-search-btn { padding: 5px 14px; font-size: 13px; }
+  .lgw-champ-search-status { padding: 4px 14px; min-height: 20px; font-size: 12px; }
+  .lgw-champ-search-results { overflow-y: visible; padding: 0 14px 6px; }
+  .lgw-champ-search-actions {
+    position: sticky;
+    bottom: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 0 0 10px 10px;
+  }
+  .lgw-champ-search-copy-btn,
+  .lgw-champ-search-pdf-btn,
+  .lgw-champ-search-csv-btn { flex: 1 1 28%; font-size: 11px; padding: 6px 6px; text-align: center; }
+  .lgw-champ-sr-section-cell,
+  .lgw-champ-sr-round { display: none; }
 }

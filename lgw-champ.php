@@ -1,6 +1,6 @@
 <?php
 /**
- * LGW National Championships - v7.1.117
+ * LGW National Championships - v7.1.118
  *
  * Single-elimination bracket competitions for singles, pairs, triples, fours.
  * Based on the cup draw system with two key differences:

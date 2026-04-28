@@ -71,6 +71,9 @@ Parameters:
 
 == Changelog ==
 
+= 7.1.118 =
+* Fix: Search modal in landscape orientation — entire modal is now a single scroll container; header and export bar remain visible via sticky positioning so screen space is not wasted
+
 = 7.1.117 =
 * Fix: Search result table now shows matches as "A vs B" inline; wraps vertically only when screen space requires it
 * Fix: Section and Round column headers are now also hidden on mobile (previously only the cells were hidden)
