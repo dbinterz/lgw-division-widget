@@ -301,44 +301,23 @@ function lgw_log_champ_appearance( $champ_id, $entry, $result, $match_date = '',
     $stored_date = lgw_normalise_date_dmy( $match_date );
 
     $at = lgw_appearances_table();
-    // Log which columns exist (once per request, to diagnose migration issues)
-    static $lgw_cols_logged = false;
-    if ( !$lgw_cols_logged ) {
-        $cols = $wpdb->get_col( "SHOW COLUMNS FROM $at" );
-        error_log( "LGW_CHAMP_COLS: " . implode( ', ', $cols ) );
-        $lgw_cols_logged = true;
-    }
-    error_log( "LGW_CHAMP_LOG: entry={$entry} result={$result} champ_id={$champ_id} match_key={$match_key} match_title={$match_title} date={$stored_date}" );
 
     foreach ( $player_names as $raw_name ) {
         $name = lgw_clean_player_name( $raw_name );
         if ( !$name ) continue;
         $player_id = lgw_get_or_create_player( $club, $name );
 
-        // Count rows that will be deleted (scoped to champ_id for accurate before/after)
-        $before_rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, champ_id, match_key, match_title FROM $at WHERE player_id = %d AND game_type = 'champ' AND (champ_id = %s OR champ_id IS NULL)",
-            $player_id, $champ_id
-        ) );
-        $before  = count( $before_rows );
-        $keys_in_db = array_unique( array_map( function($r){ return var_export($r->match_key, true); }, $before_rows ) );
-        error_log( "LGW_CHAMP_PRE_DELETE: player_id={$player_id} rows_to_delete={$before} keys_in_db=[" . implode(',', $keys_in_db) . "] deleting_champ_id={$champ_id} new_match_key={$match_key}" );
-
         // Delete ALL champ rows for this player+champ_id — a player has exactly one
         // appearance record per championship (no rink splits), so this is always safe.
-        // This also clears any malformed rows from earlier versions regardless of
-        // what was stored in match_key or match_title.
-        $del_sql  = $wpdb->prepare(
+        // Also clears any malformed rows from earlier versions regardless of what was
+        // stored in match_key or match_title.
+        $wpdb->query( $wpdb->prepare(
             "DELETE FROM $at WHERE player_id = %d AND game_type = 'champ'
               AND (champ_id = %s OR champ_id IS NULL)",
             $player_id, $champ_id
-        );
-        $del_rows = $wpdb->query( $del_sql );
-        if ( $del_rows === false ) {
-            error_log( "LGW_CHAMP_DELETE_ERROR: " . $wpdb->last_error . " | SQL: " . $del_sql );
-        }
+        ) );
 
-        $ins_result = $wpdb->insert( $at, array(
+        $wpdb->insert( $at, array(
             'player_id'    => $player_id,
             'team'         => $club,
             'match_title'  => $match_title,
@@ -353,12 +332,6 @@ function lgw_log_champ_appearance( $champ_id, $entry, $result, $match_date = '',
             'champ_id'     => $champ_id,
             'match_key'    => $match_key ?: null,
         ), array( '%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s','%s' ) );
-
-        $after = $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM $at WHERE player_id = %d AND champ_id = %s AND game_type = 'champ'",
-            $player_id, $champ_id
-        ) );
-        error_log( "LGW_CHAMP_LOG: player_id={$player_id} name={$name} before={$before} deleted={$del_rows} inserted=" . ($ins_result === false ? 'FAIL:' . $wpdb->last_error : 'OK') . " after={$after}" );
     }
 }
 
@@ -383,28 +356,18 @@ function lgw_clear_champ_appearances_by_key( $champ_id, $match_key, $match_title
     $at = lgw_appearances_table();
     // Delete by match_title (the human-readable "A v B" string) which is always populated
     // and immune to match_key format changes across versions.
-    // Falls back to match_key if no title supplied.
     if ( $match_title !== '' ) {
-        $before = $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ' AND match_title = %s",
-            $champ_id, $match_title
-        ) );
-        $rows = $wpdb->query( $wpdb->prepare(
+        $wpdb->query( $wpdb->prepare(
             "DELETE FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ' AND match_title = %s",
             $champ_id, $match_title
         ) );
     } else {
-        // No title — fall back to deleting all rows for this champ (used when teams not yet known)
-        $before = $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ'",
-            $champ_id
-        ) );
-        $rows = $wpdb->query( $wpdb->prepare(
+        // No title — delete all rows for this champ (used when teams not yet known)
+        $wpdb->query( $wpdb->prepare(
             "DELETE FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ'",
             $champ_id
         ) );
     }
-    error_log( "LGW_CHAMP_CLEAR_KEY: champ_id={$champ_id} key={$match_key} title=" . var_export($match_title,true) . " before={$before} deleted={$rows}" );
 }
 
 /**
@@ -420,29 +383,6 @@ function lgw_clear_all_champ_appearances( $champ_id ) {
     ) );
 }
 
-// ── AJAX: debug champ appearances (admin only, temp) ─────────────────────────
-add_action('wp_ajax_lgw_debug_champ_appearances', 'lgw_ajax_debug_champ_appearances');
-function lgw_ajax_debug_champ_appearances() {
-    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
-    global $wpdb;
-    $at       = lgw_appearances_table();
-    $champ_id = sanitize_key($_POST['champ_id'] ?? '');
-    $rows     = $wpdb->get_results(
-        $champ_id
-            ? $wpdb->prepare( "SELECT id, player_id, match_title, match_date, result, game_type, champ_id, match_key FROM $at WHERE champ_id = %s AND game_type = 'champ' ORDER BY id DESC LIMIT 100", $champ_id )
-            : "SELECT id, player_id, match_title, match_date, result, game_type, champ_id, match_key FROM $at WHERE game_type = 'champ' ORDER BY id DESC LIMIT 100",
-        ARRAY_A
-    );
-    // Also check if match_key column exists
-    $cols = $wpdb->get_col("SHOW COLUMNS FROM $at");
-    wp_send_json_success( array(
-        'count'           => count($rows),
-        'rows'            => $rows,
-        'columns'         => $cols,
-        'table'           => $at,
-        'last_wpdb_error' => $wpdb->last_error,
-    ) );
-}
 
 function lgw_clean_player_name($name) {
     // Strip trailing asterisks (e.g. "SJ Curran*") and extra whitespace

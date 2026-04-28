@@ -170,7 +170,6 @@ function lgw_ajax_champ_save_score() {
         $match_pos_key   = $section . ':' . $round_idx . ':' . $match_idx;
         $match_title_log = $home_entry . ' v ' . $away_entry; // for display in history modal
 
-        error_log( "LGW_CHAMP_SAVE_SCORE: champ_id={$champ_id} section={$section} round={$round_idx} match={$match_idx} home_score=" . var_export($home_score,true) . " away_score=" . var_export($away_score,true) . " home={$home_entry} away={$away_entry} pos_key={$match_pos_key}" );
 
         if ( $home_score !== null && $away_score !== null && $home_entry && $away_entry ) {
             // Score being set: always wipe existing appearances for this position first,

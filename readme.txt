@@ -71,6 +71,10 @@ Parameters:
 
 == Changelog ==
 
+= 7.1.132 =
+* Fix: championship appearance delete now correctly wipes all rows for player+champ_id — resolves duplicate appearances on re-save and failed clears caused by match_key format inconsistencies across earlier versions
+* Removed all temporary debug logging
+
 = 7.1.126 =
 * Fix: championship appearance delete now clears both new (match_key) and legacy (match_key IS NULL) rows — prevents duplicates on re-save for existing data
 * lgw_clear_champ_appearances_by_key() now accepts optional match_title to wipe legacy rows in the same query
