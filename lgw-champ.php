@@ -1404,6 +1404,8 @@ function lgw_champ_handle_admin_actions() {
 
         $dates_raw   = sanitize_textarea_field($_POST['lgw_champ_dates'] ?? '');
         $dates       = array_values(array_filter(array_map('trim', explode("\n", $dates_raw))));
+        $rounds_raw  = sanitize_textarea_field(wp_unslash($_POST['lgw_champ_rounds'] ?? ''));
+        $rounds_labels = array_values(array_filter(array_map('trim', explode("\n", $rounds_raw))));
         $multi_green = sanitize_textarea_field(wp_unslash($_POST['lgw_champ_multi_green'] ?? ''));
 
         // Rebuild sections only if entries changed and no draw in progress
@@ -1422,6 +1424,7 @@ function lgw_champ_handle_admin_actions() {
             'entries'        => $entries,
             'sections'       => $sections,
             'dates'          => $dates,
+            'rounds'         => $rounds_labels,
             'multi_green'    => $multi_green,
             'stats_eligible' => isset($_POST['lgw_champ_stats_eligible']) ? 1 : 0,
         ));
@@ -1439,14 +1442,23 @@ function lgw_champ_handle_admin_actions() {
             $sec_dates = $sec_dates_raw
                 ? array_values(array_filter(array_map('trim', explode("\n", $sec_dates_raw))))
                 : $dates;
-            // Sync into section bracket if drawn
+            // Sync dates into section bracket if drawn
             $bracket_key = 'section_' . $idx . '_bracket';
             if (!empty($champ_data[$bracket_key])) {
                 $champ_data[$bracket_key]['dates'] = $sec_dates;
+                // Sync round labels into section bracket if count matches
+                $bracket_round_count = count($champ_data[$bracket_key]['rounds'] ?? array());
+                if (!empty($rounds_labels) && count($rounds_labels) === $bracket_round_count) {
+                    $champ_data[$bracket_key]['rounds'] = $rounds_labels;
+                }
             }
             // Sync into final stage bracket if drawn
             if (!empty($champ_data['final_bracket'])) {
                 $champ_data['final_bracket']['dates'] = $dates;
+                $final_round_count = count($champ_data['final_bracket']['rounds'] ?? array());
+                if (!empty($rounds_labels) && count($rounds_labels) === $final_round_count) {
+                    $champ_data['final_bracket']['rounds'] = $rounds_labels;
+                }
             }
         }
 
@@ -1843,6 +1855,7 @@ function lgw_champ_edit_page($champ_id) {
 
     $entries_str = implode("\n", $champ['entries'] ?? array());
     $dates_str   = implode("\n", $champ['dates']   ?? array());
+    $rounds_str  = implode("\n", $champ['rounds']  ?? array());
     $sections    = $champ['sections'] ?? array();
     $disciplines = array('singles' => 'Singles', 'pairs' => 'Pairs', 'triples' => 'Triples', 'fours' => 'Fours');
     ?>
@@ -1986,6 +1999,25 @@ function lgw_champ_edit_page($champ_id) {
                       style="width:360px;font-family:monospace;font-size:13px"
                       placeholder="One date per line (optional)&#10;01/05/2025&#10;05/06/2025"><?php echo esc_textarea($dates_str); ?></textarea>
             <p class="description">Used when no per-section dates are set. One date per line aligned with round order.</p>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="lgw_champ_rounds">Round Labels</label></th>
+          <td>
+            <textarea id="lgw_champ_rounds" name="lgw_champ_rounds" rows="5"
+                      style="width:360px;font-family:monospace;font-size:13px"
+                      placeholder="One label per line (optional)&#10;Preliminary&#10;Round 1&#10;Quarter Final&#10;Semi-Final&#10;Final"><?php echo esc_textarea($rounds_str); ?></textarea>
+            <p class="description">
+              Custom names for each round in order — overrides the auto-generated labels (Round 1, Quarter Final, etc.).<br>
+              Must have exactly the right number of lines to take effect. The draw will show the count needed once the entries are set.<br>
+              <?php
+              $sample_n = count($champ['entries'] ?? array());
+              if ($sample_n >= 2) {
+                  $needed = count(lgw_draw_default_rounds($sample_n));
+                  echo '<strong>Rounds needed for ' . $sample_n . ' entries: ' . $needed . '</strong>';
+              }
+              ?>
+            </p>
           </td>
         </tr>
         <tr>

@@ -320,7 +320,6 @@
 .lgw-champ-round--current .lgw-champ-round-date {
   color: rgba(255,255,255,.85);
 }
-/* Final + current: keep gold text */
 .lgw-champ-round-final.lgw-champ-round--current .lgw-champ-round-header {
   background: var(--lgw-navy, #1a2e5a);
   color: var(--lgw-gold, #e8b400);

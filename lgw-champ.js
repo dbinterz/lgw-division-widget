@@ -226,7 +226,6 @@
   }
 
   // ── Current-round helpers ─────────────────────────────────────────────────────
-  // Parse "d/m/yy" or "d/m/yyyy" → midnight timestamp (ms), or null.
   function parseChampDate(s) {
     if (!s) return null;
     var m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
@@ -234,12 +233,6 @@
     var y = parseInt(m[3], 10); if (y < 100) y += 2000;
     return new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10)).getTime();
   }
-
-  // Return the index of the "current" round:
-  //   1. First round whose date >= today (upcoming/current round).
-  //   2. If all dates are in the past → last round.
-  //   3. If no dates → first round with any incomplete match.
-  //   4. Fallback: 0.
   function findCurrentRound(rounds, matches, dates) {
     var today = new Date(); today.setHours(0,0,0,0); today = today.getTime();
     if (dates && dates.length) {
@@ -271,7 +264,6 @@
     var dates         = data.dates   || [];
     var statsEligible = wrap && wrap.dataset && wrap.dataset.statsEligible === '1';
 
-    // Determine which round is "current" for highlight / auto-scroll
     var currentRound = findCurrentRound(rounds, matches, dates);
 
     // ── Mobile tabs
@@ -454,12 +446,10 @@
         }, { root: bracketOuter, threshold: 0.5 });
         qsa('.lgw-champ-round', bracketEl).forEach(function (r) { observer.observe(r); });
       }
-      // Auto-scroll to current round on load (deferred so layout is complete)
       if (currentRound > 0) {
         setTimeout(function () { scrollToRound(currentRound); }, 80);
       }
     }
-    // Expose a method so external callers (section tabs) can re-trigger the scroll
     wrap._lgwScrollToCurrentRound = function () {
       setTimeout(function () { scrollToRound(currentRound); }, 80);
     };
@@ -1824,10 +1814,9 @@
         var pane = outer.querySelector('.lgw-champ-section-pane[data-section="' + btn.dataset.section + '"]');
         if (pane) {
           pane.classList.add('active');
-          // Reset mobile bracket to current round now that the pane is visible
-          var wrap = pane.querySelector('.lgw-champ-wrap');
-          if (wrap && typeof wrap._lgwScrollToCurrentRound === 'function') {
-            wrap._lgwScrollToCurrentRound();
+          var paneWrap = pane.querySelector('.lgw-champ-wrap');
+          if (paneWrap && typeof paneWrap._lgwScrollToCurrentRound === 'function') {
+            paneWrap._lgwScrollToCurrentRound();
           }
         }
         sessionStorage.setItem(storageKey, btn.dataset.section);
