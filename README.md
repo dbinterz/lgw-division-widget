@@ -107,6 +107,11 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.28
+- **Group Championships (draw fix):** The repair pass now iterates across all violations in each pass rather than aborting on the first one it can't immediately fix. The old `break` meant that if violation #1 was temporarily stuck (because violations #2 and #3 were blocking the swap candidates), the repair gave up entirely — leaving 3 Falls entries in one group even though a solution existed. The loop now continues to violations #2 and #3, fixing those first, then picks up violation #1 in the next pass.
+- Swap safety check now correctly simulates group state after removal before testing for new conflicts.
+- Removed redundant `shuffle()` before `distribute_to_groups` call.
+
 ### v7.2.27
 - **Group Championships (draw fix):** Fixed the root cause of same-club entries landing in the same group. The placement phase now explicitly separates groups into *clean* (zero same-club entries) and *dirty* (one or more), and only considers dirty groups when no clean group with space exists. The previous sort-based approach ('fewest same-club, tiebreak by most space') would still route both entries from a 2-entry club into the largest group because the tiebreaker favoured the roomiest group, which was the same one the first entry had just entered.
 

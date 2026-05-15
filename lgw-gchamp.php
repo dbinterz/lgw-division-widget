@@ -1797,7 +1797,7 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
     // Step 4: within each day split into groups
     $days=array();
     foreach ($days_config as $di=>$day_cfg) {
-        $day_pool=$day_entries_pool[$di]; shuffle($day_pool);
+        $day_pool=$day_entries_pool[$di];
         $tgs=max(2,intval($day_cfg['target_group_size']??4));
         $n_day=count($day_pool);
         $num_groups=max(1,(int)ceil($n_day/$tgs));
@@ -2105,66 +2105,68 @@ function lgw_gchamp_distribute_to_groups(
     }
 
     // ── Step 3: repair — fix any groups that ended up with >1 from same club ──
-    // Find all violations and try to fix via swaps.
-    $max_repair = count( $pool ) * 3;
+    // Repeatedly scan for violations and fix via move or swap.
+    // Only stop when a full pass makes zero fixes (genuinely stuck).
+    $max_repair = count( $pool ) * 4;
     for ( $r = 0; $r < $max_repair; $r++ ) {
-        // Find a violation: a group with two entries from the same club
-        $violation = null;
+        $fixed_this_pass = false;
+
         foreach ( $group_indices as $gi ) {
+            // Find first club with >1 entry in this group
             $clubs_seen = array();
+            $violation  = null;
             foreach ( $group_entries[$gi] as $idx => $e ) {
                 $c = lgw_gchamp_entry_club( $e );
                 if ( isset( $clubs_seen[$c] ) ) {
                     $violation = array( 'gi' => $gi, 'idx' => $idx, 'entry' => $e, 'club' => $c );
-                    break 2;
+                    break;
                 }
                 $clubs_seen[$c] = true;
             }
-        }
-        if ( $violation === null ) break; // all clean
+            if ( $violation === null ) continue; // this group is clean
 
-        // Try to swap the violating entry into another group
-        $fixed = false;
-        $vgi   = $violation['gi'];
-        $ve    = $violation['entry'];
-        $vc    = $violation['club'];
+            $vgi = $violation['gi'];
+            $ve  = $violation['entry'];
+            $vc  = $violation['club'];
 
-        $candidates = $group_indices;
-        shuffle( $candidates );
-        foreach ( $candidates as $tgi ) {
-            if ( $tgi === $vgi ) continue;
-            // Can we just move ve to tgi?
-            if ( count( $group_entries[$tgi] ) < $sizes[$tgi]
-                && lgw_gchamp_count_club_in_group( $vc, $group_entries[$tgi] ) === 0 ) {
-                // Simple move: tgi has space and no same-club conflict
-                array_splice( $group_entries[$vgi], $violation['idx'], 1 );
-                $group_entries[$tgi][] = $ve;
-                $fixed = true;
-                break;
-            }
-            // Try swap: exchange ve with an entry from tgi that has no conflict in vgi
-            foreach ( $group_entries[$tgi] as $tidx => $te ) {
-                $tc = lgw_gchamp_entry_club( $te );
-                if ( $tc === $vc ) continue; // swapping same-club doesn't help
-                // te must not cause a new violation in vgi
-                if ( lgw_gchamp_count_club_in_group( $tc, $group_entries[$vgi] ) > 0 ) continue;
-                // ve must not cause a new violation in tgi
-                if ( lgw_gchamp_count_club_in_group( $vc, $group_entries[$tgi] ) > 0 ) {
-                    // te itself is the one same-club — only ok if we're removing te
-                    $tmp = $group_entries[$tgi];
-                    array_splice( $tmp, $tidx, 1 );
-                    if ( lgw_gchamp_count_club_in_group( $vc, $tmp ) > 0 ) continue;
+            $targets = $group_indices;
+            shuffle( $targets );
+            foreach ( $targets as $tgi ) {
+                if ( $tgi === $vgi ) continue;
+
+                // Option A: simple move — tgi has space and no same-club conflict
+                if ( count( $group_entries[$tgi] ) < $sizes[$tgi]
+                    && lgw_gchamp_count_club_in_group( $vc, $group_entries[$tgi] ) === 0 ) {
+                    array_splice( $group_entries[$vgi], $violation['idx'], 1 );
+                    $group_entries[$tgi][] = $ve;
+                    $fixed_this_pass = true;
+                    break;
                 }
-                // Do the swap
-                array_splice( $group_entries[$vgi], $violation['idx'], 1 );
-                array_splice( $group_entries[$tgi], $tidx, 1 );
-                $group_entries[$vgi][] = $te;
-                $group_entries[$tgi][] = $ve;
-                $fixed = true;
-                break 2;
+
+                // Option B: swap ve with an entry from tgi that won't create a new violation
+                foreach ( $group_entries[$tgi] as $tidx => $te ) {
+                    $tc = lgw_gchamp_entry_club( $te );
+                    if ( $tc === $vc ) continue; // same club — no help
+                    // te must not conflict in vgi (after ve is removed)
+                    $vgi_after = $group_entries[$vgi];
+                    array_splice( $vgi_after, $violation['idx'], 1 );
+                    if ( lgw_gchamp_count_club_in_group( $tc, $vgi_after ) > 0 ) continue;
+                    // ve must not conflict in tgi (after te is removed)
+                    $tgi_after = $group_entries[$tgi];
+                    array_splice( $tgi_after, $tidx, 1 );
+                    if ( lgw_gchamp_count_club_in_group( $vc, $tgi_after ) > 0 ) continue;
+                    // Safe — do the swap
+                    array_splice( $group_entries[$vgi], $violation['idx'], 1 );
+                    array_splice( $group_entries[$tgi], $tidx, 1 );
+                    $group_entries[$vgi][] = $te;
+                    $group_entries[$tgi][] = $ve;
+                    $fixed_this_pass = true;
+                    break 2;
+                }
             }
         }
-        if ( ! $fixed ) break; // can't fix further — genuinely impossible given club distribution
+
+        if ( ! $fixed_this_pass ) break; // full pass with no progress — genuinely stuck
     }
 
     // ── Step 4: place any entries that still couldn't be seated ───────────────
