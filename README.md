@@ -107,6 +107,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.27
+- **Group Championships (draw fix):** Fixed the root cause of same-club entries landing in the same group. The placement phase now explicitly separates groups into *clean* (zero same-club entries) and *dirty* (one or more), and only considers dirty groups when no clean group with space exists. The previous sort-based approach ('fewest same-club, tiebreak by most space') would still route both entries from a 2-entry club into the largest group because the tiebreaker favoured the roomiest group, which was the same one the first entry had just entered.
+
 ### v7.2.26
 - **Group Championships:** Rewrote `lgw_gchamp_distribute_to_groups` with a three-phase approach: (1) **constraint-first sort** — entries from the largest clubs are placed first to avoid painting into a corner; (2) **club-spread placement** — each entry goes into the group with the fewest same-club members already placed; (3) **repair pass** — after initial placement, any group with two entries from the same club is fixed by swapping one entry with a suitable entry from another group. The fallback cap-violation warning now only fires if violations remain after all repair attempts are exhausted (genuinely impossible to fix given the club distribution).
 

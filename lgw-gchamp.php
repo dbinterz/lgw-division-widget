@@ -2063,28 +2063,40 @@ function lgw_gchamp_distribute_to_groups(
         return $diff !== 0 ? $diff : rand( -1, 1 ); // shuffle within same-size clubs
     } );
 
-    // ── Step 2: place entries one at a time, preferring groups with fewest ────
-    // same-club entries already placed (spreading the club out).
+    // ── Step 2: place entries one at a time, spreading clubs across groups ────
+    // For each entry, prefer groups that have NO same-club entries yet.
+    // Only consider groups that already have same-club entries if every group
+    // with space already has at least one from this club (truly unavoidable).
     $unplaced = array();
     foreach ( $pool as $entry ) {
         $club  = lgw_gchamp_entry_club( $entry );
-        $order = $group_indices;
 
-        // Sort candidate groups: fewest same-club entries first, then most space
-        usort( $order, function( $a, $b ) use ( $club, $group_entries, $sizes ) {
-            $ca = lgw_gchamp_count_club_in_group( $club, $group_entries[$a] );
-            $cb = lgw_gchamp_count_club_in_group( $club, $group_entries[$b] );
-            if ( $ca !== $cb ) return $ca - $cb;
-            // tie-break: group with more remaining space
+        // Partition candidate groups into clean (0 same-club) and dirty (≥1 same-club)
+        $clean = array();
+        $dirty = array();
+        foreach ( $group_indices as $gi ) {
+            if ( count( $group_entries[$gi] ) >= $sizes[$gi] ) continue; // full
+            if ( lgw_gchamp_count_club_in_group( $club, $group_entries[$gi] ) === 0 ) {
+                $clean[] = $gi;
+            } else {
+                $dirty[] = $gi;
+            }
+        }
+
+        // Use clean groups first; fall back to dirty only if no clean group has space
+        $candidates = ! empty( $clean ) ? $clean : $dirty;
+
+        // Within candidates, prefer the group with the most remaining space
+        // (spreads entries evenly while keeping club separation)
+        usort( $candidates, function( $a, $b ) use ( $sizes, $group_entries ) {
             $sa = $sizes[$a] - count( $group_entries[$a] );
             $sb = $sizes[$b] - count( $group_entries[$b] );
-            return $sb - $sa;
+            if ( $sa !== $sb ) return $sb - $sa;
+            return rand( -1, 1 );
         } );
 
         $placed = false;
-        foreach ( $order as $gi ) {
-            if ( count( $group_entries[$gi] ) >= $sizes[$gi] ) continue;
-            // Prefer groups with 0 same-club entries; accept 1+ only if unavoidable
+        foreach ( $candidates as $gi ) {
             $group_entries[$gi][] = $entry;
             $placed = true;
             break;
