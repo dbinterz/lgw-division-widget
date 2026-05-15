@@ -107,6 +107,15 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.21
+- **Group Championships:** Preferred venue in entry preferences is now a dropdown of the locations set on each competition day, replacing the free-text input. Values are exact matches, consistent with how date preferences work.
+
+### v7.2.20
+- **Group Championships:** Added `Location` field to each competition day — stored in `days_config` and carried through to drawn day data.
+- **Group Championships:** New **Preference Settings** panel on the edit page — toggle which preference factors (Date, Location) are enabled for each championship. Only active fields appear in the entry preferences table.
+- **Group Championships:** Entry preferences now support both `date` and `location` (venue name, plain text). Legacy date-only string preferences are automatically migrated to the new array format on next save.
+- **Group Championships:** Draw algorithm extended to respect location preferences: after date allocation, entries are distributed across same-date days by matching their venue preference to each day's `location` field (fuzzy substring match). Unmatched entries fall through to random placement as before.
+
 ### v7.2.19
 - Fix: Saving a scorecard via the WP post editor "Update" button (reached via the player admin modal link) now correctly syncs score overrides and re-logs appearances, matching the behaviour of the dedicated admin edit form.
 - New: Custom round labels for championship brackets (Round Labels textarea in admin, synced to drawn brackets on save).

@@ -67,12 +67,14 @@ function lgw_gchamp_handle_admin_actions() {
         $day_wpg_post   = $_POST['lgw_gchamp_day_wpg']   ?? array();
         $day_bru_post   = $_POST['lgw_gchamp_day_bru']   ?? array();
 
-        $day_kobs_post = $_POST['lgw_gchamp_day_kobs'] ?? array();
+        $day_kobs_post     = $_POST['lgw_gchamp_day_kobs']      ?? array();
+        $day_locations_post = $_POST['lgw_gchamp_day_locations'] ?? array();
         for ( $i = 0; $i < $num_days; $i++ ) {
             $days_config[] = array(
                 'id'                => $i,
                 'name'              => sanitize_text_field( wp_unslash( $day_names_post[$i] ?? ( 'Day ' . ( $i + 1 ) ) ) ),
                 'date'              => sanitize_text_field( wp_unslash( $day_dates_post[$i] ?? '' ) ),
+                'location'          => sanitize_text_field( wp_unslash( $day_locations_post[$i] ?? '' ) ),
                 'target_group_size' => max( 2, intval( $day_tgs_post[$i]  ?? 4 ) ),
                 'winners_per_group' => max( 1, intval( $day_wpg_post[$i]  ?? 1 ) ),
                 'best_runners_up'   => max( 0, intval( $day_bru_post[$i]  ?? 0 ) ),
@@ -80,16 +82,29 @@ function lgw_gchamp_handle_admin_actions() {
             );
         }
 
-        // ── Entry date preferences ────────────────────────────────────────────
-        $pref_raw          = $_POST['lgw_gchamp_entry_prefs'] ?? array();
+        // ── Preference fields setting ─────────────────────────────────────────
+        $preference_fields_raw = $_POST['lgw_gchamp_pref_fields'] ?? array();
+        $allowed_pref_fields   = array( 'date', 'location' );
+        $preference_fields     = array_values( array_intersect( (array) $preference_fields_raw, $allowed_pref_fields ) );
+
+        // ── Entry preferences (multi-field) ───────────────────────────────────
+        $pref_date_raw     = $_POST['lgw_gchamp_entry_pref_date']     ?? array();
+        $pref_location_raw = $_POST['lgw_gchamp_entry_pref_location'] ?? array();
         $entry_preferences = array();
         foreach ( $entries as $entry ) {
-            $pref = sanitize_text_field( wp_unslash( $pref_raw[ md5( $entry ) ] ?? '' ) );
-            if ( $pref !== '' ) $entry_preferences[ $entry ] = $pref;
+            $key   = md5( $entry );
+            $pdata = array();
+            $pd    = sanitize_text_field( wp_unslash( $pref_date_raw[ $key ]     ?? '' ) );
+            $pl    = sanitize_text_field( wp_unslash( $pref_location_raw[ $key ] ?? '' ) );
+            if ( $pd !== '' ) $pdata['date']     = $pd;
+            if ( $pl !== '' ) $pdata['location'] = $pl;
+            if ( ! empty( $pdata ) ) $entry_preferences[ $entry ] = $pdata;
         }
+        // Merge/preserve any existing preferences not overwritten (handles entries not in POST)
         foreach ( ( $existing['entry_preferences'] ?? array() ) as $e => $p ) {
             if ( in_array( $e, $entries, true ) && ! isset( $entry_preferences[ $e ] ) ) {
-                $entry_preferences[ $e ] = $p;
+                // Migrate legacy string (old date-only) to new array format
+                $entry_preferences[ $e ] = is_array( $p ) ? $p : array( 'date' => $p );
             }
         }
 
@@ -101,6 +116,7 @@ function lgw_gchamp_handle_admin_actions() {
             'discipline'           => sanitize_text_field( $_POST['lgw_gchamp_discipline']             ?? 'singles' ),
             'season'               => sanitize_text_field( wp_unslash( $_POST['lgw_gchamp_season']     ?? '' ) ),
             'entries'              => $entries,
+            'preference_fields'    => $preference_fields,
             'entry_preferences'    => $entry_preferences,
             'dates'                => $dates,
             'stats_eligible'       => isset( $_POST['lgw_gchamp_stats_eligible'] ) ? 1 : 0,
@@ -484,6 +500,7 @@ function lgw_gchamp_edit_page( $champ_id ) {
             <th style="width:32px">#</th>
             <th style="min-width:120px">Day name</th>
             <th style="width:105px">Play date</th>
+            <th style="min-width:120px">Location</th>
             <th style="width:80px">Target<br>group size</th>
             <th style="width:75px">Winners/<br>group</th>
             <th style="width:75px">Best<br>runners-up</th>
@@ -504,6 +521,9 @@ function lgw_gchamp_edit_page( $champ_id ) {
             <td><input type="text" name="lgw_gchamp_day_dates[<?php echo $di;?>]"
                        value="<?php echo esc_attr($day['date']??''); ?>"
                        placeholder="dd/mm/yyyy" class="small-text" style="width:96px"></td>
+            <td><input type="text" name="lgw_gchamp_day_locations[<?php echo $di;?>]"
+                       value="<?php echo esc_attr($day['location']??''); ?>"
+                       placeholder="e.g. Greenacres BC" class="regular-text lgw-gchamp-day-location" style="width:140px"></td>
             <td><input type="number" name="lgw_gchamp_day_tgs[<?php echo $di;?>]"
                        value="<?php echo $tgs; ?>" min="2" max="20" step="1"
                        class="small-text lgw-gchamp-day-tgs" style="width:58px" <?php echo $drawn?'readonly':''; ?>></td>
@@ -523,53 +543,139 @@ function lgw_gchamp_edit_page( $champ_id ) {
     <?php if(!$drawn):?><p style="margin-top:8px"><button type="button" id="lgw-gchamp-add-day" class="button button-secondary">+ Add Day</button></p><?php endif;?>
 
     <?php
-    // ── Date preference panel ─────────────────────────────────────────────────
-    $all_day_dates  = array_values( array_filter( array_column( $days_config, 'date' ) ) );
-    $unique_dates   = array_values( array_unique( $all_day_dates ) );
-    $cur_entries    = array_values( array_filter( array_map( 'trim', explode( "\n", $entries_str ) ) ) );
-    $exist_prefs    = $champ['entry_preferences'] ?? array();
-    if ( ! empty($cur_entries) && ! empty($unique_dates) ):
+    // ── Preference settings + entry preferences panel ─────────────────────────
+    $cur_entries       = array_values( array_filter( array_map( 'trim', explode( "\n", $entries_str ) ) ) );
+    $exist_prefs       = $champ['entry_preferences'] ?? array();
+    $pref_fields       = $champ['preference_fields'] ?? array( 'date' ); // default: date only (BC)
+    $use_date_pref     = in_array( 'date',     $pref_fields, true );
+    $use_location_pref = in_array( 'location', $pref_fields, true );
+    $all_day_dates     = array_values( array_filter( array_column( $days_config, 'date' ) ) );
+    $unique_dates      = array_values( array_unique( $all_day_dates ) );
+    $all_day_locations = array_values( array_filter( array_column( $days_config, 'location' ) ) );
+    $unique_locations  = array_values( array_unique( $all_day_locations ) );
+    // Migrate any legacy string prefs to array format for display
+    $exist_prefs_arr = array();
+    foreach ( $exist_prefs as $e => $p ) {
+        $exist_prefs_arr[$e] = is_array($p) ? $p : array('date'=>$p);
+    }
+    $any_pref_set = false;
+    foreach ( $cur_entries as $e ) { if (!empty($exist_prefs_arr[$e])) { $any_pref_set=true; break; } }
     ?>
     <hr style="margin:24px 0">
-    <h2 style="color:#072a82;margin-bottom:4px">🗓 Date Preferences</h2>
-    <details <?php echo !empty($exist_prefs)?'open':'';?>>
+    <h2 style="color:#072a82;margin-bottom:4px">⚙️ Preference Settings</h2>
+    <p style="color:#555;font-size:13px;margin-top:0">
+        Choose which data points entries can express a preference for when the draw is run.
+        Only fields ticked here will appear in the entry preferences table.
+    </p>
+    <table class="form-table" style="max-width:600px">
+        <tr><th style="padding-top:12px;font-weight:600">Active preference fields</th>
+        <td>
+            <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px">
+                <input type="checkbox" name="lgw_gchamp_pref_fields[]" value="date"
+                       id="lgw-pref-field-date"
+                       <?php checked($use_date_pref,true);?>
+                       onchange="lgwUpdatePrefTable()">
+                <span>
+                    <strong>Date</strong><br>
+                    <span style="font-size:12px;color:#666">Entry can prefer a specific play date. The draw will try to place them on a day with that date.</span>
+                </span>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:8px">
+                <input type="checkbox" name="lgw_gchamp_pref_fields[]" value="location"
+                       id="lgw-pref-field-location"
+                       <?php checked($use_location_pref,true);?>
+                       onchange="lgwUpdatePrefTable()">
+                <span>
+                    <strong>Location</strong><br>
+                    <span style="font-size:12px;color:#666">Entry can express a preferred venue. Set each day's <em>Location</em> field above, then entries can request a specific venue. The draw respects this after date preferences.</span>
+                </span>
+            </label>
+        </td></tr>
+    </table>
+
+    <?php if ( ! empty($cur_entries) && ( ! empty($unique_dates) || ! empty($unique_locations) ) ):?>
+    <hr style="margin:24px 0">
+    <h2 style="color:#072a82;margin-bottom:4px">🗓 Entry Preferences</h2>
+    <details id="lgw-gchamp-prefs-details" <?php echo $any_pref_set?'open':'';?>>
         <summary style="cursor:pointer;font-weight:600;color:#072a82;margin-bottom:8px;user-select:none">
             <?php
-            $sc=0; foreach($cur_entries as $e){if(!empty($exist_prefs[$e]))$sc++;}
-            echo $sc>0?esc_html($sc).' of '.count($cur_entries).' preferences set — click to edit':'Set date preferences (optional)';
+            $sc=0; foreach($cur_entries as $e){if(!empty($exist_prefs_arr[$e]))$sc++;}
+            echo $sc>0?esc_html($sc).' of '.count($cur_entries).' preferences set — click to edit':'Set entry preferences (optional)';
             ?>
         </summary>
         <div style="margin-top:8px">
-            <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <div id="lgw-gchamp-prefs-toolbar" style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <button type="button" id="lgw-gchamp-prefs-clear-all" class="button button-small">Clear all</button>
-                <?php foreach($unique_dates as $ud):?>
-                <button type="button" class="button button-small lgw-gchamp-prefs-bulk" data-date="<?php echo esc_attr($ud);?>">All → <?php echo esc_html($ud);?></button>
-                <?php endforeach;?>
+                <?php if($use_date_pref): foreach($unique_dates as $ud):?>
+                <button type="button" class="button button-small lgw-gchamp-prefs-bulk-date" data-date="<?php echo esc_attr($ud);?>">All date → <?php echo esc_html($ud);?></button>
+                <?php endforeach; endif;?>
+                <?php if($use_location_pref): foreach($unique_locations as $ul):?>
+                <button type="button" class="button button-small lgw-gchamp-prefs-bulk-loc" data-loc="<?php echo esc_attr($ul);?>">All venue → <?php echo esc_html($ul);?></button>
+                <?php endforeach; endif;?>
             </div>
-            <div style="max-height:300px;overflow-y:auto;border:1px solid #ddd;border-radius:4px">
-            <table class="widefat" style="font-size:13px">
-                <thead><tr><th style="width:36px">#</th><th>Entry</th><th style="width:165px">Preferred day</th></tr></thead>
+            <div style="max-height:340px;overflow-y:auto;border:1px solid #ddd;border-radius:4px">
+            <table class="widefat" id="lgw-gchamp-prefs-table" style="font-size:13px">
+                <thead>
+                <tr>
+                    <th style="width:36px">#</th>
+                    <th>Entry</th>
+                    <th id="lgw-pref-th-date" style="width:165px;<?php echo $use_date_pref?'':'display:none';?>">Preferred date</th>
+                    <th id="lgw-pref-th-location" style="min-width:160px;<?php echo $use_location_pref?'':'display:none';?>">Preferred venue</th>
+                </tr>
+                </thead>
                 <tbody>
                 <?php foreach($cur_entries as $idx=>$entry):
-                    $pv=($exist_prefs[$entry]??''); $key=md5($entry);?>
+                    $ep   = $exist_prefs_arr[$entry] ?? array();
+                    $pdv  = $ep['date']     ?? '';
+                    $plv  = $ep['location'] ?? '';
+                    $key  = md5($entry);
+                ?>
                 <tr>
                     <td style="color:#999"><?php echo $idx+1;?></td>
                     <td><?php echo esc_html($entry);?></td>
-                    <td><select name="lgw_gchamp_entry_prefs[<?php echo esc_attr($key);?>]"
-                                class="lgw-gchamp-pref-select" style="width:150px;font-size:13px">
-                        <option value="">— no preference —</option>
-                        <?php foreach($unique_dates as $ud):?>
-                        <option value="<?php echo esc_attr($ud);?>" <?php selected($pv,$ud);?>><?php echo esc_html($ud);?></option>
-                        <?php endforeach;?>
-                    </select></td>
+                    <td class="lgw-pref-col-date" style="<?php echo $use_date_pref?'':'display:none';?>">
+                        <select name="lgw_gchamp_entry_pref_date[<?php echo esc_attr($key);?>]"
+                                class="lgw-gchamp-pref-date-select" style="width:150px;font-size:13px">
+                            <option value="">— no preference —</option>
+                            <?php foreach($unique_dates as $ud):?>
+                            <option value="<?php echo esc_attr($ud);?>" <?php selected($pdv,$ud);?>><?php echo esc_html($ud);?></option>
+                            <?php endforeach;?>
+                        </select>
+                    </td>
+                    <td class="lgw-pref-col-location" style="<?php echo $use_location_pref?'':'display:none';?>">
+                        <select name="lgw_gchamp_entry_pref_location[<?php echo esc_attr($key);?>]"
+                                class="lgw-gchamp-pref-loc-select" style="width:170px;font-size:13px">
+                            <option value="">— no preference —</option>
+                            <?php foreach($unique_locations as $ul):?>
+                            <option value="<?php echo esc_attr($ul);?>" <?php selected($plv,$ul);?>><?php echo esc_html($ul);?></option>
+                            <?php endforeach;?>
+                        </select>
+                    </td>
                 </tr>
                 <?php endforeach;?>
                 </tbody>
             </table>
             </div>
-            <p class="description" style="margin-top:6px"><span id="lgw-gchamp-prefs-summary"></span></p>
+            <p class="description" style="margin-top:6px">
+                <span id="lgw-gchamp-prefs-summary"></span>
+                <span style="margin-left:8px;color:#888;font-size:12px">
+                    The draw satisfies date preferences first, then location preferences where possible.
+                </span>
+            </p>
         </div>
     </details>
+    <script>
+    function lgwUpdatePrefTable(){
+        var useDatePref=document.getElementById('lgw-pref-field-date')&&document.getElementById('lgw-pref-field-date').checked;
+        var useLocPref=document.getElementById('lgw-pref-field-location')&&document.getElementById('lgw-pref-field-location').checked;
+        var th_date=document.getElementById('lgw-pref-th-date');
+        var th_loc=document.getElementById('lgw-pref-th-location');
+        if(th_date) th_date.style.display=useDatePref?'':'none';
+        if(th_loc)  th_loc.style.display=useLocPref?'':'none';
+        document.querySelectorAll('.lgw-pref-col-date').forEach(function(c){c.style.display=useDatePref?'':'none';});
+        document.querySelectorAll('.lgw-pref-col-location').forEach(function(c){c.style.display=useLocPref?'':'none';});
+    }
+    </script>
     <?php endif;?>
 
     <?php if($has_ko):?>
@@ -863,6 +969,7 @@ function lgw_gchamp_edit_page( $champ_id ) {
                 tr.innerHTML='<td style="color:#888;font-weight:700;text-align:center">'+(i+1)+'</td>'+
                     '<td><input type="text" name="lgw_gchamp_day_names['+i+']" value="Day '+(i+1)+'" class="regular-text" style="width:100%"></td>'+
                     '<td><input type="text" name="lgw_gchamp_day_dates['+i+']" placeholder="dd/mm/yyyy" class="small-text" style="width:96px"></td>'+
+                    '<td><input type="text" name="lgw_gchamp_day_locations['+i+']" placeholder="e.g. Greenacres BC" class="regular-text lgw-gchamp-day-location" style="width:140px"></td>'+
                     '<td><input type="number" name="lgw_gchamp_day_tgs['+i+']" value="4" min="2" max="20" step="1" class="small-text lgw-gchamp-day-tgs" style="width:58px"></td>'+
                     '<td><input type="number" name="lgw_gchamp_day_wpg['+i+']" value="1" min="1" step="1" class="small-text lgw-gchamp-day-wpg" style="width:52px"></td>'+
                     '<td><input type="number" name="lgw_gchamp_day_bru['+i+']" value="0" min="0" step="1" class="small-text lgw-gchamp-day-bru" style="width:52px"></td>'+
@@ -890,15 +997,21 @@ function lgw_gchamp_edit_page( $champ_id ) {
         // Prefs panel
         function updatePrefSummary(){
             var s=document.getElementById('lgw-gchamp-prefs-summary');if(!s)return;
-            var sel=document.querySelectorAll('.lgw-gchamp-pref-select'),counts={},total=0;
-            sel.forEach(function(x){if(x.value){counts[x.value]=(counts[x.value]||0)+1;total++;}});
-            if(!total){s.textContent='No preferences set.';return;}
-            var parts=[];Object.keys(counts).sort().forEach(function(d){parts.push(counts[d]+' \u2192 '+d);});
-            s.textContent=total+' preference'+(total!==1?'s':'')+' set: '+parts.join(', ');
+            var dateSels=document.querySelectorAll('.lgw-gchamp-pref-date-select');
+            var locSels=document.querySelectorAll('.lgw-gchamp-pref-loc-select');
+            var dateCounts={},dateTotal=0,locTotal=0;
+            dateSels.forEach(function(x){if(x.value){dateCounts[x.value]=(dateCounts[x.value]||0)+1;dateTotal++;}});
+            locSels.forEach(function(x){if(x.value)locTotal++;});
+            var parts=[];
+            if(dateTotal){var dp=[];Object.keys(dateCounts).sort().forEach(function(d){dp.push(dateCounts[d]+' \u2192 '+d);});parts.push(dateTotal+' date pref'+(dateTotal!==1?'s':'')+': '+dp.join(', '));}
+            if(locTotal){parts.push(locTotal+' venue pref'+(locTotal!==1?'s':'')+'.');}
+            s.textContent=parts.length?parts.join(' | '):'No preferences set.';
         }
-        document.querySelectorAll('.lgw-gchamp-pref-select').forEach(function(s){s.addEventListener('change',updatePrefSummary);});
-        document.querySelectorAll('.lgw-gchamp-prefs-bulk').forEach(function(b){b.addEventListener('click',function(){var d=b.getAttribute('data-date');document.querySelectorAll('.lgw-gchamp-pref-select').forEach(function(s){s.value=d;});updatePrefSummary();});});
-        var ca=document.getElementById('lgw-gchamp-prefs-clear-all');if(ca)ca.addEventListener('click',function(){document.querySelectorAll('.lgw-gchamp-pref-select').forEach(function(s){s.value='';});updatePrefSummary();});
+        document.querySelectorAll('.lgw-gchamp-pref-date-select').forEach(function(s){s.addEventListener('change',updatePrefSummary);});
+        document.querySelectorAll('.lgw-gchamp-pref-loc-select').forEach(function(s){s.addEventListener('change',updatePrefSummary);});
+        document.querySelectorAll('.lgw-gchamp-prefs-bulk-date').forEach(function(b){b.addEventListener('click',function(){var d=b.getAttribute('data-date');document.querySelectorAll('.lgw-gchamp-pref-date-select').forEach(function(s){s.value=d;});updatePrefSummary();});});
+        document.querySelectorAll('.lgw-gchamp-prefs-bulk-loc').forEach(function(b){b.addEventListener('click',function(){var l=b.getAttribute('data-loc');document.querySelectorAll('.lgw-gchamp-pref-loc-select').forEach(function(s){s.value=l;});updatePrefSummary();});});
+        var ca=document.getElementById('lgw-gchamp-prefs-clear-all');if(ca)ca.addEventListener('click',function(){document.querySelectorAll('.lgw-gchamp-pref-date-select').forEach(function(s){s.value='';});document.querySelectorAll('.lgw-gchamp-pref-loc-select').forEach(function(s){s.value='';});updatePrefSummary();});
 
         updateAll();updatePrefSummary();
     })();
@@ -1524,6 +1637,12 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
     $warnings = array();
     if ( $n < $num_days ) return new WP_Error('too_few','Fewer entries ('.$n.') than days ('.$num_days.').');
 
+    // Normalise entry_prefs: migrate legacy string (date-only) to array format
+    $prefs_norm = array();
+    foreach ( $entry_prefs as $e => $p ) {
+        $prefs_norm[$e] = is_array($p) ? $p : array('date'=>$p);
+    }
+
     // Step 1: target entries per day (even split)
     $day_sizes = lgw_gchamp_compute_group_sizes( $n, $num_days );
 
@@ -1539,12 +1658,12 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
         $date_capacity[$d]=$cap;
     }
 
-    // Step 3: allocate entries to dates (preference-aware)
+    // Step 3a: allocate entries to dates (date preference-aware)
     $pool = $entries; shuffle($pool);
     $date_buckets=array(); $unplaced=array();
     foreach ($pool as $entry) {
-        $pref = $entry_prefs[$entry]??'';
-        if ($pref!==''&&isset($date_capacity[$pref])) $date_buckets[$pref][]=$entry;
+        $pref_date = $prefs_norm[$entry]['date'] ?? '';
+        if ($pref_date!==''&&isset($date_capacity[$pref_date])) $date_buckets[$pref_date][]=$entry;
         else $unplaced[]=$entry;
     }
     $date_placed=array();
@@ -1570,11 +1689,48 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
         }
     }
 
-    // Distribute entries to each day using the same distribute helper
+    // Step 3b: within each date bucket, respect location preference when distributing across days
     $day_entries_pool=array_fill(0,$num_days,array());
     foreach ($date_to_days as $d=>$didxs) {
-        $pfd=$date_placed[$d]??array(); shuffle($pfd);
-        lgw_gchamp_distribute_to_groups($pfd,$didxs,$day_sizes,$day_entries_pool,$warnings);
+        $pfd = $date_placed[$d] ?? array();
+        // If there are multiple days on the same date and any have a location set,
+        // try to honour location preferences before falling back to random distribution.
+        $day_locations = array();
+        foreach ($didxs as $di) {
+            $loc = trim($days_config[$di]['location'] ?? '');
+            if ($loc !== '') $day_locations[$di] = strtolower($loc);
+        }
+        if (!empty($day_locations)) {
+            $loc_buckets = array_fill_keys($didxs, array());
+            $loc_unplaced = array();
+            foreach ($pfd as $entry) {
+                $pref_loc = strtolower(trim($prefs_norm[$entry]['location'] ?? ''));
+                $matched  = false;
+                if ($pref_loc !== '') {
+                    foreach ($day_locations as $di => $dloc) {
+                        // Fuzzy match: preference contained in day location or vice-versa
+                        if ($dloc === $pref_loc || strpos($dloc,$pref_loc)!==false || strpos($pref_loc,$dloc)!==false) {
+                            // Only place if that day still has capacity
+                            if (count($loc_buckets[$di]) < $day_sizes[$di]) {
+                                $loc_buckets[$di][] = $entry;
+                                $matched = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!$matched) $loc_unplaced[] = $entry;
+            }
+            // Distribute unplaced entries to remaining day slots
+            shuffle($loc_unplaced);
+            lgw_gchamp_distribute_to_groups($loc_unplaced,$didxs,$day_sizes,$loc_buckets,$warnings);
+            foreach ($didxs as $di) {
+                $day_entries_pool[$di] = array_merge($day_entries_pool[$di], $loc_buckets[$di]);
+            }
+        } else {
+            shuffle($pfd);
+            lgw_gchamp_distribute_to_groups($pfd,$didxs,$day_sizes,$day_entries_pool,$warnings);
+        }
     }
     if (!empty($date_placed['__none__'])) {
         lgw_gchamp_distribute_to_groups($date_placed['__none__'],range(0,$num_days-1),$day_sizes,$day_entries_pool,$warnings);
@@ -1600,6 +1756,7 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
             'id'                => $di,
             'name'              => $day_cfg['name']              ??('Day '.($di+1)),
             'date'              => $day_cfg['date']              ??'',
+            'location'          => $day_cfg['location']          ??'',
             'target_group_size' => $tgs,
             'winners_per_group' => intval($day_cfg['winners_per_group']??1),
             'best_runners_up'   => intval($day_cfg['best_runners_up']  ??0),
