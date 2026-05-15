@@ -1649,18 +1649,38 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
     // Step 3: allocate entries to specific days, respecting date then location preferences.
     //
     // Each entry is scored against each day:
-    //   2 = date matches AND location matches
-    //   1 = date matches only  (or location matches only, with no date preference set)
+    //   3 = date matches AND location matches
+    //   2 = date matches only (no loc pref), OR location matches only (no date pref)
+    //   1 = partial match (date ok but wrong loc, or loc ok but wrong date)
     //   0 = no match
     // Entries are sorted highest-score first so the most-constrained are placed first.
     // Within equal scores the order is random (pool is pre-shuffled).
     // After preference-based placement, unplaced entries fill remaining slots randomly.
+    //
+    // Date normalisation: dd/mm/yy and dd/mm/yyyy are treated as equivalent.
+    // Leading zeros on day/month are also normalised (6/6/26 == 06/06/2026).
 
     $pool = $entries; shuffle($pool);
 
-    // Build per-day location lookup (lowercased for matching)
-    $day_location = array();
+    // Normalise a dd/mm/yy(yy) date string to d/m/yyyy for comparison
+    $norm_date = function($raw) {
+        $raw = trim($raw);
+        if ($raw === '') return '';
+        $parts = explode('/', $raw);
+        if (count($parts) !== 3) return $raw;
+        list($d,$m,$y) = $parts;
+        $d = ltrim($d,'0') ?: '0';
+        $m = ltrim($m,'0') ?: '0';
+        $y = intval($y);
+        if ($y < 100) $y += 2000; // 26 → 2026
+        return $d.'/'.$m.'/'.$y;
+    };
+
+    // Build per-day normalised date and location lookups
+    $day_norm_date = array();
+    $day_location  = array();
     foreach ($days_config as $di=>$day) {
+        $day_norm_date[$di] = $norm_date($day['date'] ?? '');
         $loc = strtolower(trim($day['location'] ?? ''));
         if ($loc !== '') $day_location[$di] = $loc;
     }
@@ -1668,12 +1688,12 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
     // Score each entry against each day index
     $scored = array(); // [ [score, entry, day_index], ... ]
     foreach ($pool as $entry) {
-        $pref_date = $prefs_norm[$entry]['date']     ?? '';
-        $pref_loc  = strtolower(trim($prefs_norm[$entry]['location'] ?? ''));
-        $has_date_pref = ($pref_date !== '');
-        $has_loc_pref  = ($pref_loc  !== '');
+        $pref_date      = $norm_date($prefs_norm[$entry]['date'] ?? '');
+        $pref_loc       = strtolower(trim($prefs_norm[$entry]['location'] ?? ''));
+        $has_date_pref  = ($pref_date !== '');
+        $has_loc_pref   = ($pref_loc  !== '');
         foreach ($days_config as $di=>$day) {
-            $day_date    = $day['date'] ?? '';
+            $day_date    = $day_norm_date[$di];
             $day_loc_str = $day_location[$di] ?? '';
             $date_match  = $has_date_pref && ($day_date === $pref_date);
             $loc_match   = $has_loc_pref  && ($day_loc_str !== '') &&
@@ -1681,11 +1701,11 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
                             strpos($day_loc_str,$pref_loc)!==false ||
                             strpos($pref_loc,$day_loc_str)!==false);
             $score = 0;
-            if ($date_match && $loc_match)                      $score = 3;
-            elseif ($date_match && !$has_loc_pref)              $score = 2; // date only, no loc pref
-            elseif ($date_match)                                $score = 1; // date ok but wrong loc
-            elseif ($loc_match  && !$has_date_pref)             $score = 2; // loc only, no date pref
-            elseif ($loc_match)                                 $score = 1; // loc ok but wrong date
+            if ($date_match && $loc_match)              $score = 3;
+            elseif ($date_match && !$has_loc_pref)      $score = 2; // date only, no loc pref
+            elseif ($date_match)                        $score = 1; // date ok but wrong loc
+            elseif ($loc_match  && !$has_date_pref)     $score = 2; // loc only, no date pref
+            elseif ($loc_match)                         $score = 1; // loc ok but wrong date
             $scored[] = array($score, $entry, $di);
         }
     }
@@ -1738,29 +1758,41 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
 
     // Warn about preference satisfaction
     $date_satisfied=0; $date_total=0; $loc_satisfied=0; $loc_total=0;
+
+    // Count distinct day locations — if only one (or none), location preference can't affect placement
+    $distinct_locations = array_values(array_unique(array_filter(array_map(function($d){
+        return strtolower(trim($d['location']??''));
+    }, $days_config))));
+    $location_pref_meaningful = count($distinct_locations) > 1;
+
     foreach ($pool as $entry) {
-        $pref_date = $prefs_norm[$entry]['date']     ?? '';
+        $pref_date = $norm_date($prefs_norm[$entry]['date'] ?? '');
         $pref_loc  = strtolower(trim($prefs_norm[$entry]['location'] ?? ''));
-        if ($pref_date !== '') { $date_total++;
+        if ($pref_date !== '') {
+            $date_total++;
             foreach ($days_config as $di=>$day) {
-                if (in_array($entry,$day_entries_pool[$di],true) && ($day['date']??'')===$pref_date) { $date_satisfied++; break; }
+                if (in_array($entry,$day_entries_pool[$di],true) && $day_norm_date[$di]===$pref_date) {
+                    $date_satisfied++; break;
+                }
             }
         }
-        if ($pref_loc !== '') { $loc_total++;
+        if ($pref_loc !== '' && $location_pref_meaningful) {
+            $loc_total++;
             foreach ($days_config as $di=>$day) {
                 if (in_array($entry,$day_entries_pool[$di],true)) {
                     $dloc=strtolower(trim($day['location']??''));
-                    if ($dloc===$pref_loc||strpos($dloc,$pref_loc)!==false||strpos($pref_loc,$dloc)!==false) { $loc_satisfied++; break; }
+                    if ($dloc===$pref_loc||strpos($dloc,$pref_loc)!==false||strpos($pref_loc,$dloc)!==false) {
+                        $loc_satisfied++; break;
+                    }
                 }
             }
         }
     }
     if ($date_total>0 && $date_satisfied<$date_total)
         $warnings[]='Date preferences: '.$date_satisfied.' of '.$date_total.' satisfied (rest oversubscribed).';
-    if ($loc_total>0)
-        $warnings[]='Venue preferences: '.$loc_satisfied.' of '.$loc_total.' satisfied.';
-    elseif ($loc_total===0 && $date_total===0)
-        ; // no prefs, no warning needed
+    if ($loc_total>0 && $loc_satisfied<$loc_total)
+        $warnings[]='Venue preferences: '.$loc_satisfied.' of '.$loc_total.' satisfied (rest could not be matched).';
+    // No warning when all preferences satisfied — the draw went fine.
 
     // Step 4: within each day split into groups
     $days=array();
@@ -2018,6 +2050,12 @@ function lgw_gchamp_distribute_to_groups(
     $max_passes = count( $pool ) * 2 + 2;
     $unplaced   = $pool;
 
+    // Club cap per group: at most floor(size * 0.5), minimum 1.
+    // Using floor (not ceil) so a group of 3 allows max 1 per club (33%), not 2 (67%).
+    $get_cap = function( $gi ) use ( $sizes ) {
+        return max( 1, (int) floor( $sizes[ $gi ] * 0.5 ) );
+    };
+
     for ( $pass = 0; $pass < $max_passes && ! empty( $unplaced ); $pass++ ) {
         $still_unplaced = array();
 
@@ -2031,8 +2069,7 @@ function lgw_gchamp_distribute_to_groups(
             foreach ( $order as $gi ) {
                 if ( count( $group_entries[ $gi ] ) >= $sizes[ $gi ] ) continue;
                 $club_count = lgw_gchamp_count_club_in_group( $club, $group_entries[ $gi ] );
-                $cap_limit  = max( 1, (int) ceil( $sizes[ $gi ] * 0.5 ) );
-                if ( $club_count < $cap_limit ) {
+                if ( $club_count < $get_cap( $gi ) ) {
                     $group_entries[ $gi ][] = $entry;
                     $placed = true;
                     break;
@@ -2044,10 +2081,48 @@ function lgw_gchamp_distribute_to_groups(
             }
         }
 
-        // No progress this pass — fall back to capacity-only
+        // No progress this pass — try swapping before giving up
         if ( count( $still_unplaced ) === count( $unplaced ) ) {
+            // Attempt swap: for each stuck entry, look for a placed same-club entry in a
+            // blocking group that could move to a different group, freeing a slot.
+            $swap_made = false;
+            foreach ( $still_unplaced as $si => $entry ) {
+                $club = lgw_gchamp_entry_club( $entry );
+                $order = $group_indices; shuffle( $order );
+                foreach ( $order as $target_gi ) {
+                    if ( count( $group_entries[ $target_gi ] ) >= $sizes[ $target_gi ] ) continue;
+                    if ( lgw_gchamp_count_club_in_group( $club, $group_entries[ $target_gi ] ) >= $get_cap( $target_gi ) ) {
+                        // target group is full on this club — can we move one of those club members elsewhere?
+                        foreach ( $group_entries[ $target_gi ] as $existing_idx => $existing ) {
+                            if ( lgw_gchamp_entry_club( $existing ) !== $club ) continue;
+                            // Try to find a new home for $existing
+                            $alt_order = $group_indices; shuffle( $alt_order );
+                            foreach ( $alt_order as $alt_gi ) {
+                                if ( $alt_gi === $target_gi ) continue;
+                                if ( count( $group_entries[ $alt_gi ] ) >= $sizes[ $alt_gi ] ) continue;
+                                if ( lgw_gchamp_count_club_in_group( $club, $group_entries[ $alt_gi ] ) < $get_cap( $alt_gi ) ) {
+                                    // Move $existing to $alt_gi, place $entry in $target_gi
+                                    array_splice( $group_entries[ $target_gi ], $existing_idx, 1 );
+                                    $group_entries[ $alt_gi ][]    = $existing;
+                                    $group_entries[ $target_gi ][] = $entry;
+                                    array_splice( $still_unplaced, $si, 1 );
+                                    $swap_made = true;
+                                    break 3;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ( $swap_made ) {
+                $unplaced = $still_unplaced;
+                continue;
+            }
+
+            // No swap possible — fall back to capacity-only placement
             $cap_violated = false;
-            foreach ( $unplaced as $entry ) {
+            foreach ( $still_unplaced as $entry ) {
                 $placed = false;
                 $order  = $group_indices;
                 shuffle( $order );

@@ -107,6 +107,16 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.25
+- **Group Championships (draw fix):** Club cap calculation changed from `ceil` to `floor`. For a group of 3, `ceil(3 * 0.5) = 2` was incorrectly allowing 2 entries from the same club (67%); `floor` gives 1 (33%), which is the correct ≤50% interpretation.
+- **Group Championships (draw fix):** Added swap-based rescue before the capacity-only fallback. When an entry is stuck (club cap reached in all groups), the algorithm now tries to relocate an already-placed same-club entry to a different group to free a slot, rather than immediately falling back to a cap violation. Eliminates the '3 from one club in a group of 3' scenario in most cases.
+
+### v7.2.24
+- **Group Championships (draw fix):** Added date normalisation to the draw algorithm. `dd/mm/yy` and `dd/mm/yyyy` are now treated as identical during preference scoring and satisfaction checking — e.g. `21/6/26` and `21/6/2026` are the same date. Previously a mismatched year format between a day's stored date and an entry's preference date would cause the match to score 1 instead of 3, putting it on equal footing with a location-only match and making the combined date+location preference a coin flip.
+
+### v7.2.23
+- **Group Championships (draw fix):** Eliminated spurious "Venue preferences: 0 of N satisfied" warning. The satisfaction check was always emitting a warning whenever any location preference existed, regardless of outcome. It now only counts and reports when there are multiple distinct day locations (the only case where the preference can meaningfully affect placement), and only warns on genuine failures.
+
 ### v7.2.22
 - **Group Championships (draw fix):** Rewrote the day-allocation algorithm. Previously, location preferences were only considered *after* date-based bucketing, so entries with no date preference (or with a date preference on a different day to their venue) had their location preference silently ignored. The new algorithm scores every entry against every day (date+location match scores highest, either alone scores next, no match scores zero), sorts by score so the most-constrained entries are placed first, then fills remaining slots randomly. Draw warnings now also report how many venue preferences were satisfied.
 
