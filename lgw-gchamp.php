@@ -1646,95 +1646,121 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
     // Step 1: target entries per day (even split)
     $day_sizes = lgw_gchamp_compute_group_sizes( $n, $num_days );
 
-    // Step 2: map dates to day indices, compute date capacity
-    $date_to_days = array();
-    foreach ( $days_config as $di=>$day ) {
-        $d = $day['date']??'';
-        if ( $d!=='' ) $date_to_days[$d][] = $di;
-    }
-    $date_capacity = array();
-    foreach ( $date_to_days as $d=>$didxs ) {
-        $cap=0; foreach($didxs as $di) $cap+=$day_sizes[$di];
-        $date_capacity[$d]=$cap;
-    }
+    // Step 3: allocate entries to specific days, respecting date then location preferences.
+    //
+    // Each entry is scored against each day:
+    //   2 = date matches AND location matches
+    //   1 = date matches only  (or location matches only, with no date preference set)
+    //   0 = no match
+    // Entries are sorted highest-score first so the most-constrained are placed first.
+    // Within equal scores the order is random (pool is pre-shuffled).
+    // After preference-based placement, unplaced entries fill remaining slots randomly.
 
-    // Step 3a: allocate entries to dates (date preference-aware)
     $pool = $entries; shuffle($pool);
-    $date_buckets=array(); $unplaced=array();
-    foreach ($pool as $entry) {
-        $pref_date = $prefs_norm[$entry]['date'] ?? '';
-        if ($pref_date!==''&&isset($date_capacity[$pref_date])) $date_buckets[$pref_date][]=$entry;
-        else $unplaced[]=$entry;
+
+    // Build per-day location lookup (lowercased for matching)
+    $day_location = array();
+    foreach ($days_config as $di=>$day) {
+        $loc = strtolower(trim($day['location'] ?? ''));
+        if ($loc !== '') $day_location[$di] = $loc;
     }
-    $date_placed=array();
-    foreach ($date_buckets as $d=>$preferred) {
-        $cap=$date_capacity[$d]; shuffle($preferred);
-        if (count($preferred)<=$cap) { $date_placed[$d]=$preferred; }
-        else {
-            $over=count($preferred)-$cap;
-            $warnings[]='Day '.$d.' oversubscribed ('.count($preferred).' preferences, '.$cap.' slots) — '.$over.' entr'.($over===1?'y':'ies').' placed randomly.';
-            $date_placed[$d]=array_slice($preferred,0,$cap);
-            $unplaced=array_merge($unplaced,array_slice($preferred,$cap));
+
+    // Score each entry against each day index
+    $scored = array(); // [ [score, entry, day_index], ... ]
+    foreach ($pool as $entry) {
+        $pref_date = $prefs_norm[$entry]['date']     ?? '';
+        $pref_loc  = strtolower(trim($prefs_norm[$entry]['location'] ?? ''));
+        $has_date_pref = ($pref_date !== '');
+        $has_loc_pref  = ($pref_loc  !== '');
+        foreach ($days_config as $di=>$day) {
+            $day_date    = $day['date'] ?? '';
+            $day_loc_str = $day_location[$di] ?? '';
+            $date_match  = $has_date_pref && ($day_date === $pref_date);
+            $loc_match   = $has_loc_pref  && ($day_loc_str !== '') &&
+                           ($day_loc_str === $pref_loc ||
+                            strpos($day_loc_str,$pref_loc)!==false ||
+                            strpos($pref_loc,$day_loc_str)!==false);
+            $score = 0;
+            if ($date_match && $loc_match)                      $score = 3;
+            elseif ($date_match && !$has_loc_pref)              $score = 2; // date only, no loc pref
+            elseif ($date_match)                                $score = 1; // date ok but wrong loc
+            elseif ($loc_match  && !$has_date_pref)             $score = 2; // loc only, no date pref
+            elseif ($loc_match)                                 $score = 1; // loc ok but wrong date
+            $scored[] = array($score, $entry, $di);
         }
     }
-    shuffle($unplaced);
-    foreach ($date_to_days as $d=>$didxs) {
-        $already=count($date_placed[$d]??array()); $need=($date_capacity[$d]??0)-$already;
-        if ($need>0&&!empty($unplaced)) { $take=array_splice($unplaced,0,$need); $date_placed[$d]=array_merge($date_placed[$d]??array(),$take); }
+    // Sort descending by score (stable-ish since pool was shuffled)
+    usort($scored, function($a,$b){ return $b[0]-$a[0]; });
+
+    $day_entries_pool = array_fill(0,$num_days,array());
+    $placed_entries   = array(); // track which entries are placed
+
+    foreach ($scored as $row) {
+        list($score,$entry,$di) = $row;
+        if (isset($placed_entries[$entry]))      continue; // already placed
+        if ($score === 0)                        continue; // no preference match, handle below
+        if (count($day_entries_pool[$di]) >= $day_sizes[$di]) continue; // day full
+        $day_entries_pool[$di][] = $entry;
+        $placed_entries[$entry]  = true;
     }
-    if (!empty($unplaced)) {
-        $warnings[]=count($unplaced).' entr'.(count($unplaced)===1?'y':'ies').' could not be matched to a dated day and were placed randomly.';
-        foreach ($unplaced as $idx=>$entry) {
-            $di=$idx%$num_days; $d=$days_config[$di]['date']??'__none__'; $date_placed[$d][]=$entry;
+
+    // Fill remaining slots with unplaced entries in random order
+    $still_unplaced = array();
+    foreach ($pool as $entry) {
+        if (!isset($placed_entries[$entry])) $still_unplaced[] = $entry;
+    }
+    shuffle($still_unplaced);
+
+    // Warn if any date-preferring entries ended up unplaced (oversubscription)
+    foreach ($still_unplaced as $entry) {
+        $pref_date = $prefs_norm[$entry]['date'] ?? '';
+        if ($pref_date !== '') {
+            $warnings[] = esc_html($entry).': preferred date '.$pref_date.' was oversubscribed — placed randomly.';
         }
     }
 
-    // Step 3b: within each date bucket, respect location preference when distributing across days
-    $day_entries_pool=array_fill(0,$num_days,array());
-    foreach ($date_to_days as $d=>$didxs) {
-        $pfd = $date_placed[$d] ?? array();
-        // If there are multiple days on the same date and any have a location set,
-        // try to honour location preferences before falling back to random distribution.
-        $day_locations = array();
-        foreach ($didxs as $di) {
-            $loc = trim($days_config[$di]['location'] ?? '');
-            if ($loc !== '') $day_locations[$di] = strtolower($loc);
+    // Distribute unplaced entries into whichever days have space, using dated days first
+    $all_day_indices = range(0,$num_days-1);
+    // Sort day indices: dated days first (they have fixed capacity expectations), then undated
+    usort($all_day_indices, function($a,$b) use ($days_config) {
+        $da = ($days_config[$a]['date']??'') !== '' ? 0 : 1;
+        $db = ($days_config[$b]['date']??'') !== '' ? 0 : 1;
+        return $da - $db;
+    });
+    foreach ($still_unplaced as $entry) {
+        foreach ($all_day_indices as $di) {
+            if (count($day_entries_pool[$di]) < $day_sizes[$di]) {
+                $day_entries_pool[$di][] = $entry;
+                break;
+            }
         }
-        if (!empty($day_locations)) {
-            $loc_buckets = array_fill_keys($didxs, array());
-            $loc_unplaced = array();
-            foreach ($pfd as $entry) {
-                $pref_loc = strtolower(trim($prefs_norm[$entry]['location'] ?? ''));
-                $matched  = false;
-                if ($pref_loc !== '') {
-                    foreach ($day_locations as $di => $dloc) {
-                        // Fuzzy match: preference contained in day location or vice-versa
-                        if ($dloc === $pref_loc || strpos($dloc,$pref_loc)!==false || strpos($pref_loc,$dloc)!==false) {
-                            // Only place if that day still has capacity
-                            if (count($loc_buckets[$di]) < $day_sizes[$di]) {
-                                $loc_buckets[$di][] = $entry;
-                                $matched = true;
-                                break;
-                            }
-                        }
-                    }
+    }
+
+    // Warn about preference satisfaction
+    $date_satisfied=0; $date_total=0; $loc_satisfied=0; $loc_total=0;
+    foreach ($pool as $entry) {
+        $pref_date = $prefs_norm[$entry]['date']     ?? '';
+        $pref_loc  = strtolower(trim($prefs_norm[$entry]['location'] ?? ''));
+        if ($pref_date !== '') { $date_total++;
+            foreach ($days_config as $di=>$day) {
+                if (in_array($entry,$day_entries_pool[$di],true) && ($day['date']??'')===$pref_date) { $date_satisfied++; break; }
+            }
+        }
+        if ($pref_loc !== '') { $loc_total++;
+            foreach ($days_config as $di=>$day) {
+                if (in_array($entry,$day_entries_pool[$di],true)) {
+                    $dloc=strtolower(trim($day['location']??''));
+                    if ($dloc===$pref_loc||strpos($dloc,$pref_loc)!==false||strpos($pref_loc,$dloc)!==false) { $loc_satisfied++; break; }
                 }
-                if (!$matched) $loc_unplaced[] = $entry;
             }
-            // Distribute unplaced entries to remaining day slots
-            shuffle($loc_unplaced);
-            lgw_gchamp_distribute_to_groups($loc_unplaced,$didxs,$day_sizes,$loc_buckets,$warnings);
-            foreach ($didxs as $di) {
-                $day_entries_pool[$di] = array_merge($day_entries_pool[$di], $loc_buckets[$di]);
-            }
-        } else {
-            shuffle($pfd);
-            lgw_gchamp_distribute_to_groups($pfd,$didxs,$day_sizes,$day_entries_pool,$warnings);
         }
     }
-    if (!empty($date_placed['__none__'])) {
-        lgw_gchamp_distribute_to_groups($date_placed['__none__'],range(0,$num_days-1),$day_sizes,$day_entries_pool,$warnings);
-    }
+    if ($date_total>0 && $date_satisfied<$date_total)
+        $warnings[]='Date preferences: '.$date_satisfied.' of '.$date_total.' satisfied (rest oversubscribed).';
+    if ($loc_total>0)
+        $warnings[]='Venue preferences: '.$loc_satisfied.' of '.$loc_total.' satisfied.';
+    elseif ($loc_total===0 && $date_total===0)
+        ; // no prefs, no warning needed
 
     // Step 4: within each day split into groups
     $days=array();

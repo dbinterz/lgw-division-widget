@@ -107,6 +107,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.22
+- **Group Championships (draw fix):** Rewrote the day-allocation algorithm. Previously, location preferences were only considered *after* date-based bucketing, so entries with no date preference (or with a date preference on a different day to their venue) had their location preference silently ignored. The new algorithm scores every entry against every day (date+location match scores highest, either alone scores next, no match scores zero), sorts by score so the most-constrained entries are placed first, then fills remaining slots randomly. Draw warnings now also report how many venue preferences were satisfied.
+
 ### v7.2.21
 - **Group Championships:** Preferred venue in entry preferences is now a dropdown of the locations set on each competition day, replacing the free-text input. Values are exact matches, consistent with how date preferences work.
 
