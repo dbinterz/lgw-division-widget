@@ -2049,157 +2049,135 @@ function lgw_gchamp_distribute_to_groups(
 ) {
     if ( empty( $pool ) ) return;
 
-    // ── Step 1: sort pool so largest clubs come first ─────────────────────────
-    // Processing the most-constrained entries first minimises dead-ends.
+    // Count club frequencies in this pool
     $club_counts = array();
     foreach ( $pool as $e ) {
         $c = lgw_gchamp_entry_club( $e );
         $club_counts[$c] = ( $club_counts[$c] ?? 0 ) + 1;
     }
-    usort( $pool, function( $a, $b ) use ( $club_counts ) {
-        $ca = lgw_gchamp_entry_club( $a );
-        $cb = lgw_gchamp_entry_club( $b );
-        $diff = ( $club_counts[$cb] ?? 0 ) - ( $club_counts[$ca] ?? 0 );
-        return $diff !== 0 ? $diff : rand( -1, 1 ); // shuffle within same-size clubs
-    } );
 
-    // ── Step 2: place entries one at a time, spreading clubs across groups ────
-    // For each entry, prefer groups that have NO same-club entries yet.
-    // Only consider groups that already have same-club entries if every group
-    // with space already has at least one from this club (truly unavoidable).
-    $unplaced = array();
-    foreach ( $pool as $entry ) {
-        $club  = lgw_gchamp_entry_club( $entry );
+    // Helper: run one placement attempt, return [group_entries_arr, violation_count]
+    $attempt = function() use ( $pool, $group_indices, $sizes, $club_counts ) {
+        $ge = array_fill_keys( $group_indices, array() );
 
-        // Partition candidate groups into clean (0 same-club) and dirty (≥1 same-club)
-        $clean = array();
-        $dirty = array();
-        foreach ( $group_indices as $gi ) {
-            if ( count( $group_entries[$gi] ) >= $sizes[$gi] ) continue; // full
-            if ( lgw_gchamp_count_club_in_group( $club, $group_entries[$gi] ) === 0 ) {
-                $clean[] = $gi;
-            } else {
-                $dirty[] = $gi;
-            }
-        }
-
-        // Use clean groups first; fall back to dirty only if no clean group has space
-        $candidates = ! empty( $clean ) ? $clean : $dirty;
-
-        // Within candidates, prefer the group with the most remaining space
-        // (spreads entries evenly while keeping club separation)
-        usort( $candidates, function( $a, $b ) use ( $sizes, $group_entries ) {
-            $sa = $sizes[$a] - count( $group_entries[$a] );
-            $sb = $sizes[$b] - count( $group_entries[$b] );
-            if ( $sa !== $sb ) return $sb - $sa;
-            return rand( -1, 1 );
+        // Sort: largest clubs first, random within same count
+        $sorted = $pool;
+        usort( $sorted, function( $a, $b ) use ( $club_counts ) {
+            $ca = lgw_gchamp_entry_club( $a );
+            $cb = lgw_gchamp_entry_club( $b );
+            $d  = ( $club_counts[$cb] ?? 0 ) - ( $club_counts[$ca] ?? 0 );
+            return $d !== 0 ? $d : rand( -1, 1 );
         } );
 
-        $placed = false;
-        foreach ( $candidates as $gi ) {
-            $group_entries[$gi][] = $entry;
-            $placed = true;
-            break;
+        // Place each entry into the group that minimises same-club collisions
+        foreach ( $sorted as $entry ) {
+            $club = lgw_gchamp_entry_club( $entry );
+
+            // Separate groups with space into clean (0 same-club) and dirty (≥1)
+            $clean = $dirty = array();
+            foreach ( $group_indices as $gi ) {
+                if ( count( $ge[$gi] ) >= $sizes[$gi] ) continue;
+                if ( lgw_gchamp_count_club_in_group( $club, $ge[$gi] ) === 0 ) $clean[] = $gi;
+                else $dirty[] = $gi;
+            }
+
+            // Pick from clean first; within clean/dirty prefer most remaining space
+            $candidates = ! empty( $clean ) ? $clean : $dirty;
+            usort( $candidates, function( $a, $b ) use ( $sizes, $ge ) {
+                $d = ( $sizes[$b] - count( $ge[$b] ) ) - ( $sizes[$a] - count( $ge[$a] ) );
+                return $d !== 0 ? $d : rand( -1, 1 );
+            } );
+
+            if ( ! empty( $candidates ) ) $ge[ $candidates[0] ][] = $entry;
         }
-        if ( ! $placed ) $unplaced[] = $entry;
-    }
 
-    // ── Step 3: repair — fix any groups that ended up with >1 from same club ──
-    // Repeatedly scan for violations and fix via move or swap.
-    // Only stop when a full pass makes zero fixes (genuinely stuck).
-    $max_repair = count( $pool ) * 4;
-    for ( $r = 0; $r < $max_repair; $r++ ) {
-        $fixed_this_pass = false;
+        // ── Repair: iterative swap until no violations or no progress ────────
+        $max_r = count( $pool ) * 6;
+        for ( $r = 0; $r < $max_r; $r++ ) {
+            // Collect all current violations (group → [entry_idx, ...])
+            $all_violations = array();
+            foreach ( $group_indices as $gi ) {
+                $seen = array();
+                foreach ( $ge[$gi] as $idx => $e ) {
+                    $c = lgw_gchamp_entry_club( $e );
+                    if ( isset( $seen[$c] ) ) $all_violations[] = array( 'gi'=>$gi, 'idx'=>$idx, 'entry'=>$e, 'club'=>$c );
+                    else $seen[$c] = true;
+                }
+            }
+            if ( empty( $all_violations ) ) break;
 
+            $fixed = false;
+            foreach ( $all_violations as $v ) {
+                $vgi = $v['gi']; $ve = $v['entry']; $vc = $v['club'];
+
+                // Re-find current index of ve in vgi (may have shifted)
+                $vidx = array_search( $ve, $ge[$vgi], true );
+                if ( $vidx === false ) continue; // already moved
+
+                $targets = $group_indices; shuffle( $targets );
+                foreach ( $targets as $tgi ) {
+                    if ( $tgi === $vgi ) continue;
+
+                    // Try swap with each entry in tgi
+                    $tgi_entries = $ge[$tgi];
+                    shuffle( $tgi_entries );
+                    foreach ( $tgi_entries as $te ) {
+                        $tc = lgw_gchamp_entry_club( $te );
+                        if ( $tc === $vc ) continue;
+
+                        // Simulate the swap and check both groups are clean after
+                        $vgi_new = array_values( array_filter( $ge[$vgi], fn($x) => $x !== $ve ) );
+                        $vgi_new[] = $te;
+                        $tgi_new = array_values( array_filter( $ge[$tgi], fn($x) => $x !== $te ) );
+                        $tgi_new[] = $ve;
+
+                        $vgi_ok = lgw_gchamp_count_club_in_group( $tc, array_filter( $vgi_new, fn($x) => $x !== $te ) ) === 0;
+                        $tgi_ok = lgw_gchamp_count_club_in_group( $vc, array_filter( $tgi_new, fn($x) => $x !== $ve ) ) === 0;
+
+                        if ( $vgi_ok && $tgi_ok ) {
+                            $ge[$vgi] = $vgi_new;
+                            $ge[$tgi] = $tgi_new;
+                            $fixed = true;
+                            break 3;
+                        }
+                    }
+                }
+            }
+            if ( ! $fixed ) break;
+        }
+
+        // Count remaining violations
+        $v_count = 0;
         foreach ( $group_indices as $gi ) {
-            // Find first club with >1 entry in this group
-            $clubs_seen = array();
-            $violation  = null;
-            foreach ( $group_entries[$gi] as $idx => $e ) {
+            $seen = array();
+            foreach ( $ge[$gi] as $e ) {
                 $c = lgw_gchamp_entry_club( $e );
-                if ( isset( $clubs_seen[$c] ) ) {
-                    $violation = array( 'gi' => $gi, 'idx' => $idx, 'entry' => $e, 'club' => $c );
-                    break;
-                }
-                $clubs_seen[$c] = true;
-            }
-            if ( $violation === null ) continue; // this group is clean
-
-            $vgi = $violation['gi'];
-            $ve  = $violation['entry'];
-            $vc  = $violation['club'];
-
-            $targets = $group_indices;
-            shuffle( $targets );
-            foreach ( $targets as $tgi ) {
-                if ( $tgi === $vgi ) continue;
-
-                // Option A: simple move — tgi has space and no same-club conflict
-                if ( count( $group_entries[$tgi] ) < $sizes[$tgi]
-                    && lgw_gchamp_count_club_in_group( $vc, $group_entries[$tgi] ) === 0 ) {
-                    array_splice( $group_entries[$vgi], $violation['idx'], 1 );
-                    $group_entries[$tgi][] = $ve;
-                    $fixed_this_pass = true;
-                    break;
-                }
-
-                // Option B: swap ve with an entry from tgi that won't create a new violation
-                foreach ( $group_entries[$tgi] as $tidx => $te ) {
-                    $tc = lgw_gchamp_entry_club( $te );
-                    if ( $tc === $vc ) continue; // same club — no help
-                    // te must not conflict in vgi (after ve is removed)
-                    $vgi_after = $group_entries[$vgi];
-                    array_splice( $vgi_after, $violation['idx'], 1 );
-                    if ( lgw_gchamp_count_club_in_group( $tc, $vgi_after ) > 0 ) continue;
-                    // ve must not conflict in tgi (after te is removed)
-                    $tgi_after = $group_entries[$tgi];
-                    array_splice( $tgi_after, $tidx, 1 );
-                    if ( lgw_gchamp_count_club_in_group( $vc, $tgi_after ) > 0 ) continue;
-                    // Safe — do the swap
-                    array_splice( $group_entries[$vgi], $violation['idx'], 1 );
-                    array_splice( $group_entries[$tgi], $tidx, 1 );
-                    $group_entries[$vgi][] = $te;
-                    $group_entries[$tgi][] = $ve;
-                    $fixed_this_pass = true;
-                    break 2;
-                }
+                if ( isset( $seen[$c] ) ) { $v_count++; break; }
+                $seen[$c] = true;
             }
         }
 
-        if ( ! $fixed_this_pass ) break; // full pass with no progress — genuinely stuck
-    }
+        return array( 'ge' => $ge, 'violations' => $v_count );
+    };
 
-    // ── Step 4: place any entries that still couldn't be seated ───────────────
-    if ( ! empty( $unplaced ) ) {
-        $cap_violated = false;
-        foreach ( $unplaced as $entry ) {
-            $placed = false;
-            $order  = $group_indices; shuffle( $order );
-            foreach ( $order as $gi ) {
-                if ( count( $group_entries[$gi] ) < $sizes[$gi] ) {
-                    $group_entries[$gi][] = $entry;
-                    $placed = true;
-                    $cap_violated = true;
-                    break;
-                }
-            }
-            if ( ! $placed ) $warnings[] = 'Could not place "' . $entry . '" — check group configuration.';
+    // Run up to 20 attempts, keep the result with fewest violations
+    $best = null;
+    for ( $t = 0; $t < 20; $t++ ) {
+        $result = $attempt();
+        if ( $best === null || $result['violations'] < $best['violations'] ) {
+            $best = $result;
         }
-        if ( $cap_violated ) $warnings[] = 'Some entries could not be placed within capacity — check group configuration.';
+        if ( $best['violations'] === 0 ) break;
     }
 
-    // ── Step 5: check for remaining club violations and warn ──────────────────
-    $violations = 0;
+    // Apply best result to $group_entries
     foreach ( $group_indices as $gi ) {
-        $clubs_seen = array();
-        foreach ( $group_entries[$gi] as $e ) {
-            $c = lgw_gchamp_entry_club( $e );
-            if ( isset( $clubs_seen[$c] ) ) { $violations++; break; }
-            $clubs_seen[$c] = true;
-        }
+        $group_entries[$gi] = $best['ge'][$gi] ?? array();
     }
-    if ( $violations > 0 ) {
-        $warnings[] = $violations . ' group' . ( $violations > 1 ? 's have' : ' has' ) . ' more than one entry from the same club — unavoidable given the club distribution across this day.';
+
+    if ( $best['violations'] > 0 ) {
+        $warnings[] = $best['violations'] . ' group' . ( $best['violations'] > 1 ? 's have' : ' has' )
+            . ' more than one entry from the same club — unavoidable given the club distribution on this day.';
     }
 }
 

@@ -107,6 +107,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.29
+- **Group Championships:** Complete rewrite of `lgw_gchamp_distribute_to_groups`. Previous repair pass operated on stale array indices (group arrays mutated mid-loop invalidating stored `idx` values) and the swap validation used pre-mutation state. New approach: encapsulates placement+repair as a single attempt function, runs up to 20 attempts with different random seeds, and keeps the result with the fewest club violations. Each attempt uses constraint-first sorting, clean-group-first placement, then a swap-based repair that simulates the full post-swap state before committing.
+
 ### v7.2.28
 - **Group Championships (draw fix):** The repair pass now iterates across all violations in each pass rather than aborting on the first one it can't immediately fix. The old `break` meant that if violation #1 was temporarily stuck (because violations #2 and #3 were blocking the swap candidates), the repair gave up entirely — leaving 3 Falls entries in one group even though a solution existed. The loop now continues to violations #2 and #3, fixing those first, then picks up violation #1 in the next pass.
 - Swap safety check now correctly simulates group state after removal before testing for new conflicts.
