@@ -107,6 +107,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.26
+- **Group Championships:** Rewrote `lgw_gchamp_distribute_to_groups` with a three-phase approach: (1) **constraint-first sort** — entries from the largest clubs are placed first to avoid painting into a corner; (2) **club-spread placement** — each entry goes into the group with the fewest same-club members already placed; (3) **repair pass** — after initial placement, any group with two entries from the same club is fixed by swapping one entry with a suitable entry from another group. The fallback cap-violation warning now only fires if violations remain after all repair attempts are exhausted (genuinely impossible to fix given the club distribution).
+
 ### v7.2.25
 - **Group Championships (draw fix):** Club cap calculation changed from `ceil` to `floor`. For a group of 3, `ceil(3 * 0.5) = 2` was incorrectly allowing 2 entries from the same club (67%); `floor` gives 1 (33%), which is the correct ≤50% interpretation.
 - **Group Championships (draw fix):** Added swap-based rescue before the capacity-only fallback. When an entry is stuck (club cap reached in all groups), the algorithm now tries to relocate an already-placed same-club entry to a different group to free a slot, rather than immediately falling back to a cap violation. Eliminates the '3 from one club in a group of 3' scenario in most cases.

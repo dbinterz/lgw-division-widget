@@ -2047,104 +2047,145 @@ function lgw_gchamp_distribute_to_groups(
     array &$group_entries,
     array &$warnings
 ) {
-    $max_passes = count( $pool ) * 2 + 2;
-    $unplaced   = $pool;
+    if ( empty( $pool ) ) return;
 
-    // Club cap per group: at most floor(size * 0.5), minimum 1.
-    // Using floor (not ceil) so a group of 3 allows max 1 per club (33%), not 2 (67%).
-    $get_cap = function( $gi ) use ( $sizes ) {
-        return max( 1, (int) floor( $sizes[ $gi ] * 0.5 ) );
-    };
+    // ── Step 1: sort pool so largest clubs come first ─────────────────────────
+    // Processing the most-constrained entries first minimises dead-ends.
+    $club_counts = array();
+    foreach ( $pool as $e ) {
+        $c = lgw_gchamp_entry_club( $e );
+        $club_counts[$c] = ( $club_counts[$c] ?? 0 ) + 1;
+    }
+    usort( $pool, function( $a, $b ) use ( $club_counts ) {
+        $ca = lgw_gchamp_entry_club( $a );
+        $cb = lgw_gchamp_entry_club( $b );
+        $diff = ( $club_counts[$cb] ?? 0 ) - ( $club_counts[$ca] ?? 0 );
+        return $diff !== 0 ? $diff : rand( -1, 1 ); // shuffle within same-size clubs
+    } );
 
-    for ( $pass = 0; $pass < $max_passes && ! empty( $unplaced ); $pass++ ) {
-        $still_unplaced = array();
+    // ── Step 2: place entries one at a time, preferring groups with fewest ────
+    // same-club entries already placed (spreading the club out).
+    $unplaced = array();
+    foreach ( $pool as $entry ) {
+        $club  = lgw_gchamp_entry_club( $entry );
+        $order = $group_indices;
 
+        // Sort candidate groups: fewest same-club entries first, then most space
+        usort( $order, function( $a, $b ) use ( $club, $group_entries, $sizes ) {
+            $ca = lgw_gchamp_count_club_in_group( $club, $group_entries[$a] );
+            $cb = lgw_gchamp_count_club_in_group( $club, $group_entries[$b] );
+            if ( $ca !== $cb ) return $ca - $cb;
+            // tie-break: group with more remaining space
+            $sa = $sizes[$a] - count( $group_entries[$a] );
+            $sb = $sizes[$b] - count( $group_entries[$b] );
+            return $sb - $sa;
+        } );
+
+        $placed = false;
+        foreach ( $order as $gi ) {
+            if ( count( $group_entries[$gi] ) >= $sizes[$gi] ) continue;
+            // Prefer groups with 0 same-club entries; accept 1+ only if unavoidable
+            $group_entries[$gi][] = $entry;
+            $placed = true;
+            break;
+        }
+        if ( ! $placed ) $unplaced[] = $entry;
+    }
+
+    // ── Step 3: repair — fix any groups that ended up with >1 from same club ──
+    // Find all violations and try to fix via swaps.
+    $max_repair = count( $pool ) * 3;
+    for ( $r = 0; $r < $max_repair; $r++ ) {
+        // Find a violation: a group with two entries from the same club
+        $violation = null;
+        foreach ( $group_indices as $gi ) {
+            $clubs_seen = array();
+            foreach ( $group_entries[$gi] as $idx => $e ) {
+                $c = lgw_gchamp_entry_club( $e );
+                if ( isset( $clubs_seen[$c] ) ) {
+                    $violation = array( 'gi' => $gi, 'idx' => $idx, 'entry' => $e, 'club' => $c );
+                    break 2;
+                }
+                $clubs_seen[$c] = true;
+            }
+        }
+        if ( $violation === null ) break; // all clean
+
+        // Try to swap the violating entry into another group
+        $fixed = false;
+        $vgi   = $violation['gi'];
+        $ve    = $violation['entry'];
+        $vc    = $violation['club'];
+
+        $candidates = $group_indices;
+        shuffle( $candidates );
+        foreach ( $candidates as $tgi ) {
+            if ( $tgi === $vgi ) continue;
+            // Can we just move ve to tgi?
+            if ( count( $group_entries[$tgi] ) < $sizes[$tgi]
+                && lgw_gchamp_count_club_in_group( $vc, $group_entries[$tgi] ) === 0 ) {
+                // Simple move: tgi has space and no same-club conflict
+                array_splice( $group_entries[$vgi], $violation['idx'], 1 );
+                $group_entries[$tgi][] = $ve;
+                $fixed = true;
+                break;
+            }
+            // Try swap: exchange ve with an entry from tgi that has no conflict in vgi
+            foreach ( $group_entries[$tgi] as $tidx => $te ) {
+                $tc = lgw_gchamp_entry_club( $te );
+                if ( $tc === $vc ) continue; // swapping same-club doesn't help
+                // te must not cause a new violation in vgi
+                if ( lgw_gchamp_count_club_in_group( $tc, $group_entries[$vgi] ) > 0 ) continue;
+                // ve must not cause a new violation in tgi
+                if ( lgw_gchamp_count_club_in_group( $vc, $group_entries[$tgi] ) > 0 ) {
+                    // te itself is the one same-club — only ok if we're removing te
+                    $tmp = $group_entries[$tgi];
+                    array_splice( $tmp, $tidx, 1 );
+                    if ( lgw_gchamp_count_club_in_group( $vc, $tmp ) > 0 ) continue;
+                }
+                // Do the swap
+                array_splice( $group_entries[$vgi], $violation['idx'], 1 );
+                array_splice( $group_entries[$tgi], $tidx, 1 );
+                $group_entries[$vgi][] = $te;
+                $group_entries[$tgi][] = $ve;
+                $fixed = true;
+                break 2;
+            }
+        }
+        if ( ! $fixed ) break; // can't fix further — genuinely impossible given club distribution
+    }
+
+    // ── Step 4: place any entries that still couldn't be seated ───────────────
+    if ( ! empty( $unplaced ) ) {
+        $cap_violated = false;
         foreach ( $unplaced as $entry ) {
-            $club   = lgw_gchamp_entry_club( $entry );
             $placed = false;
-            $order  = $group_indices;
-            shuffle( $order );
-
-            // Try clean placement: capacity + club cap both respected
+            $order  = $group_indices; shuffle( $order );
             foreach ( $order as $gi ) {
-                if ( count( $group_entries[ $gi ] ) >= $sizes[ $gi ] ) continue;
-                $club_count = lgw_gchamp_count_club_in_group( $club, $group_entries[ $gi ] );
-                if ( $club_count < $get_cap( $gi ) ) {
-                    $group_entries[ $gi ][] = $entry;
+                if ( count( $group_entries[$gi] ) < $sizes[$gi] ) {
+                    $group_entries[$gi][] = $entry;
                     $placed = true;
+                    $cap_violated = true;
                     break;
                 }
             }
-
-            if ( ! $placed ) {
-                $still_unplaced[] = $entry;
-            }
+            if ( ! $placed ) $warnings[] = 'Could not place "' . $entry . '" — check group configuration.';
         }
+        if ( $cap_violated ) $warnings[] = 'Some entries could not be placed within capacity — check group configuration.';
+    }
 
-        // No progress this pass — try swapping before giving up
-        if ( count( $still_unplaced ) === count( $unplaced ) ) {
-            // Attempt swap: for each stuck entry, look for a placed same-club entry in a
-            // blocking group that could move to a different group, freeing a slot.
-            $swap_made = false;
-            foreach ( $still_unplaced as $si => $entry ) {
-                $club = lgw_gchamp_entry_club( $entry );
-                $order = $group_indices; shuffle( $order );
-                foreach ( $order as $target_gi ) {
-                    if ( count( $group_entries[ $target_gi ] ) >= $sizes[ $target_gi ] ) continue;
-                    if ( lgw_gchamp_count_club_in_group( $club, $group_entries[ $target_gi ] ) >= $get_cap( $target_gi ) ) {
-                        // target group is full on this club — can we move one of those club members elsewhere?
-                        foreach ( $group_entries[ $target_gi ] as $existing_idx => $existing ) {
-                            if ( lgw_gchamp_entry_club( $existing ) !== $club ) continue;
-                            // Try to find a new home for $existing
-                            $alt_order = $group_indices; shuffle( $alt_order );
-                            foreach ( $alt_order as $alt_gi ) {
-                                if ( $alt_gi === $target_gi ) continue;
-                                if ( count( $group_entries[ $alt_gi ] ) >= $sizes[ $alt_gi ] ) continue;
-                                if ( lgw_gchamp_count_club_in_group( $club, $group_entries[ $alt_gi ] ) < $get_cap( $alt_gi ) ) {
-                                    // Move $existing to $alt_gi, place $entry in $target_gi
-                                    array_splice( $group_entries[ $target_gi ], $existing_idx, 1 );
-                                    $group_entries[ $alt_gi ][]    = $existing;
-                                    $group_entries[ $target_gi ][] = $entry;
-                                    array_splice( $still_unplaced, $si, 1 );
-                                    $swap_made = true;
-                                    break 3;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if ( $swap_made ) {
-                $unplaced = $still_unplaced;
-                continue;
-            }
-
-            // No swap possible — fall back to capacity-only placement
-            $cap_violated = false;
-            foreach ( $still_unplaced as $entry ) {
-                $placed = false;
-                $order  = $group_indices;
-                shuffle( $order );
-                foreach ( $order as $gi ) {
-                    if ( count( $group_entries[ $gi ] ) < $sizes[ $gi ] ) {
-                        $group_entries[ $gi ][] = $entry;
-                        $placed = true;
-                        $cap_violated = true;
-                        break;
-                    }
-                }
-                if ( ! $placed ) {
-                    $warnings[] = 'Could not place entry "' . $entry . '" — check group configuration.';
-                }
-            }
-            if ( $cap_violated ) {
-                $warnings[] = 'Club cap (50%) could not be fully respected for all groups — some entries were placed by capacity only.';
-            }
-            break;
+    // ── Step 5: check for remaining club violations and warn ──────────────────
+    $violations = 0;
+    foreach ( $group_indices as $gi ) {
+        $clubs_seen = array();
+        foreach ( $group_entries[$gi] as $e ) {
+            $c = lgw_gchamp_entry_club( $e );
+            if ( isset( $clubs_seen[$c] ) ) { $violations++; break; }
+            $clubs_seen[$c] = true;
         }
-
-        $unplaced = $still_unplaced;
+    }
+    if ( $violations > 0 ) {
+        $warnings[] = $violations . ' group' . ( $violations > 1 ? 's have' : ' has' ) . ' more than one entry from the same club — unavoidable given the club distribution across this day.';
     }
 }
 
