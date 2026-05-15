@@ -1404,7 +1404,7 @@ function lgw_champ_handle_admin_actions() {
 
         $dates_raw   = sanitize_textarea_field($_POST['lgw_champ_dates'] ?? '');
         $dates       = array_values(array_filter(array_map('trim', explode("\n", $dates_raw))));
-        $rounds_raw  = sanitize_textarea_field(wp_unslash($_POST['lgw_champ_rounds'] ?? ''));
+        $rounds_raw    = sanitize_textarea_field(wp_unslash($_POST['lgw_champ_rounds'] ?? ''));
         $rounds_labels = array_values(array_filter(array_map('trim', explode("\n", $rounds_raw))));
         $multi_green = sanitize_textarea_field(wp_unslash($_POST['lgw_champ_multi_green'] ?? ''));
 
@@ -1435,18 +1435,18 @@ function lgw_champ_handle_admin_actions() {
             $champ_data[$key] = sanitize_textarea_field(wp_unslash($sec_dates_post[$idx] ?? ''));
         }
 
-        // Keep section bracket dates in sync with saved dates after draw
+        // Keep section bracket dates and round labels in sync after draw
         foreach ($sections as $idx => $sec) {
             $sec_dates_key = 'section_' . $idx . '_dates';
             $sec_dates_raw = $champ_data[$sec_dates_key] ?? '';
             $sec_dates = $sec_dates_raw
                 ? array_values(array_filter(array_map('trim', explode("\n", $sec_dates_raw))))
                 : $dates;
-            // Sync dates into section bracket if drawn
+            // Sync into section bracket if drawn
             $bracket_key = 'section_' . $idx . '_bracket';
             if (!empty($champ_data[$bracket_key])) {
                 $champ_data[$bracket_key]['dates'] = $sec_dates;
-                // Sync round labels into section bracket if count matches
+                // Sync round labels — only if count exactly matches the bracket
                 $bracket_round_count = count($champ_data[$bracket_key]['rounds'] ?? array());
                 if (!empty($rounds_labels) && count($rounds_labels) === $bracket_round_count) {
                     $champ_data[$bracket_key]['rounds'] = $rounds_labels;
@@ -2004,17 +2004,26 @@ function lgw_champ_edit_page($champ_id) {
         <tr>
           <th><label for="lgw_champ_rounds">Round Labels</label></th>
           <td>
-            <textarea id="lgw_champ_rounds" name="lgw_champ_rounds" rows="5"
+            <textarea id="lgw_champ_rounds" name="lgw_champ_rounds" rows="8"
                       style="width:360px;font-family:monospace;font-size:13px"
-                      placeholder="One label per line (optional)&#10;Preliminary&#10;Round 1&#10;Quarter Final&#10;Semi-Final&#10;Final"><?php echo esc_textarea($rounds_str); ?></textarea>
+                      placeholder="One label per line (optional)&#10;Prelim&#10;Round 1&#10;Round 2&#10;Q-Final&#10;S-Final&#10;Final"><?php echo esc_textarea($rounds_str); ?></textarea>
             <p class="description">
-              Custom names for each round in order — overrides the auto-generated labels (Round 1, Quarter Final, etc.).<br>
-              Must have exactly the right number of lines to take effect. The draw will show the count needed once the entries are set.<br>
+              Custom names for each round in order — overrides the auto-generated labels.<br>
               <?php
-              $sample_n = count($champ['entries'] ?? array());
+              $sample_entries = $champ['entries'] ?? array();
+              $sample_n = count($sample_entries);
               if ($sample_n >= 2) {
-                  $needed = count(lgw_draw_default_rounds($sample_n));
-                  echo '<strong>Rounds needed for ' . $sample_n . ' entries: ' . $needed . '</strong>';
+                  $num_secs  = $sample_n <= 32 ? 1 : ($sample_n <= 64 ? 2 : 4);
+                  $sec_size  = (int) ceil($sample_n / $num_secs);
+                  // Compute per-section round count the same way the draw builder does
+                  $sec_bracket = 1;
+                  while ($sec_bracket < $sec_size) $sec_bracket *= 2;
+                  $sec_half    = $sec_bracket / 2;
+                  $sec_prelim  = $sec_size - $sec_half;
+                  $main_r      = count(lgw_draw_default_rounds($sec_half));
+                  $sec_rounds  = $sec_prelim > 0 ? 1 + $main_r : $main_r;
+                  echo '<strong>' . $sample_n . ' entries → ' . $num_secs . ' section' . ($num_secs > 1 ? 's' : '') . ' of ~' . $sec_size . ' → <span style="color:#c00">' . $sec_rounds . ' rounds per section</span></strong>.<br>';
+                  echo 'You need exactly <strong>' . $sec_rounds . '</strong> lines. If you have more lines than rounds, the last ' . $sec_rounds . ' lines are used.';
               }
               ?>
             </p>

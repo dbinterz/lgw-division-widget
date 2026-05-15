@@ -225,7 +225,6 @@
       + '</div>';
   }
 
-  // ── Current-round helpers ─────────────────────────────────────────────────────
   function parseChampDate(s) {
     if (!s) return null;
     var m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
@@ -236,24 +235,13 @@
   function findCurrentRound(rounds, matches, dates) {
     var today = new Date(); today.setHours(0,0,0,0); today = today.getTime();
     if (dates && dates.length) {
-      var firstUpcoming = -1;
-      for (var i = 0; i < dates.length; i++) {
-        var ts = parseChampDate(dates[i]);
-        if (ts !== null && ts >= today) { firstUpcoming = i; break; }
-      }
-      if (firstUpcoming >= 0) return firstUpcoming;
-      for (var j = dates.length - 1; j >= 0; j--) {
-        if (parseChampDate(dates[j]) !== null) return j;
-      }
+      var fu = -1;
+      for (var i = 0; i < dates.length; i++) { var ts = parseChampDate(dates[i]); if (ts !== null && ts >= today) { fu = i; break; } }
+      if (fu >= 0) return fu;
+      for (var j = dates.length - 1; j >= 0; j--) { if (parseChampDate(dates[j]) !== null) return j; }
     }
     for (var r = 0; r < (matches || []).length; r++) {
-      var roundMatches = matches[r] || [];
-      var incomplete = roundMatches.some(function (m) {
-        return !m.bye && (m.home_score === null || m.home_score === undefined ||
-                          m.home_score === '' || m.away_score === null ||
-                          m.away_score === undefined || m.away_score === '');
-      });
-      if (incomplete) return r;
+      if ((matches[r] || []).some(function(m){ return !m.bye && (m.home_score===null||m.home_score===undefined||m.home_score===''||m.away_score===null||m.away_score===undefined||m.away_score===''); })) return r;
     }
     return 0;
   }
@@ -307,9 +295,7 @@
 
       var roundEl = document.createElement('div');
       var isCurrent2 = (ri === currentRound);
-      roundEl.className = 'lgw-champ-round'
-        + (isFinal    ? ' lgw-champ-round-final'   : '')
-        + (isCurrent2 ? ' mobile-active lgw-champ-round--current' : '');
+      roundEl.className = 'lgw-champ-round' + (isFinal ? ' lgw-champ-round-final' : '') + (isCurrent2 ? ' mobile-active lgw-champ-round--current' : '');
       roundEl.dataset.round = ri;
 
       var dateStr = dates[ri] ? '<span class="lgw-champ-round-date">' + escHtml(dates[ri]) + '</span>' : '';
@@ -446,13 +432,9 @@
         }, { root: bracketOuter, threshold: 0.5 });
         qsa('.lgw-champ-round', bracketEl).forEach(function (r) { observer.observe(r); });
       }
-      if (currentRound > 0) {
-        setTimeout(function () { scrollToRound(currentRound); }, 80);
-      }
+      if (currentRound > 0) { setTimeout(function () { scrollToRound(currentRound); }, 80); }
     }
-    wrap._lgwScrollToCurrentRound = function () {
-      setTimeout(function () { scrollToRound(currentRound); }, 80);
-    };
+    wrap._lgwScrollToCurrentRound = function () { setTimeout(function () { scrollToRound(currentRound); }, 80); };
   }
 
   // ── Live draw animation ───────────────────────────────────────────────────────
@@ -1814,10 +1796,8 @@
         var pane = outer.querySelector('.lgw-champ-section-pane[data-section="' + btn.dataset.section + '"]');
         if (pane) {
           pane.classList.add('active');
-          var paneWrap = pane.querySelector('.lgw-champ-wrap');
-          if (paneWrap && typeof paneWrap._lgwScrollToCurrentRound === 'function') {
-            paneWrap._lgwScrollToCurrentRound();
-          }
+          var pw = pane.querySelector('.lgw-champ-wrap');
+          if (pw && typeof pw._lgwScrollToCurrentRound === 'function') pw._lgwScrollToCurrentRound();
         }
         sessionStorage.setItem(storageKey, btn.dataset.section);
       });

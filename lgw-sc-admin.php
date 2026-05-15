@@ -219,6 +219,29 @@ function lgw_ajax_admin_edit_scorecard() {
 }
 
 // ── Meta boxes on the native WP post edit screen ─────────────────────────────
+// ── save_post hook: keep score overrides and appearances in sync when the WP
+// post editor's "Update" button is used (e.g. arriving via the player modal link).
+add_action('save_post_lgw_scorecard', 'lgw_sc_on_save_post', 20, 1);
+function lgw_sc_on_save_post($post_id) {
+    // Skip autosaves, revisions, and bulk-edit requests
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+    if (wp_is_post_revision($post_id)) return;
+    if (!current_user_can('edit_post', $post_id)) return;
+
+    // Only run for confirmed scorecards (ignore draft/pending saves)
+    $status = get_post_meta($post_id, 'lgw_sc_status', true);
+    if (!in_array($status, array('confirmed', 'submitted'), true)) return;
+
+    // Re-log appearances (idempotent)
+    if (function_exists('lgw_log_appearances')) {
+        lgw_log_appearances($post_id);
+    }
+    // Sync score overrides so the widget reflects the latest totals
+    if (function_exists('lgw_sync_override_from_scorecard')) {
+        lgw_sync_override_from_scorecard($post_id);
+    }
+}
+
 add_action( 'add_meta_boxes', 'lgw_sc_register_meta_boxes' );
 function lgw_sc_register_meta_boxes() {
     add_meta_box(

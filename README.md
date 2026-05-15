@@ -107,12 +107,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
-### v7.2.18
-- New: Admin can set custom round labels in the championship admin screen (Round Labels textarea, one per line); labels flow through at draw time and sync into already-drawn section brackets on save.
-- New: Championship bracket highlights the current/upcoming round on desktop with a navy header and ▶ NOW badge.
-- New: Championship mobile tab bar auto-scrolls to the current round on load, with a ▶ indicator on the current tab.
-- Fix: Switching section tabs immediately resets the mobile bracket to the current round (no page refresh needed).
-- Fix: Tab bar items now render at equal height (League Table, Fixtures, Light/Admin mode buttons).
+### v7.2.19
+- Fix: Saving a scorecard via the WP post editor "Update" button (reached via the player admin modal link) now correctly syncs score overrides and re-logs appearances, matching the behaviour of the dedicated admin edit form.
+- New: Custom round labels for championship brackets (Round Labels textarea in admin, synced to drawn brackets on save).
+- Fix: Round Labels hint now shows per-section round count.
+- New: Championship bracket highlights current round (▶ NOW); mobile auto-scrolls to current round; section tab switch resets to current round.
+- Fix: Tab bar items render at equal height.
 
 ### v7.2.15
 - New: Finals Week tab — appears when any day KO is done.
