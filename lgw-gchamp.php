@@ -775,7 +775,9 @@ function lgw_gchamp_edit_page( $champ_id ) {
                     }
                     var warns=data.data.warnings||[];
                     var wh=warns.length?'<br><ul style="margin:4px 0;padding-left:18px">'+warns.map(function(w){return'<li>'+w+'</li>';}).join('')+'</ul>':'';
-                    msg.style.color='#138211';msg.innerHTML='\u2705 Draw complete.'+wh;
+                    msg.style.color='#138211';msg.innerHTML='\u2705 Draw complete.'+(warns.length===0?' No warnings.':wh);
+                    // Clear any stale warnings notice from the previous draw
+                    var oldWarn=document.querySelector('.notice-warning');if(oldWarn)oldWarn.remove();
                     setTimeout(function(){window.location.reload();},1800);
                 })
                 .catch(function(err){spinner.style.display='none';btn.disabled=false;msg.style.color='#c0202a';msg.textContent='Failed: '+err.message;});
@@ -1136,7 +1138,7 @@ function lgw_ajax_gchamp_save_score() {
         if ( $group_id < 0 || ! $pos_key ) wp_send_json_error('Missing group parameters.');
         if ( ! isset($champ['days'][$day_id]['groups'][$group_id]) ) wp_send_json_error('Group not found.');
 
-        // Block edits if KO bracket has any scores entered
+        // Check if ANY KO scores exist (used to gate bracket reseeding)
         $day_ko = $champ['days'][$day_id]['ko_bracket'] ?? null;
         $ko_has_scores_check = false;
         if ( $day_ko ) {
@@ -1148,8 +1150,18 @@ function lgw_ajax_gchamp_save_score() {
                 }
             }
         }
-        if ( $ko_has_scores_check ) {
-            wp_send_json_error( 'Cannot edit group scores — the knockout bracket for this day has results entered. Clear the knockout scores first.' );
+
+        // Block edits only if a qualifier from THIS group is already in a played KO match.
+        // Other groups' edits are still allowed even if the KO bracket has scores elsewhere.
+        if ( $ko_has_scores_check && $day_ko ) {
+            $group_entries_list = $champ['days'][$day_id]['groups'][$group_id]['entries'] ?? array();
+            // Get the qualifiers that came from this group
+            $group_qualifiers = lgw_gchamp_qualifiers_from_group(
+                $champ['days'][$day_id], $group_id
+            );
+            if ( lgw_gchamp_qualifiers_in_played_ko( $day_ko, $group_qualifiers ) ) {
+                wp_send_json_error( 'Cannot edit these group scores — a qualifier from this group has already played in the knockout bracket.' );
+            }
         }
 
         $found = false;
@@ -1169,16 +1181,46 @@ function lgw_ajax_gchamp_save_score() {
         $was_complete = ! empty( $champ['days'][$day_id]['day_complete'] );
         $day_complete = lgw_gchamp_day_fixtures_all_played( $champ['days'][$day_id] );
 
+        // Always recompute group-level completion and partial qualifiers
+        $partial = lgw_gchamp_compute_partial_qualifiers( $champ['days'][$day_id] );
+        $champ['days'][$day_id]['qualifier_slots'] = $partial['slots'];
+
         if ( $day_complete && ! $clear ) {
             $champ['days'][$day_id]['day_complete'] = true;
             $champ['days'][$day_id]['qualifiers']   = lgw_gchamp_compute_day_qualifiers( $champ['days'][$day_id] );
-            // Seed/reseed KO bracket when day is complete and no KO scores exist
-            if ( empty( $champ['days'][$day_id]['ko_bracket'] ) || ! $ko_has_scores_check ) {
+            if ( $ko_has_scores_check ) {
+                // KO in progress — fill TBD slots only, don't disturb played matches
+                lgw_gchamp_fill_ko_tbd_slots(
+                    $champ['days'][$day_id]['ko_bracket'],
+                    $partial['confirmed']
+                );
+            } else {
                 lgw_gchamp_auto_seed_day_ko( $champ, $day_id );
             }
         } elseif ( $clear ) {
             $champ['days'][$day_id]['day_complete'] = false;
             $champ['days'][$day_id]['qualifiers']   = array();
+            if ( $ko_has_scores_check ) {
+                // KO in progress — slot-fill from remaining confirmed qualifiers
+                lgw_gchamp_fill_ko_tbd_slots(
+                    $champ['days'][$day_id]['ko_bracket'],
+                    $partial['confirmed']
+                );
+            } elseif ( lgw_gchamp_any_group_complete( $champ['days'][$day_id] ) ) {
+                lgw_gchamp_auto_seed_day_ko( $champ, $day_id );
+            } else {
+                $champ['days'][$day_id]['ko_bracket'] = null;
+            }
+        } else {
+            // Partial completion — fill or seed as appropriate
+            if ( $ko_has_scores_check ) {
+                lgw_gchamp_fill_ko_tbd_slots(
+                    $champ['days'][$day_id]['ko_bracket'],
+                    $partial['confirmed']
+                );
+            } elseif ( lgw_gchamp_any_group_complete( $champ['days'][$day_id] ) ) {
+                lgw_gchamp_auto_seed_day_ko( $champ, $day_id );
+            }
         }
 
         $all_complete = true;
@@ -1198,8 +1240,55 @@ function lgw_ajax_gchamp_save_score() {
         ) );
     }
 }
+// ── AJAX: clear all KO scores for a day ──────────────────────────────────────
+add_action( 'wp_ajax_lgw_gchamp_clear_ko_scores', 'lgw_ajax_gchamp_clear_ko_scores' );
+function lgw_ajax_gchamp_clear_ko_scores() {
+    check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised.' );
+    $champ_id = sanitize_key( $_POST['champ_id'] ?? '' );
+    $day_id   = intval( $_POST['day_id'] ?? -1 );
+    if ( ! $champ_id || $day_id < 0 ) wp_send_json_error( 'Missing parameters.' );
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) )                    wp_send_json_error( 'Championship not found.' );
+    if ( ! isset( $champ['days'][$day_id] ) ) wp_send_json_error( 'Day not found.' );
 
-// ── AJAX: get standings (polling) ─────────────────────────────────────────────
+    // Clear all scores in the KO bracket and reset advancement
+    if ( ! empty( $champ['days'][$day_id]['ko_bracket']['rounds'] ) ) {
+        foreach ( $champ['days'][$day_id]['ko_bracket']['rounds'] as &$round ) {
+            foreach ( $round['matches'] as &$match ) {
+                $match['home_score'] = null;
+                $match['away_score'] = null;
+                // Clear advancement beyond round 0
+                if ( $round['round'] > 0 ) {
+                    $match['home'] = null;
+                    $match['away'] = null;
+                }
+            }
+            unset( $match );
+        }
+        unset( $round );
+    }
+    $champ['days'][$day_id]['ko_complete']   = false;
+    $champ['days'][$day_id]['ko_qualifiers'] = array();
+
+    // Re-fill TBD slots from current partial qualifiers
+    $partial = lgw_gchamp_compute_partial_qualifiers( $champ['days'][$day_id] );
+    $champ['days'][$day_id]['qualifier_slots'] = $partial['slots'];
+    if ( ! empty( $champ['days'][$day_id]['ko_bracket'] ) ) {
+        lgw_gchamp_fill_ko_tbd_slots( $champ['days'][$day_id]['ko_bracket'], $partial['confirmed'] );
+    }
+
+    // Unlock all groups on this day
+    foreach ( $champ['days'][$day_id]['groups'] as &$group ) {
+        $group['locked'] = false;
+    }
+    unset( $group );
+
+    update_option( 'lgw_gchamp_' . $champ_id, $champ );
+    wp_send_json_success( array( 'day_id' => $day_id ) );
+}
+
+
 add_action( 'wp_ajax_lgw_gchamp_get_standings',        'lgw_ajax_gchamp_get_standings' );
 add_action( 'wp_ajax_nopriv_lgw_gchamp_get_standings', 'lgw_ajax_gchamp_get_standings' );
 function lgw_ajax_gchamp_get_standings() {
@@ -1238,28 +1327,55 @@ function lgw_ajax_gchamp_seed_knockout() {
 // ── Per-day KO bracket helpers ───────────────────────────────────────────────
 
 /**
- * Auto-seed the KO bracket for a single day from its group qualifiers.
+ * Auto-seed the KO bracket for a single day from its (partial) qualifiers.
+ * $slots is an array of qualifier names where null means "not yet known".
  * Modifies $champ in place (does NOT call update_option — caller must save).
  */
 function lgw_gchamp_auto_seed_day_ko( array &$champ, int $day_id ): void {
-    $day      = &$champ['days'][ $day_id ];
-    $qs       = $day['qualifiers'] ?? array();
-    $total_q  = count( $qs );
-    if ( $total_q < 2 ) return;
+    $day   = &$champ['days'][ $day_id ];
+    $slots = $day['qualifier_slots'] ?? $day['qualifiers'] ?? array();
+    if ( empty( $slots ) ) return;
 
-    // Determine bracket size: use configured value, or auto next-power-of-two
+    $total_slots = count( $slots );
+    if ( $total_slots < 2 ) return;
+
+    // Determine bracket size
     $cfg_size = intval( $day['ko_bracket_size'] ?? 0 );
-    if ( $cfg_size < $total_q || ! lgw_gchamp_is_power_of_two( $cfg_size ) ) {
-        $cfg_size = lgw_gchamp_next_power_of_two( $total_q );
+    if ( $cfg_size < $total_slots || ! lgw_gchamp_is_power_of_two( $cfg_size ) ) {
+        $cfg_size = lgw_gchamp_next_power_of_two( $total_slots );
     }
-    $byes = $cfg_size - $total_q;
+    $byes = $cfg_size - $total_slots;
 
     $numbered = array();
-    foreach ( $qs as $i => $q ) $numbered[] = array( 'name' => $q, 'draw_num' => $i + 1 );
-    for ( $b = 0; $b < $byes; $b++ ) $numbered[] = array( 'name' => null, 'draw_num' => $total_q + $b + 1 );
+    // Sort slots: confirmed entries first, nulls last.
+    // Then pair them consecutively (1+2, 3+4, …) so matches fill top-down:
+    //   Match 1: slot 1 vs slot 2  (both confirmed → playable immediately)
+    //   Match 2: slot 3 vs slot 4
+    //   Match 3: TBD vs TBD        (not yet playable)
+    // Once all slots are confirmed the bracket is reseeded with standard 1-vs-N ordering.
+    $confirmed_slots = array_values( array_filter( $slots, fn($s) => $s !== null ) );
+    $tbd_slots       = array_values( array_filter( $slots, fn($s) => $s === null ) );
+    $all_confirmed   = empty( $tbd_slots ) && $byes === 0;
 
-    // Build bracket rounds manually (simple seeding: 1v(n), 2v(n-1)…)
-    $rounds = lgw_gchamp_build_simple_bracket( $numbered, $day['date'] ?? '' );
+    if ( $all_confirmed ) {
+        // Full bracket — use standard 1 vs N seeding
+        foreach ( $slots as $i => $q ) {
+            $numbered[] = array( 'name' => $q, 'draw_num' => $i + 1 );
+        }
+        for ( $b = 0; $b < $byes; $b++ ) {
+            $numbered[] = array( 'name' => null, 'draw_num' => $total_slots + $b + 1 );
+        }
+    } else {
+        // Partial bracket — confirmed first, TBDs last
+        $all_slots = array_merge( $confirmed_slots, $tbd_slots );
+        for ( $b = 0; $b < $byes; $b++ ) $all_slots[] = null;
+        foreach ( $all_slots as $i => $q ) {
+            $numbered[] = array( 'name' => $q, 'draw_num' => $i + 1 );
+        }
+    }
+
+    $rounds = lgw_gchamp_build_simple_bracket( $numbered, $day['date'] ?? '', ! $all_confirmed );
+
     $day['ko_bracket'] = array(
         'title'  => ( $champ['title'] ?? 'Championship' ) . ' — ' . ( $day['name'] ?? 'Day' ) . ' Knockout',
         'rounds' => $rounds,
@@ -1274,17 +1390,28 @@ function lgw_gchamp_auto_seed_day_ko( array &$champ, int $day_id ): void {
  * Returns rounds array: [ ['round'=>0,'label'=>'QF','matches'=>[...]], ... ]
  * Matches: ['match'=>int,'round'=>int,'home'=>?string,'away'=>?string,'home_score'=>null,'away_score'=>null]
  */
-function lgw_gchamp_build_simple_bracket( array $numbered, string $date = '' ): array {
+function lgw_gchamp_build_simple_bracket( array $numbered, string $date = '', bool $consecutive = false ): array {
     $n      = count( $numbered );
     $rounds = array();
     $size   = $n; // must be power of two
 
-    // Standard seeding: 1 vs size, 2 vs size-1, …
+    // Pairing:
+    //   Standard (1 vs N):   1v8, 2v7, 3v6, 4v5  — used for complete brackets
+    //   Consecutive (top-down): 1v2, 3v4, 5v6, 7v8 — used for partial fills so
+    //   confirmed entries fill whole matches from the top before TBDs appear.
     $pairs = array();
-    for ( $i = 0; $i < $size / 2; $i++ ) {
-        $a = $numbered[ $i ] ?? array( 'name' => null );
-        $b = $numbered[ $size - 1 - $i ] ?? array( 'name' => null );
-        $pairs[] = array( $a['name'], $b['name'] );
+    if ( $consecutive ) {
+        for ( $i = 0; $i < $size; $i += 2 ) {
+            $a = $numbered[ $i ]     ?? array( 'name' => null );
+            $b = $numbered[ $i + 1 ] ?? array( 'name' => null );
+            $pairs[] = array( $a['name'], $b['name'] );
+        }
+    } else {
+        for ( $i = 0; $i < $size / 2; $i++ ) {
+            $a = $numbered[ $i ]             ?? array( 'name' => null );
+            $b = $numbered[ $size - 1 - $i ] ?? array( 'name' => null );
+            $pairs[] = array( $a['name'], $b['name'] );
+        }
     }
 
     $round_labels = array( 2=>'Final', 4=>'Semi-final', 8=>'Quarter-final', 16=>'Round of 16', 32=>'Round of 32' );
@@ -1604,13 +1731,35 @@ function lgw_ajax_gchamp_seed_day_ko() {
     if ( ! $champ_id || $day_id < 0 ) wp_send_json_error( 'Missing parameters.' );
 
     $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
-    if ( empty( $champ ) )                           wp_send_json_error( 'Championship not found.' );
-    if ( ! isset( $champ['days'][$day_id] ) )        wp_send_json_error( 'Day not found.' );
-    if ( empty( $champ['days'][$day_id]['day_complete'] ) ) wp_send_json_error( 'Day group stage not yet complete.' );
+    if ( empty( $champ ) )                    wp_send_json_error( 'Championship not found.' );
+    if ( ! isset( $champ['days'][$day_id] ) ) wp_send_json_error( 'Day not found.' );
+    if ( ! lgw_gchamp_any_group_complete( $champ['days'][$day_id] ) ) wp_send_json_error( 'No groups have completed yet.' );
 
-    // Force re-compute qualifiers then seed
-    $champ['days'][$day_id]['qualifiers'] = lgw_gchamp_compute_day_qualifiers( $champ['days'][$day_id] );
-    lgw_gchamp_auto_seed_day_ko( $champ, $day_id );
+    // Compute partial qualifiers (confirmed + null stubs for pending groups)
+    $partial = lgw_gchamp_compute_partial_qualifiers( $champ['days'][$day_id] );
+    $champ['days'][$day_id]['qualifier_slots'] = $partial['slots'];
+    if ( $champ['days'][$day_id]['day_complete'] ?? false ) {
+        $champ['days'][$day_id]['qualifiers'] = lgw_gchamp_compute_day_qualifiers( $champ['days'][$day_id] );
+    }
+
+    // Check if KO bracket already has scores — if so, only fill TBD slots
+    $existing_bracket = $champ['days'][$day_id]['ko_bracket'] ?? null;
+    $ko_has_scores = false;
+    if ( $existing_bracket ) {
+        foreach ( $existing_bracket['rounds'] ?? array() as $rnd ) {
+            foreach ( $rnd['matches'] ?? array() as $mch ) {
+                if ( $mch['home_score'] !== null || $mch['away_score'] !== null ) {
+                    $ko_has_scores = true; break 2;
+                }
+            }
+        }
+    }
+
+    if ( $ko_has_scores ) {
+        lgw_gchamp_fill_ko_tbd_slots( $champ['days'][$day_id]['ko_bracket'], $partial['confirmed'] );
+    } else {
+        lgw_gchamp_auto_seed_day_ko( $champ, $day_id );
+    }
 
     if ( empty( $champ['days'][$day_id]['ko_bracket'] ) ) {
         wp_send_json_error( 'Could not seed bracket — check that qualifiers exist for this day.' );
@@ -1860,6 +2009,168 @@ function lgw_gchamp_day_fixtures_all_played( array $day ): bool {
         }
     }
     return true;
+}
+
+/** Check if a single group has all fixtures played. */
+function lgw_gchamp_group_fixtures_all_played( array $group ): bool {
+    foreach ( $group['fixtures'] ?? array() as $fx ) {
+        if ( $fx['home_score'] === null || $fx['away_score'] === null ) return false;
+    }
+    return ! empty( $group['fixtures'] );
+}
+
+/**
+ * Return the qualifier names that came from a specific group on a day.
+ * Looks at the day's current qualifier_slots to find which entries
+ * originated from this group's standings.
+ */
+function lgw_gchamp_qualifiers_from_group( array $day, int $group_id ): array {
+    $wpg   = intval( $day['winners_per_group'] ?? 1 );
+    $group = $day['groups'][$group_id] ?? null;
+    if ( ! $group ) return array();
+    $standings = lgw_gchamp_compute_standings( $group['entries'] ?? array(), $group['fixtures'] ?? array() );
+    $qs = array();
+    foreach ( $standings as $pos => $row ) {
+        if ( $pos < $wpg ) $qs[] = $row['entry'];
+    }
+    return $qs;
+}
+
+/**
+ * Return true if any of $qualifiers appear as home or away in a KO match
+ * that already has a score entered.
+ */
+function lgw_gchamp_qualifiers_in_played_ko( array $ko_bracket, array $qualifiers ): bool {
+    if ( empty( $qualifiers ) ) return false;
+    foreach ( $ko_bracket['rounds'] ?? array() as $rnd ) {
+        foreach ( $rnd['matches'] ?? array() as $mch ) {
+            if ( $mch['home_score'] === null && $mch['away_score'] === null ) continue;
+            if ( in_array( $mch['home'], $qualifiers, true ) ) return true;
+            if ( in_array( $mch['away'], $qualifiers, true ) ) return true;
+        }
+    }
+    return false;
+}
+
+
+/**
+ * Fill TBD slots in an existing KO bracket with newly confirmed qualifiers,
+ * without touching any match that already has scores.
+ *
+ * The bracket was built with confirmed entries at the top and nulls below,
+ * using consecutive pairing. We simply walk round 0 matches in order and
+ * replace null home/away slots with the next unplaced confirmed qualifier.
+ *
+ * Also advances byes for any newly-filled slots.
+ */
+function lgw_gchamp_fill_ko_tbd_slots( array &$bracket, array $confirmed_names ): void {
+    if ( empty( $bracket['rounds'] ) ) return;
+
+    // Collect names already placed anywhere in round 0
+    $placed = array();
+    foreach ( $bracket['rounds'][0]['matches'] as $m ) {
+        if ( $m['home'] !== null ) $placed[] = $m['home'];
+        if ( $m['away'] !== null ) $placed[] = $m['away'];
+    }
+
+    // Queue of confirmed qualifiers not yet in the bracket
+    $to_place = array();
+    foreach ( $confirmed_names as $name ) {
+        if ( ! in_array( $name, $placed, true ) ) $to_place[] = $name;
+    }
+    if ( empty( $to_place ) ) return;
+
+    // Fill null slots in round 0 matches that are not yet scored
+    foreach ( $bracket['rounds'][0]['matches'] as &$match ) {
+        if ( empty( $to_place ) ) break;
+        // Don't touch matches that already have scores
+        if ( $match['home_score'] !== null || $match['away_score'] !== null ) continue;
+        if ( $match['home'] === null ) {
+            $match['home'] = array_shift( $to_place );
+        }
+        if ( empty( $to_place ) ) break;
+        if ( $match['away'] === null ) {
+            $match['away'] = array_shift( $to_place );
+        }
+    }
+    unset( $match );
+
+    // Re-process byes: if home is filled and away is still null, mark as bye and advance
+    foreach ( $bracket['rounds'][0]['matches'] as &$match ) {
+        if ( ! empty( $match['bye'] ) ) continue;
+        if ( $match['home'] !== null && $match['away'] === null ) {
+            $match['bye'] = true;
+            lgw_gchamp_advance_ko_winner_rounds( $bracket['rounds'], 0, $match['match'], $match['home'] );
+        }
+    }
+    unset( $match );
+}
+
+/**
+ * Check whether any group on a day is complete.
+ */
+function lgw_gchamp_any_group_complete( array $day ): bool {
+    foreach ( $day['groups'] ?? array() as $group ) {
+        if ( lgw_gchamp_group_fixtures_all_played( $group ) ) return true;
+    }
+    return false;
+}
+
+/**
+ * Compute qualifiers from completed groups only, returning an array of
+ * confirmed qualifier names. Incomplete groups contribute null placeholders
+ * so the bracket can be seeded with the right size.
+ *
+ * Returns: [ 'confirmed' => ['Name',...], 'slots' => ['Name'|null,...] ]
+ * where slots is in draw order (confirmed entries followed by nulls for
+ * groups not yet done).
+ */
+function lgw_gchamp_compute_partial_qualifiers( array $day ): array {
+    $wpg  = intval( $day['winners_per_group'] ?? 1 );
+    $bru  = intval( $day['best_runners_up']   ?? 0 );
+    $confirmed_auto = array();
+    $pending_auto   = 0;
+    $runner_up_pool = array();
+    $pending_bru    = 0;
+
+    foreach ( $day['groups'] ?? array() as $group ) {
+        $complete = lgw_gchamp_group_fixtures_all_played( $group );
+        $standings = lgw_gchamp_compute_standings( $group['entries'] ?? array(), $group['fixtures'] ?? array() );
+        if ( $complete ) {
+            foreach ( $standings as $pos => $row ) {
+                $aug = array_merge( $row, array( 'diff' => $row['sf'] - $row['sa'] ) );
+                if ( $pos < $wpg ) $confirmed_auto[] = $aug;
+                elseif ( $bru > 0 ) $runner_up_pool[] = $aug;
+            }
+        } else {
+            $pending_auto += $wpg;
+            if ( $bru > 0 ) $pending_bru++;
+        }
+    }
+
+    usort( $confirmed_auto, 'lgw_gchamp_sort_qualifier' );
+    $confirmed_names = array_map( fn($q) => $q['entry'], $confirmed_auto );
+
+    // Best runners-up from completed groups
+    $confirmed_bru = array();
+    if ( $bru > 0 && ! empty( $runner_up_pool ) ) {
+        usort( $runner_up_pool, 'lgw_gchamp_sort_qualifier' );
+        $confirmed_bru = array_map( fn($q) => $q['entry'], array_slice( $runner_up_pool, 0, $bru ) );
+    }
+
+    // Slots: confirmed winners + null stubs for pending groups + BRU slots
+    $slots = array_merge(
+        $confirmed_names,
+        array_fill( 0, $pending_auto, null ),
+        $confirmed_bru,
+        array_fill( 0, max( 0, $bru - count( $confirmed_bru ) - $pending_bru ), null ),
+        array_fill( 0, min( $pending_bru, $bru ), null )
+    );
+
+    return array(
+        'confirmed' => array_merge( $confirmed_names, $confirmed_bru ),
+        'slots'     => $slots,
+    );
 }
 
 // ── Knockout bracket seeding ──────────────────────────────────────────────────
@@ -2131,8 +2442,10 @@ function lgw_gchamp_distribute_to_groups(
                         $tgi_new = array_values( array_filter( $ge[$tgi], fn($x) => $x !== $te ) );
                         $tgi_new[] = $ve;
 
-                        $vgi_ok = lgw_gchamp_count_club_in_group( $tc, array_filter( $vgi_new, fn($x) => $x !== $te ) ) === 0;
-                        $tgi_ok = lgw_gchamp_count_club_in_group( $vc, array_filter( $tgi_new, fn($x) => $x !== $ve ) ) === 0;
+                        // vgi_new must have no duplicate of tc (the incoming club)
+                        // tgi_new must have no duplicate of vc (the incoming club)
+                        $vgi_ok = lgw_gchamp_count_club_in_group( $tc, $vgi_new ) <= 1;
+                        $tgi_ok = lgw_gchamp_count_club_in_group( $vc, $tgi_new ) <= 1;
 
                         if ( $vgi_ok && $tgi_ok ) {
                             $ge[$vgi] = $vgi_new;
@@ -2175,6 +2488,7 @@ function lgw_gchamp_distribute_to_groups(
         $group_entries[$gi] = $best['ge'][$gi] ?? array();
     }
 
+    // Only warn if the best result still has violations (genuinely unavoidable)
     if ( $best['violations'] > 0 ) {
         $warnings[] = $best['violations'] . ' group' . ( $best['violations'] > 1 ? 's have' : ' has' )
             . ' more than one entry from the same club — unavoidable given the club distribution on this day.';
@@ -2420,23 +2734,24 @@ function lgw_gchamp_shortcode( $atts ) {
         </div>
 
         <?php foreach ( $days as $day_idx => $day ):
-            $wpg          = intval( $day['winners_per_group'] ?? 1 );
-            $bru          = intval( $day['best_runners_up']   ?? 0 );
-            $day_complete = ! empty( $day['day_complete'] );
-            $ko_bracket   = $day['ko_bracket']   ?? null;
-            $ko_complete  = ! empty( $day['ko_complete'] );
-            $ko_quals     = $day['ko_qualifiers'] ?? array();
+            $wpg               = intval( $day['winners_per_group'] ?? 1 );
+            $bru               = intval( $day['best_runners_up']   ?? 0 );
+            $day_complete      = ! empty( $day['day_complete'] );
+            $any_group_complete = lgw_gchamp_any_group_complete( $day );
+            $ko_bracket        = $day['ko_bracket']   ?? null;
+            $ko_complete       = ! empty( $day['ko_complete'] );
+            $ko_quals          = $day['ko_qualifiers'] ?? array();
         ?>
         <div class="lgw-gchamp-day-pane<?php echo $day_idx === 0 ? ' active' : ''; ?>"
              data-day-pane="<?php echo $day_idx; ?>"
-             data-seed-needed="<?php echo ($day_complete && empty($day['ko_bracket'])) ? '1' : '0'; ?>">
+             data-seed-needed="<?php echo ($any_group_complete && empty($day['ko_bracket'])) ? '1' : '0'; ?>">
 
             <?php /* ── Sub-tabs: Groups | Knockout ── */ ?>
             <div class="lgw-gchamp-sub-tabs">
                 <button class="lgw-gchamp-sub-tab active" data-sub-pane="groups">
                     &#x26BD; Groups
                 </button>
-                <button class="lgw-gchamp-sub-tab<?php echo $day_complete ? '' : ' locked'; ?>"
+                <button class="lgw-gchamp-sub-tab<?php echo $any_group_complete ? '' : ' locked'; ?>"
                         data-sub-pane="knockout">
                     &#x1F3C6; Knockout
                     <?php if ( $ko_complete ): ?><span class="lgw-gchamp-sub-tab-done">&#x2713;</span><?php endif; ?>
@@ -2464,27 +2779,25 @@ function lgw_gchamp_shortcode( $atts ) {
                 <div class="lgw-gchamp-group-card">
                     <?php
                     $group_locked = ! empty( $group['locked'] );
-                    // KO has scores = can't unlock
+                    $group_complete = lgw_gchamp_group_fixtures_all_played( $group );
+                    // KO has scores for THIS group's qualifier = can't unlock
                     $ko_has_scores = false;
                     if ( ! empty( $day['ko_bracket'] ) ) {
-                        foreach ( ($day['ko_bracket']['rounds'] ?? array()) as $rnd ) {
-                            foreach ( ($rnd['matches'] ?? array()) as $mch ) {
-                                if ( $mch['home_score'] !== null || $mch['away_score'] !== null ) { $ko_has_scores = true; break 2; }
-                            }
-                        }
+                        $group_qs = lgw_gchamp_qualifiers_from_group( $day, $group['id'] ?? $gi );
+                        $ko_has_scores = lgw_gchamp_qualifiers_in_played_ko( $day['ko_bracket'], $group_qs );
                     }
                     ?>
                     <div class="lgw-gchamp-group-header">
                         <span class="lgw-gchamp-group-name"><?php echo esc_html( $g_label ); ?></span>
                         <span class="lgw-gchamp-group-progress"><?php echo $n_played; ?>/<?php echo $n_total; ?></span>
-                        <?php if ( current_user_can('manage_options') && $day_complete ): ?>
+                        <?php if ( current_user_can('manage_options') && $group_complete ): ?>
                         <button type="button"
                                 class="lgw-gchamp-group-lock-btn"
                                 data-day-id="<?php echo $day_idx; ?>"
                                 data-group-id="<?php echo $group['id'] ?? $gi; ?>"
                                 data-locked="<?php echo $group_locked ? '1' : '0'; ?>"
                                 data-ko-has-scores="<?php echo $ko_has_scores ? '1' : '0'; ?>"
-                                title="<?php echo $ko_has_scores ? 'Cannot unlock: KO bracket has scores' : ($group_locked ? 'Unlock group for editing' : 'Lock group scores'); ?>"
+                                title="<?php echo $ko_has_scores ? 'Cannot unlock — this group\'s qualifier has played in the KO bracket. Use \'Clear all KO scores\' first.' : ($group_locked ? 'Unlock group for editing' : 'Lock group scores'); ?>"
                                 <?php echo $ko_has_scores ? 'disabled' : ''; ?>>
                             <?php echo $group_locked ? '🔒' : '🔓'; ?>
                         </button>
@@ -2538,11 +2851,11 @@ function lgw_gchamp_shortcode( $atts ) {
                         </span>
                         <?php endif; ?>
                     </div>
-                    <button class="lgw-gchamp-fixtures-toggle" type="button">
+                    <button class="lgw-gchamp-fixtures-toggle open" type="button">
                         Fixtures (<?php echo count( $g_fixtures ); ?>)
                         <span class="lgw-gchamp-fixtures-toggle-arrow">&#x25BC;</span>
                     </button>
-                    <div class="lgw-gchamp-fixtures-body">
+                    <div class="lgw-gchamp-fixtures-body open">
                     <?php
                     $by_round = array();
                     foreach ( $g_fixtures as $fx ) $by_round[ $fx['round'] ][] = $fx;
@@ -2573,7 +2886,7 @@ function lgw_gchamp_shortcode( $atts ) {
                         </span>
                         <?php
                     $group_locked = ! empty( $group['locked'] );
-                    $score_open   = $can_score && ( ! $day_complete || ( current_user_can('manage_options') && ! $group_locked ) );
+                    $score_open = $can_score && ! $group_locked && ! $ko_has_scores;
                     ?>
                     <?php if ( $score_open ): ?>
                         <span class="lgw-gchamp-score-entry">
@@ -2635,6 +2948,14 @@ function lgw_gchamp_shortcode( $atts ) {
                     <div class="lgw-gchamp-ko-header">
                         <span class="lgw-gchamp-ko-title"><?php echo esc_html( $day['name'] ); ?> — Knockout</span>
                         <span class="lgw-gchamp-ko-progress"><?php echo $played_matches; ?>/<?php echo $total_matches; ?> played</span>
+                        <?php if ( current_user_can('manage_options') && $played_matches > 0 ): ?>
+                        <button type="button"
+                                class="lgw-gchamp-ko-clear-all-btn"
+                                data-day-id="<?php echo $day_idx; ?>"
+                                data-champ-id="<?php echo esc_attr( $gchamp_id ); ?>">
+                            🗑 Clear KO scores
+                        </button>
+                        <?php endif; ?>
                     </div>
                     <div class="lgw-gchamp-ko-bracket-scroll">
                     <div class="lgw-gchamp-ko-bracket">
@@ -2720,7 +3041,7 @@ function lgw_gchamp_shortcode( $atts ) {
             <?php else: ?>
                 <div class="lgw-gchamp-empty" style="padding:32px 20px">
                     <div class="lgw-gchamp-empty-icon">&#x1F3C6;</div>
-                    <p>Knockout bracket will be seeded automatically when all group fixtures for <?php echo esc_html($day['name']); ?> are complete.</p>
+                    <p>Knockout bracket will appear as groups complete. Confirmed qualifiers are seeded immediately — TBD slots fill as remaining groups finish.</p>
                 </div>
             <?php endif; ?>
             </div><!-- knockout sub-pane -->

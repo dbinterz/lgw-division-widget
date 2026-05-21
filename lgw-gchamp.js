@@ -353,7 +353,27 @@
         }).catch(function(err){ if(saving)saving.style.display='none'; if(form)form.style.display='flex'; alert('Failed: '+err.message); });
     }
 
-    // ── Auto-seed KO on page load for completed days without a bracket ────────
+    // ── Clear all KO scores (admin) ───────────────────────────────────────────
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.lgw-gchamp-ko-clear-all-btn');
+        if (!btn) return;
+        if (!confirm('Clear all knockout scores for this day? This will reset the bracket to the seeded state and unlock all groups.')) return;
+        var dayId   = btn.getAttribute('data-day-id');
+        var champId = btn.getAttribute('data-champ-id');
+        btn.disabled = true;
+        btn.textContent = 'Clearing…';
+        var fd = new FormData();
+        fd.append('action','lgw_gchamp_clear_ko_scores');
+        fd.append('nonce', nonce);
+        fd.append('champ_id', champId);
+        fd.append('day_id', dayId);
+        fetch(ajaxUrl,{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(data){
+            if (data.success) { location.reload(); }
+            else { btn.disabled=false; btn.textContent='🗑 Clear KO scores'; alert('Error: '+(data.data||'Unknown')); }
+        }).catch(function(err){ btn.disabled=false; btn.textContent='🗑 Clear KO scores'; alert('Failed: '+err.message); });
+    });
+
+
     if (window.lgwGchampData && lgwGchampData.isAdmin) {
         document.querySelectorAll('.lgw-gchamp-day-pane[data-seed-needed="1"]').forEach(function(pane) {
             var dayIdx = pane.getAttribute('data-day-pane');

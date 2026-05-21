@@ -107,6 +107,86 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.40
+- **Group Championships:** 'Clear KO scores' button restyled using plugin CSS variables and design tokens to match the existing score entry buttons rather than plain WP admin button styling.
+
+### v7.2.39
+- **Group Championships:** Added 'Clear all KO scores' button to the KO bracket header (admin, visible when any score exists). Clears all match scores, resets winner advancement beyond round 0, re-fills TBD slots from currently confirmed qualifiers, and unlocks all group lock buttons on the day. Resolves 'no way to clear KO scores' UX gap.
+- Group lock button tooltip updated to explain the per-group KO qualifier lock and direct admin to the new clear button.
+
+### v7.2.38
+- **Hotfix:** Fixed PHP syntax error in `lgw-gchamp.php` caused by the same orphaned-body pattern as v7.2.35 — `str_replace` anchor consumed a function declaration, leaving its body as loose code.
+
+### v7.2.37
+- **Group Championships:** Added `lgw_gchamp_fill_ko_tbd_slots()`. When a group completes after KO scores already exist, the new qualifier fills the next available TBD slot in round 0 of the bracket rather than being silently dropped. Played matches are left completely unchanged. Full reseed still happens when no KO scores exist.
+
+### v7.2.36
+- **Group Championships:** Group fixture lists now expanded by default.
+
+### v7.2.35
+- **Hotfix:** Fixed PHP syntax error in `lgw-gchamp.php` — the `lgw_gchamp_any_group_complete()` function declaration was accidentally dropped during the v7.2.34 refactor, leaving its body as orphaned code and causing a parse error on load.
+
+### v7.2.34
+- **Group Championships:** Group score editing is now blocked only when a qualifier from *that specific group* has already played in the KO bracket. Previously any KO score on the day blocked all group edits. Groups whose qualifiers are not yet in the KO (or whose KO matches are unplayed) remain fully editable.
+- Group lock button now appears as soon as an individual group completes, not when the whole day does.
+- `$score_open` now reflects per-group lock and per-group KO qualifier lock, independent of `$day_complete`.
+- Added `lgw_gchamp_qualifiers_from_group()` and `lgw_gchamp_qualifiers_in_played_ko()` helpers.
+
+### v7.2.33
+- **Group Championships:** Partial KO bracket now uses consecutive pairing during progressive fill: confirmed qualifiers pair as 1v2, 3v4, 5v6… so match 1 is fully populated (and immediately playable) as soon as the first two groups complete, match 2 when four complete, etc. TBD matches cluster at the bottom. Once all groups complete the bracket is reseeded with standard 1-vs-N ordering.
+
+### v7.2.32
+- **Group Championships:** Progressive KO bracket now fills top-down. Confirmed qualifiers are sorted to the top of the `$numbered` array before seeding, so they occupy the top bracket positions and TBD stubs cluster at the bottom. As each subsequent group completes, its qualifiers fill in the next available top positions.
+
+### v7.2.31
+- **Group Championships:** Knockout tab now unlocks as soon as *any* group on a day completes, rather than waiting for all groups.
+- **Group Championships:** Knockout bracket seeds progressively — confirmed qualifiers are placed immediately, with TBD stubs for groups not yet finished. As each group completes its qualifiers replace the TBD stubs and the bracket updates automatically.
+- **Group Championships:** Score entry buttons appear on KO matches as soon as both participants are confirmed (existing behaviour, now works from first qualifier onwards).
+- Added `lgw_gchamp_group_fixtures_all_played()`, `lgw_gchamp_any_group_complete()`, `lgw_gchamp_compute_partial_qualifiers()` helpers.
+
+### v7.2.30
+- **Group Championships:** Draw success message now explicitly shows "No warnings" when the draw is clean. Stale warning notices from the previous draw are cleared from the page immediately on success, before the reload, so they can't be mistaken for warnings from the new draw.
+
+### v7.2.40
+- **Group Championships:** 'Clear KO scores' button restyled using plugin CSS variables and design tokens to match the existing score entry buttons rather than plain WP admin button styling.
+
+### v7.2.39
+- **Group Championships:** Added 'Clear all KO scores' button to the KO bracket header (admin, visible when any score exists). Clears all match scores, resets winner advancement beyond round 0, re-fills TBD slots from currently confirmed qualifiers, and unlocks all group lock buttons on the day. Resolves 'no way to clear KO scores' UX gap.
+- Group lock button tooltip updated to explain the per-group KO qualifier lock and direct admin to the new clear button.
+
+### v7.2.38
+- **Hotfix:** Fixed PHP syntax error in `lgw-gchamp.php` caused by the same orphaned-body pattern as v7.2.35 — `str_replace` anchor consumed a function declaration, leaving its body as loose code.
+
+### v7.2.37
+- **Group Championships:** Added `lgw_gchamp_fill_ko_tbd_slots()`. When a group completes after KO scores already exist, the new qualifier fills the next available TBD slot in round 0 of the bracket rather than being silently dropped. Played matches are left completely unchanged. Full reseed still happens when no KO scores exist.
+
+### v7.2.36
+- **Group Championships:** Group fixture lists now expanded by default.
+
+### v7.2.35
+- **Hotfix:** Fixed PHP syntax error in `lgw-gchamp.php` — the `lgw_gchamp_any_group_complete()` function declaration was accidentally dropped during the v7.2.34 refactor, leaving its body as orphaned code and causing a parse error on load.
+
+### v7.2.34
+- **Group Championships:** Group score editing is now blocked only when a qualifier from *that specific group* has already played in the KO bracket. Previously any KO score on the day blocked all group edits. Groups whose qualifiers are not yet in the KO (or whose KO matches are unplayed) remain fully editable.
+- Group lock button now appears as soon as an individual group completes, not when the whole day does.
+- `$score_open` now reflects per-group lock and per-group KO qualifier lock, independent of `$day_complete`.
+- Added `lgw_gchamp_qualifiers_from_group()` and `lgw_gchamp_qualifiers_in_played_ko()` helpers.
+
+### v7.2.33
+- **Group Championships:** Partial KO bracket now uses consecutive pairing during progressive fill: confirmed qualifiers pair as 1v2, 3v4, 5v6… so match 1 is fully populated (and immediately playable) as soon as the first two groups complete, match 2 when four complete, etc. TBD matches cluster at the bottom. Once all groups complete the bracket is reseeded with standard 1-vs-N ordering.
+
+### v7.2.32
+- **Group Championships:** Progressive KO bracket now fills top-down. Confirmed qualifiers are sorted to the top of the `$numbered` array before seeding, so they occupy the top bracket positions and TBD stubs cluster at the bottom. As each subsequent group completes, its qualifiers fill in the next available top positions.
+
+### v7.2.31
+- **Group Championships:** Knockout tab now unlocks as soon as *any* group on a day completes, rather than waiting for all groups.
+- **Group Championships:** Knockout bracket seeds progressively — confirmed qualifiers are placed immediately, with TBD stubs for groups not yet finished. As each group completes its qualifiers replace the TBD stubs and the bracket updates automatically.
+- **Group Championships:** Score entry buttons appear on KO matches as soon as both participants are confirmed (existing behaviour, now works from first qualifier onwards).
+- Added `lgw_gchamp_group_fixtures_all_played()`, `lgw_gchamp_any_group_complete()`, `lgw_gchamp_compute_partial_qualifiers()` helpers.
+
+### v7.2.30
+- **Group Championships:** Fixed false positive "duplicate club" warning. The swap simulation built `$vgi_new` (post-swap group) then immediately filtered the incoming entry back out before checking for conflicts — checking the wrong state. The check now correctly validates the fully post-swap arrays, so clean draws no longer trigger a spurious warning.
+
 ### v7.2.29
 - **Group Championships:** Complete rewrite of `lgw_gchamp_distribute_to_groups`. Previous repair pass operated on stale array indices (group arrays mutated mid-loop invalidating stored `idx` values) and the swap validation used pre-mutation state. New approach: encapsulates placement+repair as a single attempt function, runs up to 20 attempts with different random seeds, and keeps the result with the fewest club violations. Each attempt uses constraint-first sorting, clean-group-first placement, then a swap-based repair that simulates the full post-swap state before committing.
 
