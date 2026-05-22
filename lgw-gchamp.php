@@ -69,6 +69,7 @@ function lgw_gchamp_handle_admin_actions() {
         $day_bru_post   = $_POST['lgw_gchamp_day_bru']   ?? array();
 
         $day_kobs_post      = $_POST['lgw_gchamp_day_kobs']      ?? array();
+        $day_locations_post = $_POST['lgw_gchamp_day_locations'] ?? array();
         $day_fq_post        = $_POST['lgw_gchamp_day_fq']         ?? array();
         for ( $i = 0; $i < $num_days; $i++ ) {
             $days_config[] = array(

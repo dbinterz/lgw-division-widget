@@ -107,6 +107,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.49
+- **Hotfix:** Day `Location` field not saving on admin page. `$day_locations_post` declaration was accidentally dropped from the days_config save block when `$day_fq_post` was added in v7.2.42.
+
 ### v7.2.48
 - **Finals Week:** `[lgw_finals]` shortcode now includes Group Championship qualifiers alongside standard championships for the given season. Added `lgw_finals_get_gchamp_matches()` to map `finals_matches` into the existing match-list format. All AJAX handlers (`lgw_finals_save_datetime`, `lgw_finals_save_end`, `lgw_finals_save_score`) and the live poll handler now detect `bracket_key='gchamp'` and route reads/writes to `lgw_gchamp_*` options instead of `lgw_champ_*`. Scores edited from the `[lgw_finals]` page, the Group Championships shortcode, or the admin screen all write to the same data.
 
@@ -170,6 +173,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ### v7.2.30
 - **Group Championships:** Draw success message now explicitly shows "No warnings" when the draw is clean. Stale warning notices from the previous draw are cleared from the page immediately on success, before the reload, so they can't be mistaken for warnings from the new draw.
+
+### v7.2.49
+- **Hotfix:** Day `Location` field not saving on admin page. `$day_locations_post` declaration was accidentally dropped from the days_config save block when `$day_fq_post` was added in v7.2.42.
 
 ### v7.2.48
 - **Finals Week:** `[lgw_finals]` shortcode now includes Group Championship qualifiers alongside standard championships for the given season. Added `lgw_finals_get_gchamp_matches()` to map `finals_matches` into the existing match-list format. All AJAX handlers (`lgw_finals_save_datetime`, `lgw_finals_save_end`, `lgw_finals_save_score`) and the live poll handler now detect `bracket_key='gchamp'` and route reads/writes to `lgw_gchamp_*` options instead of `lgw_champ_*`. Scores edited from the `[lgw_finals]` page, the Group Championships shortcode, or the admin screen all write to the same data.
