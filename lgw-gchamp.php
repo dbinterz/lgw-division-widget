@@ -52,6 +52,15 @@ function lgw_gchamp_handle_admin_actions() {
         $entries_raw = sanitize_textarea_field( wp_unslash( $_POST['lgw_gchamp_entries'] ?? '' ) );
         $entries     = array_values( array_filter( array_map( 'trim', explode( "\n", $entries_raw ) ) ) );
 
+        // Validate entry format — each entry must contain a comma (Player Name, Club)
+        $bad_entries = array_filter( $entries, fn($e) => strpos($e, ',') === false );
+        if ( ! empty( $bad_entries ) ) {
+            $count = count( $bad_entries );
+            $examples = implode( ', ', array_slice( $bad_entries, 0, 3 ) );
+            wp_redirect( admin_url( 'admin.php?page=lgw-champs&gedit=' . $champ_id . '&entry_format_error=1&bad_count=' . $count ) );
+            exit;
+        }
+
         $dates_raw = sanitize_textarea_field( $_POST['lgw_gchamp_dates'] ?? '' );
         $dates     = array_values( array_filter( array_map( 'trim', explode( "\n", $dates_raw ) ) ) );
 
@@ -348,6 +357,13 @@ function lgw_gchamp_edit_page( $champ_id ) {
     <?php lgw_page_header( $is_new ? 'New Group Championship' : 'Edit: ' . ( $champ['title'] ?? $champ_id ) ); ?>
     <p><a href="<?php echo esc_url( admin_url( 'admin.php?page=lgw-champs' ) ); ?>">← Back to championships</a></p>
     <?php if ( isset( $_GET['saved'] ) ): ?><div class="notice notice-success is-dismissible"><p>Saved.</p></div><?php endif; ?>
+    <?php if ( isset( $_GET['entry_format_error'] ) ): ?>
+    <div class="notice notice-error is-dismissible">
+        <p><strong>⚠ Could not save — <?php echo intval($_GET['bad_count']??0); ?> entr<?php echo intval($_GET['bad_count']??0)===1?'y':'ies'; ?> missing a club name.</strong>
+        Each entry must be in the format <code>Player Name(s), Club</code> (comma required).
+        Please correct the entries textarea and save again.</p>
+    </div>
+    <?php endif; ?>
 
     <?php if ( $drawn ): ?>
     <div class="notice notice-warning" style="border-left-color:#e67e22">
@@ -409,6 +425,9 @@ function lgw_gchamp_edit_page( $champ_id ) {
                 Currently: <strong id="lgw-gchamp-entry-count"><?php echo $total_entries; ?></strong> entries.
                 <span id="lgw-gchamp-distribution" style="color:#555"></span>
             </p>
+            <div id="lgw-gchamp-entry-format-warn"
+                 style="display:none;margin-top:8px;padding:10px 14px;background:#fff8e1;border-left:4px solid #f0b429;border-radius:3px;font-size:13px;max-width:420px">
+            </div>
         </td></tr>
         <tr><th>Stats eligible</th>
         <td><label>
@@ -745,6 +764,14 @@ function lgw_gchamp_edit_page( $champ_id ) {
         if($has_scores) echo ' <span style="color:#c0202a;font-weight:600">Scores entered — re-draw will wipe them.</span>';
         ?>
         </p>
+        <?php if(!empty($champ['draw_version'])):?>
+        <p style="margin:2px 0 0;font-size:12px;color:#666">
+            Drawn with plugin v<?php echo esc_html($champ['draw_version']);?>
+            <?php if(!empty($champ['draw_timestamp'])):?>
+            at <?php echo esc_html(date('d/m/Y H:i', $champ['draw_timestamp']));?>
+            <?php endif;?>
+        </p>
+        <?php endif;?>
     </div>
     <?php foreach($champ['days']??array() as $day):?>
     <div style="display:inline-block;vertical-align:top;margin:0 12px 12px 0;border:1px solid #d0d5e8;border-radius:6px;padding:12px 16px;min-width:220px;background:#f8faff">
@@ -958,6 +985,29 @@ function lgw_gchamp_edit_page( $champ_id ) {
 
         function countEntries(){return entriesTA?entriesTA.value.split('\n').filter(function(l){return l.trim()!=='';}).length:0;}
 
+        // ── Entry format validator ────────────────────────────────────────────
+        var entryFormatWarn=document.getElementById('lgw-gchamp-entry-format-warn');
+        function validateEntries(){
+            if(!entriesTA)return true;
+            var lines=entriesTA.value.split('\n').filter(function(l){return l.trim()!=='';});
+            var bad=lines.filter(function(l){return l.indexOf(',')===-1;});
+            if(bad.length>0){
+                if(entryFormatWarn){
+                    entryFormatWarn.style.display='block';
+                    entryFormatWarn.innerHTML='<strong>⚠ '+bad.length+' entr'+(bad.length===1?'y':'ies')+' missing club name</strong> (no comma found):<br>'
+                        +'<code style="font-size:12px">'+bad.slice(0,5).map(function(l){return l.replace(/</g,'&lt;');}).join('<br>')+(bad.length>5?'<br>…and '+(bad.length-5)+' more':'')+'</code>'
+                        +'<br>Format must be: <code>Player Name(s), Club</code>';
+                }
+                return false;
+            }
+            if(entryFormatWarn)entryFormatWarn.style.display='none';
+            return true;
+        }
+        if(entriesTA){
+            entriesTA.addEventListener('input',function(){validateEntries();updateAll();});
+            validateEntries(); // run on page load
+        }
+
         function calcDay(row,dayEntries){
             var tgsEl=row.querySelector('.lgw-gchamp-day-tgs');
             var wpgEl=row.querySelector('.lgw-gchamp-day-wpg');
@@ -1041,6 +1091,19 @@ function lgw_gchamp_edit_page( $champ_id ) {
         var ca=document.getElementById('lgw-gchamp-prefs-clear-all');if(ca)ca.addEventListener('click',function(){document.querySelectorAll('.lgw-gchamp-pref-date-select').forEach(function(s){s.value='';});document.querySelectorAll('.lgw-gchamp-pref-loc-select').forEach(function(s){s.value='';});updatePrefSummary();});
 
         updateAll();updatePrefSummary();
+
+        // Block form submit if entries have format errors
+        var gchampForm=entriesTA?entriesTA.closest('form'):null;
+        if(gchampForm){
+            gchampForm.addEventListener('submit',function(e){
+                if(!validateEntries()){
+                    e.preventDefault();
+                    entryFormatWarn.scrollIntoView({behavior:'smooth',block:'center'});
+                    entryFormatWarn.style.outline='2px solid #f0b429';
+                    setTimeout(function(){entryFormatWarn.style.outline='';},2000);
+                }
+            });
+        }
     })();
     </script>
     <?php
@@ -1070,12 +1133,33 @@ function lgw_ajax_gchamp_run_draw() {
     }
     $result = lgw_gchamp_run_draw( $entries, $days_config, $entry_prefs );
     if ( is_wp_error( $result ) ) wp_send_json_error( $result->get_error_message() );
+
+    // If draw has genuine club violations, retry up to 4 more times and keep best result
+    $violation_warning = '⚠';
+    $count_genuine_violations = function( $warnings ) use ( $violation_warning ) {
+        return count( array_filter( $warnings, fn($w) => strpos($w, $violation_warning) === 0 && strpos($w, 'from  ') === false ) );
+    };
+    $best_result    = $result;
+    $best_violations = $count_genuine_violations( $result['warnings'] );
+    for ( $retry = 0; $retry < 4 && $best_violations > 0; $retry++ ) {
+        $retry_result = lgw_gchamp_run_draw( $entries, $days_config, $entry_prefs );
+        if ( ! is_wp_error( $retry_result ) ) {
+            $rv = $count_genuine_violations( $retry_result['warnings'] );
+            if ( $rv < $best_violations ) {
+                $best_result     = $retry_result;
+                $best_violations = $rv;
+            }
+        }
+    }
+    $result = $best_result;
     $champ['days']                 = $result['days'];
     $champ['draw_complete']        = true;
     $champ['group_stage_complete'] = false;
     $champ['ko_bracket']           = null;
     $champ['qualifiers']           = array();
     $champ['draw_warnings']        = $result['warnings'];
+    $champ['draw_version']         = LGW_VERSION; // stamp which plugin version produced this draw
+    $champ['draw_timestamp']       = time();
     if ( strlen( serialize( $champ ) ) > 800000 ) wp_send_json_error( 'Draw data exceeds safe storage limit.' );
     update_option( 'lgw_gchamp_' . $champ_id, $champ );
     wp_send_json_success( array( 'days'=>$result['days'], 'warnings'=>$result['warnings'] ) );
@@ -2065,6 +2149,28 @@ function lgw_gchamp_run_draw( array $entries, array $days_config, array $entry_p
             'ko_complete'       => false,
         );
     }
+    // Post-draw violation audit — only meaningful when entries have club info (comma format)
+    $has_club_info = false;
+    foreach ( $entries as $e ) {
+        if ( strpos( $e, ',' ) !== false ) { $has_club_info = true; break; }
+    }
+    if ( $has_club_info ) {
+        foreach ($days as $day) {
+            foreach ($day['groups'] ?? array() as $group) {
+                $seen = array();
+                foreach ($group['entries'] ?? array() as $e) {
+                    $c = lgw_gchamp_entry_club($e);
+                    if ( $c === '' ) continue; // no club info — skip
+                    if (isset($seen[$c])) {
+                        $warnings[] = '⚠ ' . ($day['name'] ?? '') . ' ' . ($group['name'] ?? '') . ': multiple entries from ' . $c . ' (draw algorithm failure — please re-draw)';
+                        break;
+                    }
+                    $seen[$c] = true;
+                }
+            }
+        }
+    }
+
     return array('days'=>$days,'warnings'=>$warnings);
 }
 
@@ -2448,6 +2554,23 @@ function lgw_gchamp_distribute_to_groups(
 ) {
     if ( empty( $pool ) ) return;
 
+    // If entries have no club info (no comma), skip club separation entirely
+    $has_club_info = false;
+    foreach ( $pool as $e ) {
+        if ( strpos( $e, ',' ) !== false ) { $has_club_info = true; break; }
+    }
+    if ( ! $has_club_info ) {
+        // Simple round-robin fill
+        shuffle( $pool );
+        $i = 0;
+        foreach ( $group_indices as $gi ) {
+            while ( count( $group_entries[$gi] ) < $sizes[$gi] && $i < count( $pool ) ) {
+                $group_entries[$gi][] = $pool[$i++];
+            }
+        }
+        return;
+    }
+
     // Count club frequencies in this pool
     $club_counts = array();
     foreach ( $pool as $e ) {
@@ -2482,7 +2605,7 @@ function lgw_gchamp_distribute_to_groups(
 
             // Pick from clean first; within clean/dirty prefer most remaining space
             $candidates = ! empty( $clean ) ? $clean : $dirty;
-            usort( $candidates, function( $a, $b ) use ( $sizes, $ge ) {
+            usort( $candidates, function( $a, $b ) use ( $sizes, &$ge ) {
                 $d = ( $sizes[$b] - count( $ge[$b] ) ) - ( $sizes[$a] - count( $ge[$a] ) );
                 return $d !== 0 ? $d : rand( -1, 1 );
             } );
@@ -2530,8 +2653,10 @@ function lgw_gchamp_distribute_to_groups(
                         $tgi_new = array_values( array_filter( $ge[$tgi], fn($x) => $x !== $te ) );
                         $tgi_new[] = $ve;
 
-                        // vgi_new must have no duplicate of tc (the incoming club)
-                        // tgi_new must have no duplicate of vc (the incoming club)
+                        // vgi_new must have no duplicate of tc (incoming club)
+                        // tgi_new must have no duplicate of vc (incoming club)
+                        // Note: the entries being swapped are already included in _new arrays,
+                        // so a count of 1 means only the swapped entry — no collision.
                         $vgi_ok = lgw_gchamp_count_club_in_group( $tc, $vgi_new ) <= 1;
                         $tgi_ok = lgw_gchamp_count_club_in_group( $vc, $tgi_new ) <= 1;
 
@@ -2750,6 +2875,8 @@ function lgw_gchamp_shortcode( $atts ) {
     $days        = $champ['days']          ?? array();
     $can_score   = current_user_can( 'edit_posts' );
     $num_days    = count( $days );
+    $club_badges = get_option( 'lgw_club_badges', array() );
+    $team_badges = get_option( 'lgw_badges',      array() );
 
     ob_start();
     ?>
@@ -2894,6 +3021,7 @@ function lgw_gchamp_shortcode( $atts ) {
                     <table class="lgw-gchamp-standings">
                         <thead><tr>
                             <th class="lgw-gs-pos">#</th>
+                            <th class="lgw-gs-crest lgw-gs-hide-sm"></th>
                             <th class="lgw-gs-col-name">Entry</th>
                             <th class="lgw-gs-num lgw-gs-hide-xs" title="Played">P</th>
                             <th class="lgw-gs-num lgw-gs-hide-xs" title="Won">W</th>
@@ -2911,9 +3039,30 @@ function lgw_gchamp_shortcode( $atts ) {
                             $rc    = $is_q ? 'lgw-gs-row-qualify' : ( $is_r ? 'lgw-gs-row-runners' : '' );
                             $diff  = $row['sf'] - $row['sa'];
                             $dc    = $diff > 0 ? 'lgw-gs-diff-pos' : ( $diff < 0 ? 'lgw-gs-diff-neg' : 'lgw-gs-diff-zero' );
+                            // Badge lookup
+                            $entry_str = $row['entry'];
+                            $badge_url = '';
+                            foreach ( $team_badges as $t => $url ) {
+                                if ( stripos( $entry_str, $t ) !== false ) { $badge_url = $url; break; }
+                            }
+                            if ( ! $badge_url ) {
+                                $club_lower = strtolower( trim( explode( ',', $entry_str, 2 )[1] ?? '' ) );
+                                if ( $club_lower && isset( $club_badges[$club_lower] ) ) {
+                                    $badge_url = $club_badges[$club_lower];
+                                } else {
+                                    foreach ( $club_badges as $k => $url ) {
+                                        if ( strtolower($k) === $club_lower ) { $badge_url = $url; break; }
+                                    }
+                                }
+                            }
                         ?>
                         <tr class="<?php echo $rc; ?>">
                             <td class="lgw-gs-pos"><?php echo $pos + 1; ?></td>
+                            <td class="lgw-gs-crest lgw-gs-hide-sm">
+                                <?php if ( $badge_url ): ?>
+                                <img src="<?php echo esc_url( $badge_url ); ?>" alt="" class="lgw-gs-crest-img">
+                                <?php endif; ?>
+                            </td>
                             <td class="lgw-gs-name"><?php echo esc_html( lgw_gchamp_short_name( $row['entry'] ) ); ?></td>
                             <td class="lgw-gs-num lgw-gs-hide-xs"><?php echo $row['p']; ?></td>
                             <td class="lgw-gs-num lgw-gs-hide-xs"><?php echo $row['w']; ?></td>

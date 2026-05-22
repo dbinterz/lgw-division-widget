@@ -231,6 +231,8 @@
 .lgw-gs-num  { text-align: center; width: 28px; }
 .lgw-gs-diff { text-align: center; width: 34px; font-weight: 600; }
 .lgw-gs-pts  { text-align: center; width: 30px; font-weight: 700; color: var(--lgw-accent); }
+.lgw-gs-crest { width: 28px; text-align: center; padding: 2px 4px !important; }
+.lgw-gs-crest-img { width: 22px; height: 22px; object-fit: contain; display: block; margin: 0 auto; }
 
 .lgw-gs-name {
   text-align: left;
@@ -665,11 +667,14 @@
 .lgw-gchamp-admin-score-status.ok    { color: var(--lgw-qualify); }
 .lgw-gchamp-admin-score-status.err   { color: #dc2626; }
 
-/* ── Hide columns on xs ────────────────────────────────────────────────────── */
+/* ── Hide columns on xs/sm ─────────────────────────────────────────────────── */
 @media (max-width: 700px) {
   .lgw-gchamp-groups-grid  { grid-template-columns: 1fr; gap: 10px; padding: 10px; }
   .lgw-gs-hide-xs          { display: none; }
   .lgw-gchamp-ko-round     { min-width: 160px; }
+}
+@media (max-width: 480px) {
+  .lgw-gs-hide-sm          { display: none; }
 }
 @media (max-width: 380px) {
   .lgw-gchamp-ko-bracket-scroll { padding: 10px; }

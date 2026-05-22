@@ -107,6 +107,23 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.54
+- **Group Championships:** Club crest displayed in standings table on wider screens. Resolved from `lgw_club_badges` / `lgw_badges` options using the same lookup pattern as the Finals Week render. Hidden below 480px via `.lgw-gs-hide-sm` media query.
+
+### v7.2.53
+- **Group Championships:** Added entry format validator. The entries textarea now shows a live inline warning for any lines missing a comma (required `Player Name(s), Club` format), blocks form submission until corrected, and scrolls/highlights the warning on submit attempt. A server-side check in the save handler provides a backstop, redirecting with a clear error notice if malformed entries get through.
+
+### v7.2.52
+- **Group Championships:** Fixed false 'draw algorithm failure' violations when entries don't include a comma-separated club (format `Player Name Club` instead of `Player Name, Club`). `distribute_to_groups` now detects the absence of club info and falls back to simple round-robin fill. The violation audit and retry loop also guard against empty club names.
+
+### v7.2.51
+- **Group Championships:** Draw result now stamped with `draw_version` (plugin version) and `draw_timestamp` so admins can confirm unambiguously which code produced the stored draw.
+- Post-draw violation audit added inside `lgw_gchamp_run_draw` — any remaining same-club group violations are added to the warnings array with a ⚠ prefix.
+- The draw AJAX handler now retries the full draw up to 5 times if violation warnings are present, keeping the best result across all attempts.
+
+### v7.2.50
+- **Group Championships (draw fix):** The inner `usort` closure in `distribute_to_groups` was capturing `$ge` by value instead of by reference. PHP closures with `use ($ge)` snapshot the variable at closure-definition time, so the 'prefer most remaining space' tiebreaker always computed against the initial empty group state rather than the current partially-filled state. This made placement effectively random within clean-group candidates, routinely putting same-club entries in the same group. Fixed by using `use ($sizes, &$ge)`.
+
 ### v7.2.49
 - **Hotfix:** Day `Location` field not saving on admin page. `$day_locations_post` declaration was accidentally dropped from the days_config save block when `$day_fq_post` was added in v7.2.42.
 
@@ -173,6 +190,23 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ### v7.2.30
 - **Group Championships:** Draw success message now explicitly shows "No warnings" when the draw is clean. Stale warning notices from the previous draw are cleared from the page immediately on success, before the reload, so they can't be mistaken for warnings from the new draw.
+
+### v7.2.54
+- **Group Championships:** Club crest displayed in standings table on wider screens. Resolved from `lgw_club_badges` / `lgw_badges` options using the same lookup pattern as the Finals Week render. Hidden below 480px via `.lgw-gs-hide-sm` media query.
+
+### v7.2.53
+- **Group Championships:** Added entry format validator. The entries textarea now shows a live inline warning for any lines missing a comma (required `Player Name(s), Club` format), blocks form submission until corrected, and scrolls/highlights the warning on submit attempt. A server-side check in the save handler provides a backstop, redirecting with a clear error notice if malformed entries get through.
+
+### v7.2.52
+- **Group Championships:** Fixed false 'draw algorithm failure' violations when entries don't include a comma-separated club (format `Player Name Club` instead of `Player Name, Club`). `distribute_to_groups` now detects the absence of club info and falls back to simple round-robin fill. The violation audit and retry loop also guard against empty club names.
+
+### v7.2.51
+- **Group Championships:** Draw result now stamped with `draw_version` (plugin version) and `draw_timestamp` so admins can confirm unambiguously which code produced the stored draw.
+- Post-draw violation audit added inside `lgw_gchamp_run_draw` — any remaining same-club group violations are added to the warnings array with a ⚠ prefix.
+- The draw AJAX handler now retries the full draw up to 5 times if violation warnings are present, keeping the best result across all attempts.
+
+### v7.2.50
+- **Group Championships (draw fix):** The inner `usort` closure in `distribute_to_groups` was capturing `$ge` by value instead of by reference. PHP closures with `use ($ge)` snapshot the variable at closure-definition time, so the 'prefer most remaining space' tiebreaker always computed against the initial empty group state rather than the current partially-filled state. This made placement effectively random within clean-group candidates, routinely putting same-club entries in the same group. Fixed by using `use ($sizes, &$ge)`.
 
 ### v7.2.49
 - **Hotfix:** Day `Location` field not saving on admin page. `$day_locations_post` declaration was accidentally dropped from the days_config save block when `$day_fq_post` was added in v7.2.42.
