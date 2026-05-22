@@ -107,6 +107,30 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.48
+- **Finals Week:** `[lgw_finals]` shortcode now includes Group Championship qualifiers alongside standard championships for the given season. Added `lgw_finals_get_gchamp_matches()` to map `finals_matches` into the existing match-list format. All AJAX handlers (`lgw_finals_save_datetime`, `lgw_finals_save_end`, `lgw_finals_save_score`) and the live poll handler now detect `bracket_key='gchamp'` and route reads/writes to `lgw_gchamp_*` options instead of `lgw_champ_*`. Scores edited from the `[lgw_finals]` page, the Group Championships shortcode, or the admin screen all write to the same data.
+
+### v7.2.47
+- **Group Championships (fix):** Finals Week bracket was built once (when the first day completed) and never rebuilt as subsequent days completed. Introduced `finals_q_count_at_build` to track the qualifier count at build time. Both the render and the KO score save handler now rebuild `finals_matches` whenever the current qualifier count differs from the count at last build.
+
+### v7.2.46
+- **Group Championships (fix):** `finals_qualifiers=4` was only showing 1 semi-finalist in the Finals Week strip. Root cause: the function was collecting only SF *losers*, but with byes or timing issues only 1 loser was available. For `per_day >= 4`, the function now collects all SF *participants* (both competitors in each SF match) — these are known as soon as the SFs are played, regardless of the final. The final can still be played but doesn't affect who qualifies.
+
+### v7.2.45
+- **Group Championships (fix):** The pending 'Finals Week qualifiers' label below the KO bracket was hardcoded to derive the count from `$num_days` instead of reading `$per_day_q`. Now correctly reads the per-day `finals_qualifiers` setting and shows a descriptive label (e.g. '2 qualifiers (finalist + runner-up)').
+
+### v7.2.44
+- **Group Championships:** KO bracket completion now triggers as soon as the rounds needed to confirm all Finals Week qualifiers have been played, rather than requiring every round to be scored. `finals_qualifiers=1/2` → complete when final is played; `finals_qualifiers=4` → complete when semi-finals are played. Added `lgw_gchamp_ko_qualifiers_complete()` helper. `compute_ko_qualifiers()` now handles `finals_qualifiers=3` (final winner + runner-up + one SF loser).
+
+### v7.2.43
+- **Group Championships:** Editable-post-draw day fields (`finals_qualifiers`, `name`, `date`, `location`, `ko_bracket_size`) are now synced from `days_config` back onto the drawn day records on every championship save. Previously changing e.g. `finals_qualifiers` after a draw had no effect until a reset+redraw.
+
+### v7.2.42
+- **Group Championships:** Finals Week qualifiers moved from championship-level to per-day. A 'Finals qualifiers' column (1–4 dropdown) now appears in the days table. Stored as `finals_qualifiers` on each day. Falls back to `finals_qualifiers_per_day` (championship level) or the previous auto-calculation for backward compatibility.
+
+### v7.2.41
+- **Group Championships:** Added 'Finals Week qualifiers per day' setting to the Knockout Stage section of the edit page. Admin selects 1–4; the auto-suggestion based on number of days is shown for guidance. Stored as `finals_qualifiers_per_day` on the championship and used in `lgw_gchamp_compute_ko_qualifiers()` and the bracket render. Backward compatible — existing championships default to the previous auto-calculation.
+
 ### v7.2.40
 - **Group Championships:** 'Clear KO scores' button restyled using plugin CSS variables and design tokens to match the existing score entry buttons rather than plain WP admin button styling.
 
@@ -146,6 +170,30 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ### v7.2.30
 - **Group Championships:** Draw success message now explicitly shows "No warnings" when the draw is clean. Stale warning notices from the previous draw are cleared from the page immediately on success, before the reload, so they can't be mistaken for warnings from the new draw.
+
+### v7.2.48
+- **Finals Week:** `[lgw_finals]` shortcode now includes Group Championship qualifiers alongside standard championships for the given season. Added `lgw_finals_get_gchamp_matches()` to map `finals_matches` into the existing match-list format. All AJAX handlers (`lgw_finals_save_datetime`, `lgw_finals_save_end`, `lgw_finals_save_score`) and the live poll handler now detect `bracket_key='gchamp'` and route reads/writes to `lgw_gchamp_*` options instead of `lgw_champ_*`. Scores edited from the `[lgw_finals]` page, the Group Championships shortcode, or the admin screen all write to the same data.
+
+### v7.2.47
+- **Group Championships (fix):** Finals Week bracket was built once (when the first day completed) and never rebuilt as subsequent days completed. Introduced `finals_q_count_at_build` to track the qualifier count at build time. Both the render and the KO score save handler now rebuild `finals_matches` whenever the current qualifier count differs from the count at last build.
+
+### v7.2.46
+- **Group Championships (fix):** `finals_qualifiers=4` was only showing 1 semi-finalist in the Finals Week strip. Root cause: the function was collecting only SF *losers*, but with byes or timing issues only 1 loser was available. For `per_day >= 4`, the function now collects all SF *participants* (both competitors in each SF match) — these are known as soon as the SFs are played, regardless of the final. The final can still be played but doesn't affect who qualifies.
+
+### v7.2.45
+- **Group Championships (fix):** The pending 'Finals Week qualifiers' label below the KO bracket was hardcoded to derive the count from `$num_days` instead of reading `$per_day_q`. Now correctly reads the per-day `finals_qualifiers` setting and shows a descriptive label (e.g. '2 qualifiers (finalist + runner-up)').
+
+### v7.2.44
+- **Group Championships:** KO bracket completion now triggers as soon as the rounds needed to confirm all Finals Week qualifiers have been played, rather than requiring every round to be scored. `finals_qualifiers=1/2` → complete when final is played; `finals_qualifiers=4` → complete when semi-finals are played. Added `lgw_gchamp_ko_qualifiers_complete()` helper. `compute_ko_qualifiers()` now handles `finals_qualifiers=3` (final winner + runner-up + one SF loser).
+
+### v7.2.43
+- **Group Championships:** Editable-post-draw day fields (`finals_qualifiers`, `name`, `date`, `location`, `ko_bracket_size`) are now synced from `days_config` back onto the drawn day records on every championship save. Previously changing e.g. `finals_qualifiers` after a draw had no effect until a reset+redraw.
+
+### v7.2.42
+- **Group Championships:** Finals Week qualifiers moved from championship-level to per-day. A 'Finals qualifiers' column (1–4 dropdown) now appears in the days table. Stored as `finals_qualifiers` on each day. Falls back to `finals_qualifiers_per_day` (championship level) or the previous auto-calculation for backward compatibility.
+
+### v7.2.41
+- **Group Championships:** Added 'Finals Week qualifiers per day' setting to the Knockout Stage section of the edit page. Admin selects 1–4; the auto-suggestion based on number of days is shown for guidance. Stored as `finals_qualifiers_per_day` on the championship and used in `lgw_gchamp_compute_ko_qualifiers()` and the bracket render. Backward compatible — existing championships default to the previous auto-calculation.
 
 ### v7.2.40
 - **Group Championships:** 'Clear KO scores' button restyled using plugin CSS variables and design tokens to match the existing score entry buttons rather than plain WP admin button styling.

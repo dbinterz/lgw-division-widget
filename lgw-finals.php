@@ -95,6 +95,37 @@ function lgw_finals_get_matches($champ_id, $champ) {
     return $out;
 }
 
+/**
+ * Propagate gchamp SF winners into the Final slot.
+ * Called from lgw-finals.php save_score when bracket_key=gchamp.
+ * Mirrors lgw_gchamp_finals_propagate() in lgw-gchamp.php.
+ */
+function lgw_gchamp_finals_propagate_ext( array &$champ ): void {
+    if ( ! function_exists('lgw_gchamp_finals_propagate') ) return;
+    lgw_gchamp_finals_propagate( $champ );
+}
+
+/**
+ * Build a match list from a Group Championship's finals_matches array,
+ * in the same format as lgw_finals_get_matches().
+ * Uses bracket_key='gchamp' and round_idx=0 as sentinels; match_idx is the
+ * flat index into finals_matches.
+ */
+function lgw_finals_get_gchamp_matches( string $gchamp_id, array $champ ): array {
+    $out = array();
+    foreach ( $champ['finals_matches'] ?? array() as $mi => $match ) {
+        $out[] = array(
+            'champ_id'    => $gchamp_id,
+            'bracket_key' => 'gchamp',
+            'round_idx'   => 0,
+            'match_idx'   => $mi,
+            'round_name'  => $match['round'] ?? 'Match',
+            'match'       => $match,
+        );
+    }
+    return $out;
+}
+
 // ── Shortcode ─────────────────────────────────────────────────────────────────
 add_shortcode('lgw_finals', 'lgw_finals_shortcode');
 function lgw_finals_shortcode($atts) {
@@ -116,7 +147,22 @@ function lgw_finals_shortcode($atts) {
         $id  = substr($row->option_name, strlen('lgw_champ_'));
         $val = maybe_unserialize($row->option_value);
         if (is_array($val) && isset($val['title']) && ($val['season'] ?? '') === $season) {
-            $champs[$id] = $val;
+            $champs[$id] = array_merge($val, array('_type' => 'champ'));
+        }
+    }
+
+    // Also include Group Championships for this season
+    $gchamp_rows = $wpdb->get_results(
+        "SELECT option_name, option_value FROM {$wpdb->options}
+         WHERE option_name LIKE 'lgw_gchamp_%' ORDER BY option_name"
+    );
+    foreach ($gchamp_rows as $row) {
+        $id  = substr($row->option_name, strlen('lgw_gchamp_'));
+        $val = maybe_unserialize($row->option_value);
+        if (is_array($val) && isset($val['title']) && ($val['season'] ?? '') === $season
+            && ! empty($val['finals_matches'])
+        ) {
+            $champs['gchamp_' . $id] = array_merge($val, array('_type' => 'gchamp', '_gchamp_id' => $id));
         }
     }
 
@@ -139,7 +185,10 @@ function lgw_finals_shortcode($atts) {
       <div class="lgw-finals-heading"><?php echo esc_html($heading); ?></div>
 
       <?php foreach ($champs as $champ_id => $champ):
-        $matches = lgw_finals_get_matches($champ_id, $champ);
+        $is_gchamp = ($champ['_type'] ?? '') === 'gchamp';
+        $matches   = $is_gchamp
+            ? lgw_finals_get_gchamp_matches($champ['_gchamp_id'], $champ)
+            : lgw_finals_get_matches($champ_id, $champ);
         if (empty($matches)) continue;
 
         // Group by round
@@ -160,7 +209,9 @@ function lgw_finals_shortcode($atts) {
               $match   = $m['match'];
               $home    = $match['home'] ?? '';
               $away    = $match['away'] ?? '';
-              $mid     = $champ_id . '--' . $m['bracket_key'] . '--' . $m['round_idx'] . '--' . $m['match_idx'];
+              $mid     = $is_gchamp
+                  ? 'gchamp_' . $champ['_gchamp_id'] . '--gchamp--0--' . $m['match_idx']
+                  : $champ_id . '--' . $m['bracket_key'] . '--' . $m['round_idx'] . '--' . $m['match_idx'];
               $hs      = $match['home_score'] ?? null;
               $as      = $match['away_score'] ?? null;
               $has_score = $hs !== null && $as !== null;
@@ -406,7 +457,7 @@ function lgw_ajax_finals_save_datetime() {
     $datetime   = sanitize_text_field($_POST['datetime'] ?? '');
     $rink       = sanitize_text_field($_POST['rink']     ?? '');
 
-    if (!$champ_id || !$bracket_key || $round_idx < 0 || $match_idx < 0) {
+    if (!$champ_id || !$bracket_key || $match_idx < 0) {
         wp_send_json_error('Invalid parameters');
     }
 
@@ -415,14 +466,23 @@ function lgw_ajax_finals_save_datetime() {
         wp_send_json_error('Invalid datetime format — use YYYY-MM-DD HH:MM');
     }
 
-    $champ = get_option('lgw_champ_' . $champ_id, array());
-    if (!isset($champ[$bracket_key]['matches'][$round_idx][$match_idx])) {
-        wp_send_json_error('Match not found');
+    // Route: gchamp vs standard champ
+    if ( $bracket_key === 'gchamp' ) {
+        $champ = get_option('lgw_gchamp_' . $champ_id, array());
+        if (!isset($champ['finals_matches'][$match_idx])) wp_send_json_error('Match not found');
+        $champ['finals_matches'][$match_idx]['finals_datetime'] = $datetime;
+        $champ['finals_matches'][$match_idx]['finals_rink']     = $rink;
+        update_option('lgw_gchamp_' . $champ_id, $champ);
+    } else {
+        if ($round_idx < 0) wp_send_json_error('Invalid parameters');
+        $champ = get_option('lgw_champ_' . $champ_id, array());
+        if (!isset($champ[$bracket_key]['matches'][$round_idx][$match_idx])) {
+            wp_send_json_error('Match not found');
+        }
+        $champ[$bracket_key]['matches'][$round_idx][$match_idx]['finals_datetime'] = $datetime;
+        $champ[$bracket_key]['matches'][$round_idx][$match_idx]['finals_rink']     = $rink;
+        update_option('lgw_champ_' . $champ_id, $champ);
     }
-
-    $champ[$bracket_key]['matches'][$round_idx][$match_idx]['finals_datetime'] = $datetime;
-    $champ[$bracket_key]['matches'][$round_idx][$match_idx]['finals_rink']     = $rink;
-    update_option('lgw_champ_' . $champ_id, $champ);
     wp_send_json_success(array(
         'formatted' => lgw_finals_format_datetime($datetime),
         'raw'       => $datetime,
@@ -444,16 +504,23 @@ function lgw_ajax_finals_save_end() {
     $home_end    = intval($_POST['home_end']           ?? 0);
     $away_end    = intval($_POST['away_end']           ?? 0);
 
-    if (!$champ_id || !$bracket_key || $round_idx < 0 || $match_idx < 0) {
+    if (!$champ_id || !$bracket_key || $match_idx < 0) {
         wp_send_json_error('Invalid parameters');
     }
 
-    $champ = get_option('lgw_champ_' . $champ_id, array());
-    if (!isset($champ[$bracket_key]['matches'][$round_idx][$match_idx])) {
-        wp_send_json_error('Match not found');
+    if ( $bracket_key === 'gchamp' ) {
+        $champ = get_option('lgw_gchamp_' . $champ_id, array());
+        if (!isset($champ['finals_matches'][$match_idx])) wp_send_json_error('Match not found');
+        $match = &$champ['finals_matches'][$match_idx];
+    } else {
+        if ($round_idx < 0) wp_send_json_error('Invalid parameters');
+        $champ = get_option('lgw_champ_' . $champ_id, array());
+        if (!isset($champ[$bracket_key]['matches'][$round_idx][$match_idx])) {
+            wp_send_json_error('Match not found');
+        }
+        $match = &$champ[$bracket_key]['matches'][$round_idx][$match_idx];
     }
 
-    $match = &$champ[$bracket_key]['matches'][$round_idx][$match_idx];
     $ends  = $match['ends'] ?? array();
 
     if ($action_type === 'delete_last') {
@@ -468,7 +535,7 @@ function lgw_ajax_finals_save_end() {
     $ht = 0; $at = 0;
     foreach ($ends as $e) { $ht += $e[0]; $at += $e[1]; }
 
-    update_option('lgw_champ_' . $champ_id, $champ);
+    update_option( $bracket_key === 'gchamp' ? 'lgw_gchamp_' . $champ_id : 'lgw_champ_' . $champ_id, $champ );
 
     wp_send_json_success(array(
         'ends'       => $ends,
@@ -491,49 +558,62 @@ function lgw_ajax_finals_save_score() {
     $home_score  = $_POST['home_score'] !== '' ? intval($_POST['home_score']) : null;
     $away_score  = $_POST['away_score'] !== '' ? intval($_POST['away_score']) : null;
 
-    if (!$champ_id || !$bracket_key || $round_idx < 0 || $match_idx < 0) {
+    if (!$champ_id || !$bracket_key || $match_idx < 0) {
         wp_send_json_error('Invalid parameters');
     }
 
-    $champ = get_option('lgw_champ_' . $champ_id, array());
-    if (!isset($champ[$bracket_key]['matches'][$round_idx][$match_idx])) {
-        wp_send_json_error('Match not found');
-    }
+    if ( $bracket_key === 'gchamp' ) {
+        // ── Group Championship finals match ───────────────────────────────────
+        $champ = get_option('lgw_gchamp_' . $champ_id, array());
+        if (!isset($champ['finals_matches'][$match_idx])) wp_send_json_error('Match not found');
 
-    $match = &$champ[$bracket_key]['matches'][$round_idx][$match_idx];
-    $match['home_score'] = $home_score;
-    $match['away_score'] = $away_score;
+        $champ['finals_matches'][$match_idx]['home_score'] = $home_score;
+        $champ['finals_matches'][$match_idx]['away_score'] = $away_score;
 
-    // Propagate winner to next round if score is decisive
-    if ($home_score !== null && $away_score !== null && $home_score !== $away_score) {
-        $bracket = &$champ[$bracket_key];
-        lgw_champ_cascade_reset($bracket, $round_idx, $match_idx); // clear downstream first
-        $winner     = $home_score > $away_score ? $match['home'] : $match['away'];
-        $next_round = $round_idx + 1;
-        $this_game  = $match['game_num'] ?? null;
-        if (isset($bracket['matches'][$next_round]) && $this_game) {
-            foreach ($bracket['matches'][$next_round] as $nm => &$nr) {
-                if (($nr['prev_game_home'] ?? null) == $this_game) { $nr['home'] = $winner; $nr['home_score'] = null; break; }
-                if (($nr['prev_game_away'] ?? null) == $this_game) { $nr['away'] = $winner; $nr['away_score'] = null; break; }
-            }
-            unset($nr);
-        } elseif (isset($bracket['matches'][$next_round])) {
-            $fb = intval(floor($match_idx / 2));
-            $fs = $match_idx % 2 === 0 ? 'home' : 'away';
-            if (isset($bracket['matches'][$next_round][$fb])) {
-                $bracket['matches'][$next_round][$fb][$fs]            = $winner;
-                $bracket['matches'][$next_round][$fb][$fs . '_score'] = null;
+        // Propagate SF winners into Final
+        lgw_gchamp_finals_propagate_ext( $champ );
+
+        update_option('lgw_gchamp_' . $champ_id, $champ);
+    } else {
+        // ── Standard Championship finals match ────────────────────────────────
+        if ($round_idx < 0) wp_send_json_error('Invalid parameters');
+        $champ = get_option('lgw_champ_' . $champ_id, array());
+        if (!isset($champ[$bracket_key]['matches'][$round_idx][$match_idx])) {
+            wp_send_json_error('Match not found');
+        }
+
+        $match = &$champ[$bracket_key]['matches'][$round_idx][$match_idx];
+        $match['home_score'] = $home_score;
+        $match['away_score'] = $away_score;
+
+        // Propagate winner to next round if score is decisive
+        if ($home_score !== null && $away_score !== null && $home_score !== $away_score) {
+            $bracket = &$champ[$bracket_key];
+            lgw_champ_cascade_reset($bracket, $round_idx, $match_idx);
+            $winner     = $home_score > $away_score ? $match['home'] : $match['away'];
+            $next_round = $round_idx + 1;
+            $this_game  = $match['game_num'] ?? null;
+            if (isset($bracket['matches'][$next_round]) && $this_game) {
+                foreach ($bracket['matches'][$next_round] as $nm => &$nr) {
+                    if (($nr['prev_game_home'] ?? null) == $this_game) { $nr['home'] = $winner; $nr['home_score'] = null; break; }
+                    if (($nr['prev_game_away'] ?? null) == $this_game) { $nr['away'] = $winner; $nr['away_score'] = null; break; }
+                }
+                unset($nr);
+            } elseif (isset($bracket['matches'][$next_round])) {
+                $fb = intval(floor($match_idx / 2));
+                $fs = $match_idx % 2 === 0 ? 'home' : 'away';
+                if (isset($bracket['matches'][$next_round][$fb])) {
+                    $bracket['matches'][$next_round][$fb][$fs]            = $winner;
+                    $bracket['matches'][$next_round][$fb][$fs . '_score'] = null;
+                }
             }
         }
+        if ($home_score === null && $away_score === null) {
+            $bracket = &$champ[$bracket_key];
+            lgw_champ_cascade_reset($bracket, $round_idx, $match_idx);
+        }
+        update_option('lgw_champ_' . $champ_id, $champ);
     }
-
-    // For resets, cascade clear
-    if ($home_score === null && $away_score === null) {
-        $bracket = &$champ[$bracket_key];
-        lgw_champ_cascade_reset($bracket, $round_idx, $match_idx);
-    }
-
-    update_option('lgw_champ_' . $champ_id, $champ);
 
     wp_send_json_success(array(
         'homeScore' => $home_score,
@@ -549,12 +629,13 @@ function lgw_ajax_finals_poll() {
     if (!$season) wp_send_json_error('Missing season');
 
     global $wpdb;
+    $out = array();
+
+    // Standard championships
     $rows = $wpdb->get_results(
         "SELECT option_name, option_value FROM {$wpdb->options}
          WHERE option_name LIKE 'lgw_champ_%'"
     );
-
-    $out = array();
     foreach ($rows as $row) {
         $id  = substr($row->option_name, strlen('lgw_champ_'));
         $val = maybe_unserialize($row->option_value);
@@ -562,6 +643,31 @@ function lgw_ajax_finals_poll() {
         $match_list = lgw_finals_get_matches($id, $val);
         foreach ($match_list as $m) {
             $mid = $id . '--' . $m['bracket_key'] . '--' . $m['round_idx'] . '--' . $m['match_idx'];
+            $match = $m['match'];
+            $out[$mid] = array(
+                'home'      => $match['home']            ?? null,
+                'away'      => $match['away']            ?? null,
+                'homeScore' => $match['home_score']      ?? null,
+                'awayScore' => $match['away_score']      ?? null,
+                'ends'      => $match['ends']            ?? array(),
+                'datetime'  => $match['finals_datetime'] ?? '',
+                'rink'      => $match['finals_rink']     ?? '',
+            );
+        }
+    }
+
+    // Group championships
+    $grows = $wpdb->get_results(
+        "SELECT option_name, option_value FROM {$wpdb->options}
+         WHERE option_name LIKE 'lgw_gchamp_%'"
+    );
+    foreach ($grows as $row) {
+        $id  = substr($row->option_name, strlen('lgw_gchamp_'));
+        $val = maybe_unserialize($row->option_value);
+        if (!is_array($val) || ($val['season'] ?? '') !== $season || empty($val['finals_matches'])) continue;
+        $match_list = lgw_finals_get_gchamp_matches($id, $val);
+        foreach ($match_list as $m) {
+            $mid = 'gchamp_' . $id . '--gchamp--0--' . $m['match_idx'];
             $match = $m['match'];
             $out[$mid] = array(
                 'home'      => $match['home']            ?? null,
