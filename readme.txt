@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.0
+Stable tag: 7.3.3
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,16 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+= 7.3.3 =
+* Fix: Fixture date pill and scorecard status indicator not appearing — PHP map keys were not fully lowercased on the date component, causing a mismatch with the JavaScript lookup which lowercases the entire key
+
+= 7.3.2 =
+* Feature: Fixture rows now show a blue pill with the date the game was played when it differs from the scheduled date (replaces the previous italic text annotation)
+* Feature: Fixture rows now show a scorecard submission status pill — 📋 Pending (amber), ✅ Confirmed (green), or ⚠️ Disputed (orange) — whenever a scorecard has been submitted for that fixture
+
+= 7.3.1 =
+* Feature: Clipboard paste support for photo scorecard submission — on mobile a "📋 Paste from clipboard" button appears in the photo upload area; on desktop Ctrl+V / paste works anywhere on the form. Allows WhatsApp photos to be submitted by copying in WhatsApp and pasting directly, without saving to the gallery first.
+
 = 7.3.0 =
 * Fix: Mobile scorecard photo submission — file picker now shows a camera / gallery choice popup on touch devices instead of silently failing; removed `capture="environment"` attribute from the modal photo input which was locking mobile browsers to camera-only with no way to switch to gallery or files.
 * Championships: Final Stage now carries section qualifiers through directly instead of re-shuffling into a new random draw. Qualifiers are cross-paired by section (4-section: A vs D, B vs C; 2-section: A winner vs B runner-up, B winner vs A runner-up; 1-section: semi-finalists in bracket order) so players from the same section cannot meet until the Final.

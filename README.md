@@ -107,6 +107,16 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.3.3
+- **Fix:** Fixture date pill and scorecard status indicator not appearing — PHP map keys were not fully lowercased on the date component, causing a mismatch with the JavaScript lookup (which lowercases the entire key)
+
+### v7.3.2
+- **Feature:** Fixture rows now show a blue **📅 Played [date]** pill when the game was played on a different date to the scheduled one (replaces the previous italic text annotation)
+- **Feature:** Fixture rows now show a scorecard submission status pill — **📋 Pending** (amber), **✅ Confirmed** (green), or **⚠️ Disputed** (orange) — whenever a scorecard has been submitted for that fixture
+
+### v7.3.1
+- **Feature:** Clipboard paste for photo scorecard submission — on mobile a **📋 Paste from clipboard** button appears in the photo tab; on desktop Ctrl+V works anywhere on the form. Allows WhatsApp photos to be submitted by copying in WhatsApp and pasting directly, with no need to save to gallery first. Graceful error messages if clipboard permission is denied or no image is found.
+
 ### v7.3.0
 - **Fix:** Mobile scorecard photo submission — file picker now shows a camera / gallery choice popup on touch devices instead of silently failing; `capture="environment"` removed from the modal photo input which was locking mobile browsers to camera-only with no way to switch to gallery or files
 

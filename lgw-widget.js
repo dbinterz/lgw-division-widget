@@ -8,6 +8,7 @@
   var scoreOverrides = (typeof lgwData !== 'undefined' && lgwData.scoreOverrides) ? lgwData.scoreOverrides : {};
   var playedDates    = (typeof lgwData !== 'undefined' && lgwData.playedDates)    ? lgwData.playedDates    : {};
   var recentResults  = (typeof lgwData !== 'undefined' && lgwData.recentResults)  ? lgwData.recentResults  : [];
+  var scorecardStatus = (typeof lgwData !== 'undefined' && lgwData.scorecardStatus) ? lgwData.scorecardStatus : {};
 
   // ── Apply admin score overrides to parsed fixture groups ─────────────────────
   function applyScoreOverrides(groups, csvUrl){
@@ -612,10 +613,15 @@
         var fxAttrs=m.played
           ?' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'" title="Click to view full scorecard"'
           :' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'"';
-        // Show date-played annotation if game was played on a different date
+        // Show date-played pill if game was played on a different date
         var pdKey=(m.homeTeam+'||'+m.awayTeam+'||'+g.date).toLowerCase();
         var playedOn=playedDates[pdKey]||'';
-        var playedNote=playedOn?'<div class="fx-played-date">📅 Played '+playedOn+'</div>':'';
+        var playedPill=playedOn?'<span class="fx-played-pill">&#x1F4C5; Played '+playedOn+'</span>':'';
+        // Show scorecard submission indicator
+        var scStatus=scorecardStatus[pdKey]||'';
+        var scPill=scStatus?'<span class="fx-sc-status fx-sc-'+scStatus+'">'+(scStatus==='confirmed'?'&#x2705;':scStatus==='disputed'?'&#x26A0;&#xFE0F;':'&#x1F4CB;')+' '+(scStatus.charAt(0).toUpperCase()+scStatus.slice(1))+'</span>':'';
+        var fxPills=(playedPill||scPill)?'<div class="fx-pills">'+playedPill+scPill+'</div>':'';
+        var playedNote=''; // kept for compat — replaced by fxPills
         h+='<div class="fx-row'+pc+'"'+fxAttrs+'>'
           +'<div class="fx-ph">'+(m.played?m.ptsHome:'')+'</div>'
           +'<div class="fx-h"><span class="lgw-team-link" data-team="'+m.homeTeam+'">'+badgeImg(m.homeTeam)+m.homeTeam+'</span></div>'
@@ -623,7 +629,7 @@
           +'<div class="fx-a"><span class="lgw-team-link" data-team="'+m.awayTeam+'">'+badgeImg(m.awayTeam)+m.awayTeam+'</span></div>'
           +'<div class="fx-pa">'+(m.played?m.ptsAway:'')+'</div>'
           +(m.timeNote?'<div class="fx-time"><span>&#9200; '+m.timeNote+'</span></div>':'')
-          +playedNote
+          +fxPills
           +'</div>';
       });
       h+='</div>';

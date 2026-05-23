@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.3.0
+ * Version: 7.3.3
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.3.0');
+define('LGW_VERSION', '7.3.3');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -438,8 +438,57 @@ function lgw_build_played_dates_map() {
             $played_date = $sc['date'];
             $fix_date    = $fixture_date ?: $played_date; // fall back if not stored
             if ($played_date === $fix_date) continue;     // same — no annotation needed
-            $key = strtolower($sc['home_team'] ?? '') . '||' . strtolower($sc['away_team'] ?? '') . '||' . $fix_date;
+            $key = strtolower($sc['home_team'] ?? '') . '||' . strtolower($sc['away_team'] ?? '') . '||' . strtolower($fix_date);
             $map[$key] = $played_date;
+        }
+        return $map;
+    } catch (Exception $e) {
+        return array();
+    }
+}
+
+// ── Scorecard submission status map ──────────────────────────────────────────
+/**
+ * Returns a map of fixture keys → submission status ('pending'|'confirmed'|'disputed')
+ * for all league scorecards in the active season.
+ * Key format: home||away||fixture_date (lowercase).
+ */
+function lgw_build_scorecard_status_map() {
+    try {
+        $active_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+        $meta_query = array(
+            'relation' => 'AND',
+            array('key' => 'lgw_sc_context', 'value' => 'league', 'compare' => '='),
+        );
+        if ($active_id) {
+            $meta_query[] = array('key' => 'lgw_sc_season', 'value' => $active_id, 'compare' => '=');
+        }
+        $posts = get_posts(array(
+            'post_type'      => 'lgw_scorecard',
+            'posts_per_page' => 500,
+            'post_status'    => array('publish', 'draft'),
+            'meta_query'     => $meta_query,
+        ));
+        $map = array();
+        foreach ($posts as $p) {
+            $sc           = get_post_meta($p->ID, 'lgw_scorecard_data', true);
+            $fixture_date = get_post_meta($p->ID, 'lgw_fixture_date',   true);
+            $status       = get_post_meta($p->ID, 'lgw_sc_status',      true) ?: 'pending';
+            if (!$sc) continue;
+            $home = strtolower($sc['home_team'] ?? '');
+            $away = strtolower($sc['away_team'] ?? '');
+            $date = $fixture_date ?: ($sc['date'] ?? '');
+            if (!$home || !$away || !$date) continue;
+            $key = $home . '||' . $away . '||' . strtolower($date);
+            // Upgrade status: disputed > confirmed > pending
+            $existing = $map[$key] ?? '';
+            if ($status === 'disputed' || $existing === 'disputed') {
+                $map[$key] = 'disputed';
+            } elseif ($status === 'confirmed' || $existing === 'confirmed') {
+                $map[$key] = 'confirmed';
+            } else {
+                $map[$key] = 'pending';
+            }
         }
         return $map;
     } catch (Exception $e) {
@@ -548,6 +597,7 @@ function lgw_enqueue() {
         'isAdmin'        => current_user_can('manage_options') ? '1' : '0',
         'authClub'       => lgw_get_auth_club(),
         'playedDates'    => lgw_build_played_dates_map(),
+        'scorecardStatus' => lgw_build_scorecard_status_map(),
         'recentResults'  => lgw_get_recent_results(30),
     ));
 }

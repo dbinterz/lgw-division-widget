@@ -348,6 +348,68 @@
   }
   if (photoInput) photoInput.addEventListener('change', function(){ if(photoInput.files[0]) handlePhotoFile(photoInput.files[0]); });
 
+  // ── Clipboard paste (mobile WhatsApp workflow) ────────────────────────────────
+  // Attach to the drop zone so it captures paste events when the area is focused,
+  // and also listen globally so Ctrl+V / long-press Paste works anywhere on the form.
+  function handlePasteEvent(e) {
+    var items = (e.clipboardData || (window.clipboardData && window.clipboardData));
+    if (!items) return;
+    var files = items.files || [];
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].type.startsWith('image/')) {
+        e.preventDefault();
+        handlePhotoFile(files[i]);
+        // Switch to photo tab if not already visible
+        var photoTab = qs('.lgw-stab[data-tab="photo"]');
+        if (photoTab && !photoTab.classList.contains('active')) photoTab.click();
+        return;
+      }
+    }
+    // Also check items (DataTransferItemList) for clipboard image data
+    if (items.items) {
+      for (var j = 0; j < items.items.length; j++) {
+        if (items.items[j].type.startsWith('image/')) {
+          var f = items.items[j].getAsFile();
+          if (f) { e.preventDefault(); handlePhotoFile(f); return; }
+        }
+      }
+    }
+  }
+  document.addEventListener('paste', handlePasteEvent);
+
+  // ── Paste button (shown on mobile inside the upload area) ────────────────────
+  if (isMobile && photoDrop) {
+    var pasteBtn = document.createElement('button');
+    pasteBtn.type = 'button';
+    pasteBtn.className = 'lgw-btn lgw-btn-secondary';
+    pasteBtn.style.cssText = 'margin-top:8px;width:100%';
+    pasteBtn.innerHTML = '📋 Paste from clipboard';
+    pasteBtn.addEventListener('click', function() {
+      if (navigator.clipboard && navigator.clipboard.read) {
+        navigator.clipboard.read().then(function(items) {
+          for (var i = 0; i < items.length; i++) {
+            var types = items[i].types;
+            for (var j = 0; j < types.length; j++) {
+              if (types[j].startsWith('image/')) {
+                items[i].getType(types[j]).then(function(blob) {
+                  var f = new File([blob], 'clipboard-photo.jpg', { type: blob.type });
+                  handlePhotoFile(f);
+                });
+                return;
+              }
+            }
+          }
+          showStatus(photoStatus, '⚠️ No image found on clipboard — copy a photo in WhatsApp first.', 'info');
+        }).catch(function() {
+          showStatus(photoStatus, '⚠️ Clipboard access denied. Grant permission in browser settings, or use the camera/gallery.', 'info');
+        });
+      } else {
+        showStatus(photoStatus, '⚠️ Clipboard paste not supported on this browser. Use the camera/gallery instead.', 'info');
+      }
+    });
+    photoDrop.appendChild(pasteBtn);
+  }
+
   function handlePhotoFile(file) {
     photoFile = file;
     var reader = new FileReader();
@@ -1828,6 +1890,67 @@
         }
       });
       if(photoInput2) photoInput2.addEventListener('change', function(){ if(photoInput2.files[0]) handlePhotoFile2(photoInput2.files[0]); });
+
+      // ── Clipboard paste (modal) ────────────────────────────────────────────
+      var photoDrop2 = el.querySelector('#lgw-modal-photo-drop');
+
+      // Remove any previous modal paste listener before adding a new one
+      if (window._lgwModalPasteHandler) {
+        document.removeEventListener('paste', window._lgwModalPasteHandler);
+        window._lgwModalPasteHandler = null;
+      }
+
+      function handleModalPaste(e) {
+        var items = (e.clipboardData || (window.clipboardData && window.clipboardData));
+        if (!items) return;
+        var files = items.files || [];
+        for (var pi = 0; pi < files.length; pi++) {
+          if (files[pi].type.startsWith('image/')) { e.preventDefault(); handlePhotoFile2(files[pi]); return; }
+        }
+        if (items.items) {
+          for (var qi = 0; qi < items.items.length; qi++) {
+            if (items.items[qi].type.startsWith('image/')) {
+              var pf = items.items[qi].getAsFile();
+              if (pf) { e.preventDefault(); handlePhotoFile2(pf); return; }
+            }
+          }
+        }
+      }
+      document.addEventListener('paste', handleModalPaste);
+      window._lgwModalPasteHandler = handleModalPaste;
+
+      if(isMobile && photoDrop2) {
+        var pasteBtn2 = document.createElement('button');
+        pasteBtn2.type = 'button';
+        pasteBtn2.className = 'lgw-btn lgw-btn-secondary';
+        pasteBtn2.style.cssText = 'margin-top:8px;width:100%';
+        pasteBtn2.innerHTML = '\u{1F4CB} Paste from clipboard';
+        pasteBtn2.addEventListener('click', function(){
+          if(navigator.clipboard && navigator.clipboard.read){
+            navigator.clipboard.read().then(function(cbItems){
+              for(var ci=0;ci<cbItems.length;ci++){
+                var types2 = cbItems[ci].types;
+                for(var ti=0;ti<types2.length;ti++){
+                  if(types2[ti].startsWith('image/')){
+                    cbItems[ci].getType(types2[ti]).then(function(blob){
+                      var f2 = new File([blob],'clipboard-photo.jpg',{type:blob.type});
+                      handlePhotoFile2(f2);
+                    });
+                    return;
+                  }
+                }
+              }
+              showStatus(photoStat2,'\u26A0\uFE0F No image found on clipboard — copy a photo in WhatsApp first.','info');
+            }).catch(function(){
+              showStatus(photoStat2,'\u26A0\uFE0F Clipboard access denied. Use camera/gallery instead.','info');
+            });
+          } else {
+            showStatus(photoStat2,'\u26A0\uFE0F Clipboard paste not supported on this browser.','info');
+          }
+        });
+        photoDrop2.appendChild(pasteBtn2);
+      }
+
       if(parseBtn2){
         parseBtn2.addEventListener('click', function(){
           if(!modalPhotoFile) return;
