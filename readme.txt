@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.2.58
+Stable tag: 7.2.59
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,7 +70,7 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
-= 7.2.58 =
+= 7.2.59 =
 * Championships: Final Stage now carries section qualifiers through directly instead of re-shuffling into a new random draw. Qualifiers are cross-paired by section (4-section: A vs D, B vs C; 2-section: A winner vs B runner-up, B winner vs A runner-up; 1-section: semi-finalists in bracket order) so players from the same section cannot meet until the Final.
 * Championships: Added 'Rebuild Final Stage from Sections' admin button — visible when all qualifiers are known and a Final Stage draw already exists. Replaces the old draw with the carry-over layout without requiring a full reset.
 
