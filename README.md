@@ -107,6 +107,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.58
+- **Championships (fix):** Final Stage admin block was hidden for single-section championships due to a `count($sections) > 1` guard. Removed — the block now shows for all championships. Single-section readiness check uses `lgw_champ_get_section_qualifiers($bracket, 4)` (all 4 semi-finalists known) rather than requiring the section final to be scored.
+- **Championships (fix):** Rebuild Final Stage button no longer restricted to multi-section championships.
+
 ### v7.2.57
 - **Championships (fix):** Final Stage qualifier pairing corrected to sequential order — qualifiers slot straight through in section order (Sec A vs Sec B, Sec C vs Sec D for 4-section; Sec A winner vs Sec A runner-up, Sec B winner vs Sec B runner-up for 2-section; q[0] vs q[1], q[2] vs q[3] for 1-section).
 

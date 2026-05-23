@@ -2500,17 +2500,29 @@ function lgw_champ_edit_page($champ_id) {
     <?php endif; ?>
     <?php endforeach; ?>
 
-    <?php if (count($sections) > 1):
+    <?php
+        // Show Final Stage block for any championship (1 or more sections).
+        // For a single section the Final Stage holds the 4 semi-finalists;
+        // "all_drawn" means all qualifiers for that path are confirmed.
+        $n_sec_fs        = count($sections);
+        $q_per_sec_fs    = $n_sec_fs > 0 ? intval(4 / $n_sec_fs) : 1;
         $all_drawn = true;
         foreach ($sections as $idx => $sec) {
             $bracket_key = 'section_' . $idx . '_bracket';
             $bracket = $champ[$bracket_key] ?? null;
             if (!$bracket) { $all_drawn = false; break; }
-            $last = end($bracket['matches']); $fm = reset($last);
-            if (!$fm || $fm['home_score'] === null || $fm['away_score'] === null || $fm['home_score'] === $fm['away_score']) { $all_drawn = false; break; }
+            if ($n_sec_fs > 1) {
+                // Multi-section: require the section final to have a result
+                $last = end($bracket['matches']); $fm = reset($last);
+                if (!$fm || $fm['home_score'] === null || $fm['away_score'] === null || $fm['home_score'] === $fm['away_score']) { $all_drawn = false; break; }
+            } else {
+                // Single section: require 4 semi-finalists to be known
+                if (lgw_champ_get_section_qualifiers($bracket, 4) === null) { $all_drawn = false; break; }
+            }
         }
         $final_drawn = !empty($champ['final_draw_version']);
     ?>
+    <?php if (true): // always show Final Stage block when applicable ?>
     <hr>
     <h3>Final Stage</h3>
     <?php if ($final_drawn): ?>
@@ -2539,7 +2551,7 @@ function lgw_champ_edit_page($champ_id) {
                 style="margin-left:10px">
           ✏️ Edit Draw
         </button>
-        <?php if ($all_qs_available && $n_sec_admin > 1): ?>
+        <?php if ($all_qs_available): ?>
         <button class="button button-small lgw-champ-admin-draw-btn"
                 data-champ-id="<?php echo esc_attr($champ_id); ?>"
                 data-section="final"
