@@ -107,6 +107,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.3.0
+- **Fix:** Mobile scorecard photo submission — file picker now shows a camera / gallery choice popup on touch devices instead of silently failing; `capture="environment"` removed from the modal photo input which was locking mobile browsers to camera-only with no way to switch to gallery or files
+
+### v7.2.59
+- **Group Championships:** Added search function matching the individual championships. A Search button in the day tabs toolbar searches across group fixtures, KO rounds, and Finals Week by player name or club. Supports Fixtures / Results mode toggle, Copy as Text, and CSV export.
+
 ### v7.2.58
 - **Championships (fix):** Final Stage admin block was hidden for single-section championships due to a `count($sections) > 1` guard. Removed — the block now shows for all championships. Single-section readiness check uses `lgw_champ_get_section_qualifiers($bracket, 4)` (all 4 semi-finalists known) rather than requiring the section final to be scored.
 - **Championships (fix):** Rebuild Final Stage button no longer restricted to multi-section championships.

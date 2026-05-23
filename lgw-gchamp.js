@@ -446,3 +446,318 @@
 
 
 })();
+
+// ── Group Championship Search ──────────────────────────────────────────────────
+(function () {
+  'use strict';
+
+  function qs(sel, ctx)  { return (ctx || document).querySelector(sel); }
+  function qsa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
+  function escHtml(s)    { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function post(action, data, cb) {
+    var ajaxUrl = (typeof lgwGchampData !== 'undefined' && lgwGchampData.ajaxUrl) ? lgwGchampData.ajaxUrl : '/wp-admin/admin-ajax.php';
+    var fd = new FormData();
+    fd.append('action', action);
+    Object.keys(data).forEach(function(k) { fd.append(k, data[k]); });
+    fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(cb)
+      .catch(function() { cb({ success: false, data: 'Network error' }); });
+  }
+
+  function openGchampSearch(gchampId) {
+    var existing = qs('.lgw-champ-search-modal');
+    if (existing) existing.parentNode.removeChild(existing);
+
+    var nonce = (typeof lgwGchampData !== 'undefined') ? lgwGchampData.searchNonce : '';
+
+    var modal = document.createElement('div');
+    modal.className = 'lgw-champ-search-modal';
+    modal.innerHTML =
+      '<div class="lgw-champ-search-box">' +
+        '<div class="lgw-champ-search-header">' +
+          '<span class="lgw-champ-search-title">🔍 Group Championship Search</span>' +
+          '<button class="lgw-champ-search-close" aria-label="Close">&times;</button>' +
+        '</div>' +
+        '<div class="lgw-champ-search-hint">Search by player name or club across all group fixtures, knockout rounds, and Finals Week.</div>' +
+        '<div class="lgw-champ-search-controls">' +
+          '<input class="lgw-champ-search-input" type="text" placeholder="Enter name or club…" autocomplete="off" autocorrect="off">' +
+          '<div class="lgw-champ-search-mode-tabs">' +
+            '<button class="lgw-champ-search-mode-btn active" data-mode="fixtures">📅 Fixtures</button>' +
+            '<button class="lgw-champ-search-mode-btn" data-mode="results">✅ Results</button>' +
+          '</div>' +
+          '<button class="lgw-champ-search-btn">Search</button>' +
+        '</div>' +
+        '<div class="lgw-champ-search-status"></div>' +
+        '<div class="lgw-champ-search-results"></div>' +
+        '<div class="lgw-champ-search-actions" style="display:none">' +
+          '<button class="lgw-champ-search-copy-btn">📋 Copy as Text</button>' +
+          '<button class="lgw-champ-search-csv-btn">📥 Export CSV</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    var input      = qs('.lgw-champ-search-input',  modal);
+    var searchBtn  = qs('.lgw-champ-search-btn',     modal);
+    var statusEl   = qs('.lgw-champ-search-status',  modal);
+    var resultsEl  = qs('.lgw-champ-search-results', modal);
+    var actionsEl  = qs('.lgw-champ-search-actions', modal);
+    var modeBtns   = qsa('.lgw-champ-search-mode-btn', modal);
+    var currentMode = 'fixtures';
+    var lastData    = null;
+
+    qs('.lgw-champ-search-close', modal).addEventListener('click', function() {
+      modal.parentNode.removeChild(modal);
+    });
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) modal.parentNode.removeChild(modal);
+    });
+
+    modeBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        modeBtns.forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        currentMode = btn.dataset.mode;
+        if (lastData) renderResults(lastData, currentMode);
+      });
+    });
+
+    input.focus();
+
+    function doSearch() {
+      var q = input.value.trim();
+      if (q.length < 2) {
+        statusEl.textContent = 'Please enter at least 2 characters.';
+        resultsEl.innerHTML = ''; actionsEl.style.display = 'none'; return;
+      }
+      searchBtn.disabled = true; searchBtn.textContent = '⏳ Searching…';
+      statusEl.textContent = ''; resultsEl.innerHTML = ''; actionsEl.style.display = 'none';
+
+      post('lgw_gchamp_search', {
+        gchamp_id: gchampId, query: q, nonce: nonce
+      }, function(res) {
+        searchBtn.disabled = false; searchBtn.textContent = 'Search';
+        if (!res.success) { statusEl.textContent = res.data || 'Search failed.'; return; }
+        lastData = res.data;
+        renderResults(lastData, currentMode);
+      });
+    }
+
+    searchBtn.addEventListener('click', doSearch);
+    input.addEventListener('keydown', function(e) { if (e.key === 'Enter') doSearch(); });
+
+    function renderResults(data, mode) {
+      var allMatches = data.matches || [];
+      var query      = data.query   || '';
+      var queryUpper = query.toUpperCase();
+
+      var filtered = allMatches.filter(function(m) {
+        return mode === 'fixtures' ? m.is_fixture : m.is_result;
+      });
+
+      if (!filtered.length) {
+        var noun0 = mode === 'fixtures' ? 'upcoming fixtures' : 'results';
+        statusEl.textContent = 'No ' + noun0 + ' found for "' + query + '".';
+        resultsEl.innerHTML = ''; actionsEl.style.display = 'none'; return;
+      }
+
+      var noun1  = mode === 'fixtures' ? 'fixture' : 'result';
+      var nounPl = filtered.length === 1 ? noun1 : noun1 + 's';
+      statusEl.textContent = filtered.length + ' ' + nounPl + ' found for "' + query + '" in ' + escHtml(data.title) + '.';
+
+      var homeMatches = filtered.filter(function(m) {
+        return m.home && m.home.toUpperCase().indexOf(queryUpper) !== -1;
+      });
+      var awayMatches = filtered.filter(function(m) {
+        return m.away && m.away.toUpperCase().indexOf(queryUpper) !== -1;
+      });
+
+      function groupByDate(arr) {
+        var groups = {}, order = [];
+        arr.forEach(function(m) {
+          var key = m.date || 'TBC';
+          if (!groups[key]) { groups[key] = []; order.push(key); }
+          groups[key].push(m);
+        });
+        return { groups: groups, order: order };
+      }
+
+      function champBadge(entry) {
+        if (!entry) return '';
+        var badges = (typeof lgwGchampData !== 'undefined' && lgwGchampData.badges)     ? lgwGchampData.badges     : {};
+        var clubs  = (typeof lgwGchampData !== 'undefined' && lgwGchampData.clubBadges) ? lgwGchampData.clubBadges : {};
+        // Try exact match, then club extracted from "Name, Club" format
+        var src = badges[entry] || '';
+        if (!src) {
+          var parts = entry.split(',');
+          var club  = parts.length > 1 ? parts[parts.length - 1].trim() : '';
+          src = clubs[club] || '';
+        }
+        return src ? '<img src="' + escHtml(src) + '" class="lgw-champ-team-badge" alt="">' : '';
+      }
+
+      function renderTable(matches, isHome) {
+        if (!matches.length) return '';
+        var grouped = groupByDate(matches);
+        var html = '<table class="lgw-champ-sr-table"><thead><tr>' +
+          '<th>Date</th>' +
+          '<th class="lgw-champ-sr-section-cell">Group / Stage</th>' +
+          '<th class="lgw-champ-sr-round">Round</th>' +
+          '<th>Match</th>' +
+          (mode === 'results' ? '<th class="lgw-champ-sr-score-col">Score</th>' : '') +
+          '</tr></thead><tbody>';
+
+        grouped.order.forEach(function(dateKey) {
+          grouped.groups[dateKey].forEach(function(m, i) {
+            var homeWin = m.has_result && parseFloat(m.home_score) > parseFloat(m.away_score);
+            var awayWin = m.has_result && parseFloat(m.away_score) > parseFloat(m.home_score);
+            var homeClass = 'lgw-champ-sr-vs-name' + (isHome  ? ' lgw-champ-sr-highlight' : '');
+            var awayClass = 'lgw-champ-sr-vs-name' + (!isHome ? ' lgw-champ-sr-highlight' : '');
+            var dateLabel = dateKey === 'TBC' ? '<span class="lgw-champ-sr-tbd">TBC</span>' : escHtml(dateKey);
+            var matchCell =
+              '<div class="lgw-champ-sr-vs-row">' +
+                '<span class="' + homeClass + '">' + champBadge(m.home) + escHtml(m.home || 'TBD') + '</span>' +
+                '<span class="lgw-champ-sr-vs-sep">vs</span>' +
+                '<span class="' + awayClass + '">' + champBadge(m.away) + escHtml(m.away || 'TBD') + '</span>' +
+              '</div>';
+            var scoreCell = '';
+            if (mode === 'results') {
+              if (m.has_result) {
+                var hs = escHtml(String(m.home_score)); var as = escHtml(String(m.away_score));
+                scoreCell = '<span class="lgw-champ-sr-score-val' + (homeWin ? ' win-h' : '') + '">' + hs + '</span>'
+                  + '<span class="lgw-champ-sr-score-dash">–</span>'
+                  + '<span class="lgw-champ-sr-score-val' + (awayWin ? ' win-a' : '') + '">' + as + '</span>';
+              } else {
+                scoreCell = '<span class="lgw-champ-sr-score-pending">—</span>';
+              }
+            }
+            html += '<tr class="lgw-champ-sr-row">';
+            html += '<td class="lgw-champ-sr-date">' + (i === 0 ? dateLabel : '') + '</td>';
+            html += '<td class="lgw-champ-sr-section-cell">' + escHtml(m.section) + '</td>';
+            html += '<td class="lgw-champ-sr-round">' + escHtml(m.round) + '</td>';
+            html += '<td class="lgw-champ-sr-match-cell">' + matchCell + '</td>';
+            if (mode === 'results') html += '<td class="lgw-champ-sr-score-cell">' + scoreCell + '</td>';
+            html += '</tr>';
+          });
+        });
+        html += '</tbody></table>';
+        return html;
+      }
+
+      var html = '';
+      if (homeMatches.length) {
+        html += '<div class="lgw-champ-sr-group">' +
+          '<div class="lgw-champ-sr-group-label lgw-champ-sr-home-label">🏠 Home Fixtures</div>' +
+          renderTable(homeMatches, true) + '</div>';
+      }
+      if (awayMatches.length) {
+        html += '<div class="lgw-champ-sr-group">' +
+          '<div class="lgw-champ-sr-group-label lgw-champ-sr-away-label">✈️ Away Fixtures</div>' +
+          renderTable(awayMatches, false) + '</div>';
+      }
+      resultsEl.innerHTML = html;
+      actionsEl.style.display = 'flex';
+    }
+
+    // ── Copy as Text ───────────────────────────────────────────────────────────
+    qs('.lgw-champ-search-copy-btn', modal).addEventListener('click', function() {
+      if (!lastData) return;
+      var query      = lastData.query || '';
+      var queryUpper = query.toUpperCase();
+      var filtered   = (lastData.matches || []).filter(function(m) {
+        return currentMode === 'fixtures' ? m.is_fixture : m.is_result;
+      });
+      var homeMatches = filtered.filter(function(m) { return m.home && m.home.toUpperCase().indexOf(queryUpper) !== -1; });
+      var awayMatches = filtered.filter(function(m) { return m.away && m.away.toUpperCase().indexOf(queryUpper) !== -1; });
+      var modeLabel = currentMode === 'fixtures' ? 'Fixtures' : 'Results';
+      var lines = [escPlain(lastData.title) + ' — ' + modeLabel + ' for "' + escPlain(query) + '"', ''];
+      function fmt(matches, isHome) {
+        if (!matches.length) return;
+        lines.push(isHome ? '🏠 HOME FIXTURES' : '✈️ AWAY FIXTURES'); lines.push('');
+        var lastDate = null;
+        matches.forEach(function(m) {
+          var dateStr = m.date || 'TBC';
+          if (dateStr !== lastDate) { if (lastDate !== null) lines.push(''); lines.push('📅 ' + dateStr); lastDate = dateStr; }
+          var self_ = isHome ? (m.home||'TBD') : (m.away||'TBD');
+          var opp   = isHome ? (m.away||'TBD') : (m.home||'TBD');
+          var line  = '  ' + escPlain(m.section) + ' · ' + escPlain(m.round) + ' · ' + escPlain(self_) + ' v ' + escPlain(opp);
+          if (currentMode === 'results' && m.has_result) {
+            var s1 = isHome ? m.home_score : m.away_score;
+            var s2 = isHome ? m.away_score : m.home_score;
+            line += '  (' + s1 + '–' + s2 + ')';
+          }
+          lines.push(line);
+        });
+        lines.push('');
+      }
+      fmt(homeMatches, true); fmt(awayMatches, false);
+      var text = lines.join('\n');
+      var btn = this;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          btn.textContent = '✅ Copied!'; setTimeout(function() { btn.textContent = '📋 Copy as Text'; }, 2000);
+        }).catch(function() { fallbackCopy(text, btn); });
+      } else { fallbackCopy(text, btn); }
+    });
+
+    function escPlain(s) { return String(s||''); }
+    function fallbackCopy(text, btn) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); btn.textContent = '✅ Copied!'; } catch(e) { btn.textContent = '❌ Copy failed'; }
+      setTimeout(function() { btn.textContent = '📋 Copy as Text'; }, 2000);
+      document.body.removeChild(ta);
+    }
+
+    // ── Export CSV ─────────────────────────────────────────────────────────────
+    qs('.lgw-champ-search-csv-btn', modal).addEventListener('click', function() {
+      if (!lastData) return;
+      var query      = lastData.query || '';
+      var queryUpper = query.toUpperCase();
+      var filtered   = (lastData.matches || []).filter(function(m) {
+        return currentMode === 'fixtures' ? m.is_fixture : m.is_result;
+      });
+      if (!filtered.length) return;
+      var header = currentMode === 'results'
+        ? ['H/A','Group/Stage','Round','Date','Matched Entry','Opponent','Home Score','Away Score']
+        : ['H/A','Group/Stage','Round','Date','Matched Entry','Opponent'];
+      var rows = [header];
+      filtered.forEach(function(m) {
+        var isHome  = m.home && m.home.toUpperCase().indexOf(queryUpper) !== -1;
+        var matched = isHome ? (m.home||'') : (m.away||'');
+        var opp     = isHome ? (m.away||'') : (m.home||'');
+        if (currentMode === 'results') {
+          rows.push([isHome?'H':'A', m.section, m.round, m.date||'', matched, opp,
+            m.home_score !== null ? m.home_score : '', m.away_score !== null ? m.away_score : '']);
+        } else {
+          rows.push([isHome?'H':'A', m.section, m.round, m.date||'', matched, opp]);
+        }
+      });
+      var csv = rows.map(function(row) {
+        return row.map(function(cell) {
+          var s = String(cell);
+          if (s.indexOf(',')!==-1||s.indexOf('"')!==-1||s.indexOf('\n')!==-1) s = '"'+s.replace(/"/g,'""')+'"';
+          return s;
+        }).join(',');
+      }).join('\r\n');
+      var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      var url  = URL.createObjectURL(blob);
+      var a    = document.createElement('a');
+      a.href = url; a.download = 'gchamp-' + query.replace(/[^a-z0-9]/gi,'_') + '-' + currentMode + '.csv';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    });
+  }
+
+  // Wire up search buttons
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.lgw-gchamp-search-tab').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var gchampId = btn.dataset.gchampId;
+        if (gchampId) openGchampSearch(gchampId);
+      });
+    });
+  });
+})();

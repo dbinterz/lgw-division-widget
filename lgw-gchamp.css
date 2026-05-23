@@ -125,6 +125,25 @@
 .lgw-gchamp-day-pane         { display: none; }
 .lgw-gchamp-day-pane.active  { display: block; }
 
+/* ── Search tab button ─────────────────────────────────────────────────────── */
+.lgw-gchamp-search-tab {
+  margin-left: auto;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #1a4e6e;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  align-self: center;
+  margin-right: 8px;
+  font-family: inherit;
+  transition: background .15s;
+}
+.lgw-gchamp-search-tab:hover { background: #1a2e5a; }
+
 /* ── Sub-tabs (Groups | Knockout) ──────────────────────────────────────────── */
 .lgw-gchamp-sub-tabs {
   display: flex;

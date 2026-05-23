@@ -1440,6 +1440,155 @@ function lgw_ajax_gchamp_get_standings() {
     wp_send_json_success( array('days'=>$result,'group_stage_complete'=>!empty($champ['group_stage_complete'])) );
 }
 
+
+// ── AJAX: search group championship fixtures / results ────────────────────────
+add_action( 'wp_ajax_lgw_gchamp_search',        'lgw_ajax_gchamp_search' );
+add_action( 'wp_ajax_nopriv_lgw_gchamp_search', 'lgw_ajax_gchamp_search' );
+/**
+ * Search a group championship for fixtures/results matching a player or club.
+ *
+ * Scans:
+ *   - Group stage fixtures  (days[n].groups[g].fixtures)
+ *   - Day KO brackets       (days[n].ko_bracket.rounds[r].matches)
+ *   - Finals Week matches   (finals_matches[r].matches)
+ *
+ * POST: gchamp_id, query, nonce (lgw_gchamp_search)
+ * Returns: { matches[], query, title }
+ */
+function lgw_ajax_gchamp_search() {
+    $nonce = sanitize_text_field( $_POST['nonce'] ?? '' );
+    if ( ! wp_verify_nonce( $nonce, 'lgw_gchamp_search' ) ) {
+        wp_send_json_error( 'Session expired — please refresh and try again.' );
+    }
+
+    $champ_id = sanitize_key( $_POST['gchamp_id'] ?? '' );
+    $query    = strtolower( trim( sanitize_text_field( wp_unslash( $_POST['query'] ?? '' ) ) ) );
+
+    if ( ! $champ_id ) wp_send_json_error( 'Missing championship ID.' );
+    if ( strlen( $query ) < 2 ) wp_send_json_error( 'Please enter at least 2 characters.' );
+
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) ) wp_send_json_error( 'Championship not found.' );
+
+    $today   = mktime( 0, 0, 0 );
+    $results = array();
+
+    $parse_date = function( $s ) {
+        if ( ! $s ) return false;
+        if ( preg_match( '|^(\d{1,2})/(\d{1,2})/(\d{2,4})$|', trim($s), $m ) ) {
+            $y = intval($m[3]); if ($y < 100) $y += 2000;
+            return mktime( 0, 0, 0, intval($m[2]), intval($m[1]), $y );
+        }
+        return false;
+    };
+
+    $entry_matches = function( $entry ) use ( $query ) {
+        return $entry && strpos( strtolower( $entry ), $query ) !== false;
+    };
+
+    // ── Group stage fixtures ──────────────────────────────────────────────────
+    foreach ( ( $champ['days'] ?? array() ) as $di => $day ) {
+        $date_str = $day['date'] ?? '';
+        $date_ts  = $parse_date( $date_str );
+        $is_future = ( $date_ts !== false ) ? ( $date_ts >= $today ) : true;
+        $day_name  = $day['name'] ?? ( 'Day ' . ( $di + 1 ) );
+
+        foreach ( ( $day['groups'] ?? array() ) as $gi => $group ) {
+            $group_name = $group['name'] ?? ( $day_name . ' — Group ' . chr( 65 + $gi ) );
+            foreach ( ( $group['fixtures'] ?? array() ) as $fx ) {
+                $home = $fx['home'] ?? ''; $away = $fx['away'] ?? '';
+                if ( ! $entry_matches($home) && ! $entry_matches($away) ) continue;
+
+                $hs = $fx['home_score'] ?? null; $as = $fx['away_score'] ?? null;
+                $has_result = ( $hs !== null && $hs !== '' && $as !== null && $as !== '' );
+
+                $results[] = array(
+                    'section'    => $group_name,
+                    'stage'      => 'group',
+                    'round'      => 'Round ' . ( ( $fx['round'] ?? 0 ) + 1 ),
+                    'date'       => $date_str,
+                    'date_ts'    => $date_ts !== false ? $date_ts : PHP_INT_MAX,
+                    'home'       => $home, 'away' => $away,
+                    'home_score' => $has_result ? $hs : null,
+                    'away_score' => $has_result ? $as : null,
+                    'has_result' => $has_result,
+                    'is_fixture' => $is_future || ! $has_result,
+                    'is_result'  => $has_result,
+                    'game_num'   => null,
+                );
+            }
+        }
+
+        // ── Day KO bracket ───────────────────────────────────────────────────
+        $ko = $day['ko_bracket'] ?? null;
+        if ( $ko ) {
+            foreach ( ( $ko['rounds'] ?? array() ) as $ri => $round ) {
+                $round_name = $round['label'] ?? ( 'KO Round ' . ( $ri + 1 ) );
+                foreach ( ( $round['matches'] ?? array() ) as $m ) {
+                    if ( ! empty($m['bye']) ) continue;
+                    $home = $m['home'] ?? ''; $away = $m['away'] ?? '';
+                    if ( ! $entry_matches($home) && ! $entry_matches($away) ) continue;
+
+                    $hs = $m['home_score'] ?? null; $as = $m['away_score'] ?? null;
+                    $has_result = ( $hs !== null && $hs !== '' && $as !== null && $as !== '' );
+
+                    $results[] = array(
+                        'section'    => $day_name . ' KO',
+                        'stage'      => 'ko',
+                        'round'      => $round_name,
+                        'date'       => $date_str,
+                        'date_ts'    => $date_ts !== false ? $date_ts : PHP_INT_MAX,
+                        'home'       => $home, 'away' => $away,
+                        'home_score' => $has_result ? $hs : null,
+                        'away_score' => $has_result ? $as : null,
+                        'has_result' => $has_result,
+                        'is_fixture' => ! $has_result,
+                        'is_result'  => $has_result,
+                        'game_num'   => null,
+                    );
+                }
+            }
+        }
+    }
+
+    // ── Finals Week matches ───────────────────────────────────────────────────
+    foreach ( ( $champ['finals_matches'] ?? array() ) as $fm ) {
+        $home = $fm['home'] ?? ''; $away = $fm['away'] ?? '';
+        if ( ! $entry_matches($home) && ! $entry_matches($away) ) continue;
+
+        $date_str  = $fm['date'] ?? '';
+        $date_ts   = $parse_date( $date_str );
+        $is_future = ( $date_ts !== false ) ? ( $date_ts >= $today ) : true;
+
+        $hs = $fm['home_score'] ?? null; $as = $fm['away_score'] ?? null;
+        $has_result = ( $hs !== null && $hs !== '' && $as !== null && $as !== '' );
+
+        $results[] = array(
+            'section'    => 'Finals Week',
+            'stage'      => 'finals',
+            'round'      => $fm['label'] ?? 'Finals',
+            'date'       => $date_str,
+            'date_ts'    => $date_ts !== false ? $date_ts : PHP_INT_MAX,
+            'home'       => $home, 'away' => $away,
+            'home_score' => $has_result ? $hs : null,
+            'away_score' => $has_result ? $as : null,
+            'has_result' => $has_result,
+            'is_fixture' => $is_future || ! $has_result,
+            'is_result'  => $has_result,
+            'game_num'   => null,
+        );
+    }
+
+    usort( $results, function($a,$b) { return $a['date_ts'] <=> $b['date_ts']; } );
+
+    wp_send_json_success( array(
+        'query'   => $query,
+        'matches' => $results,
+        'count'   => count( $results ),
+        'title'   => $champ['title'] ?? $champ_id,
+    ) );
+}
+
 // ── AJAX: seed knockout bracket ───────────────────────────────────────────────
 add_action( 'wp_ajax_lgw_gchamp_seed_knockout', 'lgw_ajax_gchamp_seed_knockout' );
 function lgw_ajax_gchamp_seed_knockout() {
@@ -2847,12 +2996,13 @@ function lgw_gchamp_enqueue() {
         ) );
     }
     wp_localize_script( 'lgw-gchamp', 'lgwGchampData', array(
-        'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
-        'isAdmin'    => current_user_can( 'manage_options' ) ? 1 : 0,
-        'canScore'   => ( function_exists( 'lgw_user_can_manage_scores' ) && lgw_user_can_manage_scores() ) ? 1 : 0,
-        'nonce'      => wp_create_nonce( 'lgw_gchamp_score' ),
-        'badges'     => get_option( 'lgw_badges',      array() ),
-        'clubBadges' => get_option( 'lgw_club_badges', array() ),
+        'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
+        'isAdmin'     => current_user_can( 'manage_options' ) ? 1 : 0,
+        'canScore'    => ( function_exists( 'lgw_user_can_manage_scores' ) && lgw_user_can_manage_scores() ) ? 1 : 0,
+        'nonce'       => wp_create_nonce( 'lgw_gchamp_score' ),
+        'searchNonce' => wp_create_nonce( 'lgw_gchamp_search' ),
+        'badges'      => get_option( 'lgw_badges',      array() ),
+        'clubBadges'  => get_option( 'lgw_club_badges', array() ),
     ) );
 }
 
@@ -2946,6 +3096,11 @@ function lgw_gchamp_shortcode( $atts ) {
                 <?php endif; ?>
             </button>
             <?php endif; ?>
+            <button class="lgw-gchamp-search-tab"
+                    data-gchamp-id="<?php echo esc_attr( $gchamp_id ); ?>"
+                    title="Search fixtures and results">
+                &#x1F50D; Search
+            </button>
         </div>
 
         <?php foreach ( $days as $day_idx => $day ):

@@ -213,7 +213,7 @@
   var cameraStream   = null;
   var cameraOverlay  = null;
 
-  function openCameraOverlay() {
+  function openCameraOverlay(onCapture) {
     if (cameraOverlay) return; // already open
 
     cameraOverlay = document.createElement('div');
@@ -277,7 +277,7 @@
         closeCameraOverlay();
         // Wrap blob in a File so handlePhotoFile works normally
         var f = new File([blob], 'scorecard-photo.jpg', { type: 'image/jpeg' });
-        handlePhotoFile(f);
+        (onCapture || handlePhotoFile)(f);
       }, 'image/jpeg', 0.92);
     });
 
@@ -322,7 +322,7 @@
       document.removeEventListener('click', onOutside, true);
     }
 
-    btnCamera.addEventListener('click', function(){ dismiss(); openCameraOverlay(); });
+    btnCamera.addEventListener('click', function(){ dismiss(); openCameraOverlay(handlePhotoFile); });
     btnFile.addEventListener('click',   function(){ dismiss(); if (photoInput) photoInput.click(); });
 
     function onOutside(e) {
@@ -1466,7 +1466,7 @@
         +'<div class="lgw-stab-panel active lgw-modal-tabpanel" data-mtab="photo">'
         +'<p class="lgw-hint">Upload a photo of the scorecard. AI will read it and pre-fill the form below.</p>'
         +'<div class="lgw-upload-area" id="lgw-modal-photo-drop">'
-        +'<input type="file" id="lgw-modal-photo-input" accept="image/*" capture="environment" style="display:none">'
+        +'<input type="file" id="lgw-modal-photo-input" accept="image/*" style="display:none">'
         +'<div class="lgw-upload-inner" id="lgw-modal-photo-trigger"><span class="lgw-upload-icon">📷</span><span>Tap to take a photo or choose an image</span></div>'
         +'<img id="lgw-modal-photo-preview" src="" alt="" style="display:none;max-width:100%;max-height:180px;border-radius:6px;margin-top:10px">'
         +'</div>'
@@ -1774,18 +1774,60 @@
       var photoStat2    = el.querySelector('#lgw-modal-photo-status');
       var modalPhotoFile = null;
 
-      if(photoTrigger2) photoTrigger2.addEventListener('click', function(){ if(photoInput2) photoInput2.click(); });
-      if(photoInput2) photoInput2.addEventListener('change', function(){
-        if(!photoInput2.files[0]) return;
-        modalPhotoFile = photoInput2.files[0];
+      function handlePhotoFile2(file) {
+        modalPhotoFile = file;
         var reader = new FileReader();
         reader.onload = function(e){
           photoPreview2.src = e.target.result;
           photoPreview2.style.display = '';
           if(parseBtn2) parseBtn2.style.display = '';
         };
-        reader.readAsDataURL(modalPhotoFile);
+        reader.readAsDataURL(file);
+      }
+
+      if(photoTrigger2) photoTrigger2.addEventListener('click', function(){
+        if(isMobile){
+          // Show camera vs gallery choice — mirrors standalone form behaviour
+          var existingChoice = document.querySelector('#lgw-modal-photo-choice');
+          if(existingChoice) existingChoice.parentNode.removeChild(existingChoice);
+
+          var popup2 = document.createElement('div');
+          popup2.id = 'lgw-modal-photo-choice';
+          popup2.style.cssText = 'position:fixed;z-index:99999;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:220px';
+
+          var rect2 = photoTrigger2.getBoundingClientRect();
+          popup2.style.top  = Math.min(rect2.bottom + 6, window.innerHeight - 120) + 'px';
+          popup2.style.left = Math.max(8, Math.min(rect2.left, window.innerWidth - 240)) + 'px';
+
+          var btnCam2 = document.createElement('button');
+          btnCam2.type = 'button'; btnCam2.className = 'lgw-btn lgw-btn-secondary';
+          btnCam2.innerHTML = '\u{1F4F7} Take a photo';
+
+          var btnGal2 = document.createElement('button');
+          btnGal2.type = 'button'; btnGal2.className = 'lgw-btn lgw-btn-secondary';
+          btnGal2.innerHTML = '\u{1F5BC}\uFE0F Choose from gallery / files';
+
+          popup2.appendChild(btnCam2);
+          popup2.appendChild(btnGal2);
+          document.body.appendChild(popup2);
+
+          function dismiss2(){
+            if(popup2.parentNode) popup2.parentNode.removeChild(popup2);
+            document.removeEventListener('click', onOutside2, true);
+          }
+
+          btnCam2.addEventListener('click', function(){ dismiss2(); openCameraOverlay(handlePhotoFile2); });
+          btnGal2.addEventListener('click', function(){ dismiss2(); if(photoInput2) photoInput2.click(); });
+
+          function onOutside2(e){
+            if(!popup2.contains(e.target) && e.target !== photoTrigger2) dismiss2();
+          }
+          setTimeout(function(){ document.addEventListener('click', onOutside2, true); }, 50);
+        } else {
+          if(photoInput2) photoInput2.click();
+        }
       });
+      if(photoInput2) photoInput2.addEventListener('change', function(){ if(photoInput2.files[0]) handlePhotoFile2(photoInput2.files[0]); });
       if(parseBtn2){
         parseBtn2.addEventListener('click', function(){
           if(!modalPhotoFile) return;
