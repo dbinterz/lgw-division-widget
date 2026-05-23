@@ -145,7 +145,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // ── Champ admin: draw buttons ─────────────────────────────────────────────
     document.querySelectorAll('.lgw-champ-admin-draw-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
-            if (!confirm('Perform the draw for this section now? This cannot be undone.')) return;
+            var rebuild = btn.dataset.rebuild === '1';
+            var confirmMsg = rebuild
+                ? 'Rebuild Final Stage from section results? This replaces the current Final Stage draw. Any scores already entered will be cleared.'
+                : 'Perform the draw for this section now? This cannot be undone.';
+            if (!confirm(confirmMsg)) return;
             var msg = btn.nextElementSibling;
             btn.disabled = true; btn.textContent = '⏳ Drawing…';
             var fd = new FormData();
@@ -153,10 +157,11 @@ document.addEventListener('DOMContentLoaded', function() {
             fd.append('champ_id', btn.dataset.champId);
             fd.append('section',  btn.dataset.section);
             fd.append('nonce',    btn.dataset.nonce);
+            if (rebuild) { fd.append('rebuild', '1'); }
             fetch(ajaxurl, {method:'POST', body:fd, credentials:'same-origin'})
                 .then(function(r){ return r.json(); })
                 .then(function(res){
-                    btn.disabled = false; btn.textContent = '🎲 Draw Now';
+                    btn.disabled = false; btn.textContent = rebuild ? '🔁 Rebuild Final Stage from Sections' : '🎲 Draw Now';
                     if (msg) {
                         msg.style.display = '';
                         if (res.success) {

@@ -733,17 +733,18 @@ function lgw_champ_try_seed_final($champ_id, &$champ) {
 
     $q_per_section = intval(4 / $n_sections); // 1, 2, or 4
 
-    $all_qualifiers = array();
+    // Collect qualifiers per section so carry-over can use section provenance
+    $qualifiers_by_section = array();
     foreach ($sections as $idx => $sec) {
         $bracket = $champ['section_' . $idx . '_bracket'] ?? null;
         if (!$bracket) return; // section not yet drawn
         $q = lgw_champ_get_section_qualifiers($bracket, $q_per_section);
         if ($q === null) return; // this section not ready yet
-        $all_qualifiers = array_merge($all_qualifiers, $q);
+        $qualifiers_by_section[] = $q;
     }
 
-    // All 4 qualifiers known — perform the final stage draw
-    lgw_champ_perform_final_draw($champ_id, $champ, $all_qualifiers);
+    // All qualifiers known — build the Final Stage carrying sections through
+    lgw_champ_perform_final_draw($champ_id, $champ, $qualifiers_by_section);
 }
 
 // ── AJAX: poll ─────────────────────────────────────────────────────────────────
@@ -834,13 +835,23 @@ function lgw_ajax_champ_perform_draw() {
 
     $champ_id = sanitize_key($_POST['champ_id'] ?? '');
     $section  = sanitize_key($_POST['section']  ?? '0');
+    $rebuild  = !empty($_POST['rebuild']);
     if (!$champ_id) wp_send_json_error('Missing champ_id');
 
     $champ = get_option('lgw_champ_' . $champ_id, array());
     if (empty($champ['entries'])) wp_send_json_error('No entries configured.');
 
     $ver_key = ($section === 'final') ? 'final_draw_version' : 'section_' . $section . '_draw_version';
-    if (!empty($champ[$ver_key]) && (int) $champ[$ver_key] > 0) wp_send_json_error('Draw already performed for this section.');
+
+    if ($rebuild && $section === 'final') {
+        // Rebuild: clear the existing Final Stage bracket so it can be re-seeded
+        // from section results using the carry-over logic.
+        unset($champ['final_bracket'], $champ['final_draw_pairs'],
+              $champ['final_draw_version'], $champ['final_pairs_cursor'],
+              $champ['final_draw_in_progress']);
+    } elseif (!empty($champ[$ver_key]) && (int) $champ[$ver_key] > 0) {
+        wp_send_json_error('Draw already performed for this section.');
+    }
 
     $result = lgw_champ_perform_draw($champ_id, $champ, $section);
     if (is_wp_error($result)) wp_send_json_error($result->get_error_message());
@@ -1297,62 +1308,103 @@ function lgw_champ_perform_draw($champ_id, $champ, $section = '0') {
 }
 
 /**
- * Draw the Final Stage.
- * $qualifiers may be passed directly (from try_seed_final) or derived from
- * completed section brackets (admin "Draw Final Stage Now" button path).
+ * Build the Final Stage by carrying section qualifiers through directly —
+ * no re-shuffle or re-draw.  Sections are cross-paired to guarantee that
+ * qualifiers from the same section cannot meet until the Final:
+ *
+ *   4 sections (1q each):  SF1 = SecA winner v SecD winner
+ *                           SF2 = SecB winner v SecC winner
+ *   2 sections (2q each):  SF1 = SecA winner  v SecB runner-up
+ *                           SF2 = SecB winner  v SecA runner-up
+ *   1 section  (4q):       SF1 = q[0] v q[3],  SF2 = q[1] v q[2]
+ *                           (qualifiers are the four semi-finalists in
+ *                            bracket order from lgw_champ_get_section_qualifiers)
+ *
+ * $qualifiers_by_section: array of per-section qualifier arrays.
+ *   - Pass null to derive from stored brackets (admin "Draw Final Stage Now").
+ *   - Pass a per-section array (from try_seed_final) to avoid re-reading options.
+ *
+ * For draws already in progress: an admin "Rebuild Final Stage" button (shown
+ * when all qualifiers are known) clears final_bracket then calls this function,
+ * replacing any previously random-drawn bracket with the carry-over layout.
  */
-function lgw_champ_perform_final_draw($champ_id, &$champ, $qualifiers = null) {
+function lgw_champ_perform_final_draw($champ_id, &$champ, $qualifiers_by_section = null) {
     $sections    = $champ['sections'] ?? array();
     $n_sections  = count($sections);
-    $multi_green = array_filter(array_map('trim', explode("\n", $champ['multi_green'] ?? '')));
 
-    if ($qualifiers === null) {
-        // Admin manual trigger — derive qualifiers using the same logic as try_seed_final
-        $q_per_section  = $n_sections > 0 ? intval(4 / $n_sections) : 1;
-        $qualifiers = array();
+    if ($qualifiers_by_section === null) {
+        // Admin manual trigger — derive qualifiers per section
+        $q_per_section = $n_sections > 0 ? intval(4 / $n_sections) : 1;
+        $qualifiers_by_section = array();
         foreach ($sections as $idx => $sec) {
             $bracket = $champ['section_' . $idx . '_bracket'] ?? null;
             if (!$bracket) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' has not been drawn yet.');
             $q = lgw_champ_get_section_qualifiers($bracket, $q_per_section);
             if ($q === null) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' does not have enough results yet.');
-            $qualifiers = array_merge($qualifiers, $q);
+            $qualifiers_by_section[] = $q;
         }
     }
 
-    if (count($qualifiers) < 2) return new WP_Error('too_few', 'Need at least 2 qualifiers for Final Stage.');
-
-    shuffle($qualifiers);
-
-    $numbered = array();
-    foreach ($qualifiers as $i => $name) {
-        $numbered[] = array('name' => $name, 'draw_num' => $i + 1);
+    // Flatten and validate
+    $all_q = array();
+    foreach ($qualifiers_by_section as $qs) {
+        foreach ($qs as $q) { $all_q[] = $q; }
     }
+    if (count($all_q) < 2) return new WP_Error('too_few', 'Need at least 2 qualifiers for Final Stage.');
 
-    $result = lgw_draw_build_bracket($numbered, array(
-        'get_club'      => 'lgw_champ_entry_club',
-        'home_at_limit' => function($club, $counts) use ($multi_green) {
-            return ($counts[$club] ?? 0) >= lgw_champ_home_limit($club, $multi_green);
-        },
-        'separate_prelim' => 'lgw_champ_separate_clubs',
-        'separate_r2'     => 'lgw_champ_separate_r2_slots',
-        // Force round names based on full bracket size so we get e.g. Semi-Final/Final
-        // rather than Preliminary Round/Final when prelim_count > 0
-        'stored_rounds'   => lgw_draw_default_rounds(count($numbered)),
-        'dates'           => array(),
-        'r2_label'        => 'Final Stage Draw',
-        'game_nums'       => true,
-    ));
+    // ── Sequential pairing (sections flow through in order) ───────────────────
+    // Qualifiers are slotted in the order they appear across sections:
+    //   4 sections (1q each): SF1 = SecA vs SecB,  SF2 = SecC vs SecD
+    //   2 sections (2q each): SF1 = SecA winner vs SecA runner-up,
+    //                         SF2 = SecB winner vs SecB runner-up
+    //   1 section  (4q):      SF1 = q[0] vs q[1],  SF2 = q[2] vs q[3]
+    $sf1_home = $all_q[0] ?? null;
+    $sf1_away = $all_q[1] ?? null;
+    $sf2_home = $all_q[2] ?? null;
+    $sf2_away = $all_q[3] ?? null;
 
-    if (!$result) return new WP_Error('too_few', 'Need at least 2 section winners for Final Stage.');
+    // ── Build bracket matches manually ─────────────────────────────────────────
+    // Structure: [[SF1, SF2], [Final_skeleton]]
+    // game_nums: SF1=1, SF2=2, Final=3
+    $sf1 = array(
+        'home'          => $sf1_home, 'away'          => $sf1_away,
+        'home_score'    => null,      'away_score'    => null,
+        'draw_num_home' => 1,         'draw_num_away' => 2,
+        'bye'           => false,     'game_num'      => 1,
+    );
+    $sf2 = array(
+        'home'          => $sf2_home, 'away'          => $sf2_away,
+        'home_score'    => null,      'away_score'    => null,
+        'draw_num_home' => 3,         'draw_num_away' => 4,
+        'bye'           => false,     'game_num'      => 2,
+    );
+    $final = array(
+        'home'          => null, 'away'          => null,
+        'home_score'    => null, 'away_score'    => null,
+        'draw_num_home' => null, 'draw_num_away' => null,
+        'bye'           => false,
+        'game_num'      => 3,
+        'prev_game_home'=> 1,
+        'prev_game_away'=> 2,
+    );
+
+    $rounds  = array('Semi-Final', 'Final');
+    $matches = array(array($sf1, $sf2), array($final));
+
+    // Animation pairs for the live-draw overlay
+    $pairs = array(
+        array('home' => $sf1_home ?? 'TBC', 'away' => $sf1_away ?? 'TBC', 'bye' => false),
+        array('home' => $sf2_home ?? 'TBC', 'away' => $sf2_away ?? 'TBC', 'bye' => false),
+    );
 
     $champ['final_bracket'] = array(
         'title'   => ($champ['title'] ?? 'Championship') . ' — Final Stage',
-        'rounds'  => $result['rounds'],
+        'rounds'  => $rounds,
         'dates'   => array(),
-        'matches' => $result['matches'],
+        'matches' => $matches,
     );
-    $champ['final_draw_pairs']       = $result['pairs'];
-    $champ['final_draw_version']     = 1;
+    $champ['final_draw_pairs']       = $pairs;
+    $champ['final_draw_version']     = intval($champ['final_draw_version'] ?? 0) + 1;
     $champ['final_pairs_cursor']     = 0;
     $champ['final_draw_in_progress'] = true;
 
@@ -2468,6 +2520,18 @@ function lgw_champ_edit_page($champ_id) {
                 foreach (($sec['entries'] ?? array()) as $e) { $final_entries_flat[] = $e; }
             }
       ?>
+      <?php
+        // Check if all section qualifiers are available — enables Rebuild button
+        $n_sec_admin     = count($sections);
+        $q_per_sec_admin = $n_sec_admin > 0 ? intval(4 / $n_sec_admin) : 1;
+        $all_qs_available = true;
+        foreach ($sections as $sidx2 => $sec2) {
+            $bk2 = $champ['section_' . $sidx2 . '_bracket'] ?? null;
+            if (!$bk2 || lgw_champ_get_section_qualifiers($bk2, $q_per_sec_admin) === null) {
+                $all_qs_available = false; break;
+            }
+        }
+      ?>
       <p>✅ Final Stage draw performed.
         <button type="button"
                 class="button button-small lgw-champ-edit-draw-toggle"
@@ -2475,6 +2539,16 @@ function lgw_champ_edit_page($champ_id) {
                 style="margin-left:10px">
           ✏️ Edit Draw
         </button>
+        <?php if ($all_qs_available && $n_sec_admin > 1): ?>
+        <button class="button button-small lgw-champ-admin-draw-btn"
+                data-champ-id="<?php echo esc_attr($champ_id); ?>"
+                data-section="final"
+                data-nonce="<?php echo esc_attr($nonce); ?>"
+                data-rebuild="1"
+                style="margin-left:10px">
+          🔁 Rebuild Final Stage from Sections
+        </button>
+        <?php endif; ?>
       </p>
       <?php if ($final_bracket_data): ?>
       <div id="lgw-edit-draw-final" style="display:none;margin:0 0 18px">

@@ -107,6 +107,16 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.2.57
+- **Championships (fix):** Final Stage qualifier pairing corrected to sequential order — qualifiers slot straight through in section order (Sec A vs Sec B, Sec C vs Sec D for 4-section; Sec A winner vs Sec A runner-up, Sec B winner vs Sec B runner-up for 2-section; q[0] vs q[1], q[2] vs q[3] for 1-section).
+
+### v7.2.56
+- **Championships (fix):** Undefined variable `$n_sections` on admin Final Stage panel — replaced with `$n_sec_admin` derived from `$sections` already in scope.
+
+### v7.2.55
+- **Championships:** Final Stage now carries section qualifiers through directly — no re-shuffle or re-draw. Qualifiers are cross-paired by section so the same-section clash is impossible before the Final: 4-section → Sec A vs Sec D, Sec B vs Sec C; 2-section → Sec A winner vs Sec B runner-up, Sec B winner vs Sec A runner-up; 1-section → semi-finalists in bracket order.
+- **Championships:** Added admin 'Rebuild Final Stage from Sections' button. Shown when a Final Stage draw already exists and all qualifiers are confirmed. Replaces any previously random-drawn bracket with the section carry-over layout — corrects draws already in progress without requiring a full reset.
+
 ### v7.2.54
 - **Group Championships:** Club crest displayed in standings table on wider screens. Resolved from `lgw_club_badges` / `lgw_badges` options using the same lookup pattern as the Finals Week render. Hidden below 480px via `.lgw-gs-hide-sm` media query.
 
