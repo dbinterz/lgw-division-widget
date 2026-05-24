@@ -608,7 +608,7 @@
     if(!filtered.length) return '<div class="lgw-status">No fixtures to display.</div>';
     var h='';
     filtered.forEach(function(g){
-      h+='<div class="date-group"><div class="date-hdr">'+g.date+'</div>';
+      h+='<div class="date-group"><div class="date-hdr"><span>'+g.date+'</span><span class="date-hdr-notes">Notes</span></div>';
       g.matches.forEach(function(m){
         var pc=m.played?' played':'';
         var fxAttrs=m.played
@@ -623,16 +623,29 @@
         var scStatus=scorecardStatus[pdKey]||'';
         var scPill=scStatus?'<span class="fx-sc-status fx-sc-'+scStatus+'">'+(scStatus==='confirmed'?'&#x2705;':scStatus==='disputed'?'&#x26A0;&#xFE0F;':'&#x1F4CB;')+' '+(scStatus.charAt(0).toUpperCase()+scStatus.slice(1))+'</span>':'';
         // Postponed pill
+        // All annotation pills
         var postEntry=postponements[pdKey]||null;
-        var postponedPill=postEntry?'<span class="fx-postponed-pill">&#x1F6AB; Postponed'+(postEntry.rescheduled_for?' &bull; &#x1F4C5; Rescheduled '+postEntry.rescheduled_for:'')+'</span>':'';
-        var fxPills=(playedPill||scPill||postponedPill)?'<div class="fx-pills">'+postponedPill+playedPill+scPill+'</div>':'';
-        var playedNote=''; // legacy compat — replaced by fxPills
+        // Notes column: postponed splits into two stacked pills
+        var postponedNotePills=postEntry
+          ?'<span class="fx-postponed-pill">&#x1F6AB; Postponed</span>'
+           +(postEntry.rescheduled_for?'<span class="fx-reschedule-pill">&#x1F4C5; Rescheduled '+postEntry.rescheduled_for+'</span>':'')
+          :'';
+        // Mobile: single combined pill
+        var postponedPill=postEntry
+          ?'<span class="fx-postponed-pill">&#x1F6AB; Postponed'+(postEntry.rescheduled_for?' &bull; &#x1F4C5; Rescheduled '+postEntry.rescheduled_for:'')+'</span>'
+          :'';
+        // Notes column (widescreen): all pills including postponed (split)
+        var notesInner=postponedNotePills+playedPill+scPill;
+        var fxNotes='<div class="fx-notes">'+notesInner+'</div>';
+        // Mobile pills row: all pills below the row
+        var fxPills=(postponedPill||playedPill||scPill)?'<div class="fx-pills">'+postponedPill+playedPill+scPill+'</div>':'';
         h+='<div class="fx-row'+pc+'"'+fxAttrs+'>'
           +'<div class="fx-ph">'+(m.played?m.ptsHome:'')+'</div>'
           +'<div class="fx-h"><span class="lgw-team-link" data-team="'+m.homeTeam+'">'+badgeImg(m.homeTeam)+m.homeTeam+'</span></div>'
           +'<div class="fx-sc"><span class="fx-sb">'+m.shotsHome+'</span><span class="fx-sep">v</span><span class="fx-sb">'+m.shotsAway+'</span></div>'
           +'<div class="fx-a"><span class="lgw-team-link" data-team="'+m.awayTeam+'">'+badgeImg(m.awayTeam)+m.awayTeam+'</span></div>'
           +'<div class="fx-pa">'+(m.played?m.ptsAway:'')+'</div>'
+          +fxNotes
           +(m.timeNote?'<div class="fx-time"><span>&#9200; '+m.timeNote+'</span></div>':'')
           +fxPills
           +'</div>';
@@ -1087,22 +1100,32 @@
     }
 
     function refreshPostponedPill(home, away, date, pdKey2){
-      // Find the matching fixture row and update its pills div
       widget.querySelectorAll('.fx-row[data-home][data-away][data-date]').forEach(function(row){
         var rKey = (row.getAttribute('data-home')+'||'+row.getAttribute('data-away')+'||'+row.getAttribute('data-date')).toLowerCase();
         if(rKey !== pdKey2) return;
-        var pillsDiv = row.querySelector('.fx-pills');
         var postEntry3 = postponements[pdKey2] || null;
-        var newPill = postEntry3
+        var newSpan = postEntry3
           ? '<span class="fx-postponed-pill">&#x1F6AB; Postponed'+(postEntry3.rescheduled_for?' &bull; &#x1F4C5; Rescheduled '+postEntry3.rescheduled_for:'')+'</span>'
           : '';
+        // Update notes column (widescreen) — split pills
+        var notesDiv = row.querySelector('.fx-notes');
+        if(notesDiv){
+          notesDiv.querySelectorAll('.fx-postponed-pill,.fx-reschedule-pill').forEach(function(el){ el.parentNode.removeChild(el); });
+          if(postEntry3){
+            var splitHtml = '<span class="fx-postponed-pill">&#x1F6AB; Postponed</span>'
+              +(postEntry3.rescheduled_for?'<span class="fx-reschedule-pill">&#x1F4C5; Rescheduled '+postEntry3.rescheduled_for+'</span>':'');
+            notesDiv.insertAdjacentHTML('afterbegin', splitHtml);
+          }
+        }
+        // Update mobile pills row
+        var pillsDiv = row.querySelector('.fx-pills');
         if(pillsDiv){
-          var existing = pillsDiv.querySelector('.fx-postponed-pill');
-          if(existing) existing.parentNode.removeChild(existing);
-          if(newPill) pillsDiv.insertAdjacentHTML('afterbegin', newPill);
+          var existingPostponed2 = pillsDiv.querySelector('.fx-postponed-pill');
+          if(existingPostponed2) existingPostponed2.parentNode.removeChild(existingPostponed2);
+          if(newSpan) pillsDiv.insertAdjacentHTML('afterbegin', newSpan);
           pillsDiv.style.display = pillsDiv.children.length ? '' : 'none';
-        } else if(newPill){
-          row.insertAdjacentHTML('beforeend', '<div class="fx-pills">'+newPill+'</div>');
+        } else if(newSpan){
+          row.insertAdjacentHTML('beforeend', '<div class="fx-pills">'+newSpan+'</div>');
         }
       });
     }

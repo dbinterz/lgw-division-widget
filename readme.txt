@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.7
+Stable tag: 7.3.11
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,18 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+= 7.3.11 =
+* Feature: On widescreen, postponed pill splits into two stacked pills in the notes column — red Postponed pill and blue Rescheduled pill separately; mobile keeps the single combined pill
+
+= 7.3.10 =
+* Fix: Postponed pill moved into the notes column on widescreen (was awkwardly left-aligned as a full-width row); notes column header added to the date bar; Notes label hidden on mobile
+
+= 7.3.9 =
+* Fix: Postponed pill not appearing on widescreen after notes column change — was using the fx-pills class which is hidden on widescreen; now uses a dedicated fx-postponed-row class that is always visible
+
+= 7.3.8 =
+* Feature: On widescreen, fixture row pills (played date, scorecard status) move into a notes column to the right of each row instead of adding row height; postponed pill stays full-width spanning on all screen sizes; on mobile pills revert to the previous full-width behaviour
+
 = 7.3.7 =
 * Fix: Main widget tab (League Table / Fixtures & Results) now persists on page refresh via sessionStorage — page no longer reverts to the League Table tab
 

@@ -107,6 +107,18 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.3.11
+- **Feature:** On widescreen, postponed entry splits into two stacked pills in the notes column — **🚫 Postponed** (red) and **📅 Rescheduled [date]** (blue) on separate lines; mobile keeps the single combined pill
+
+### v7.3.10
+- **Fix:** Postponed pill moved into the notes column on widescreen instead of spanning full-width left; **Notes** header label added to the date bar aligned over the notes column; label hidden on mobile
+
+### v7.3.9
+- **Fix:** Postponed pill not appearing on widescreen — was using `fx-pills` class which is hidden on widescreen; now uses a dedicated `fx-postponed-row` class that is always visible
+
+### v7.3.8
+- **Feature:** On widescreen, fixture row pills (played date, scorecard status) move into a right-hand notes column instead of adding row height; postponed pill stays full-width on all sizes; on mobile pills revert to the previous below-row behaviour
+
 ### v7.3.7
 - **Fix:** Main widget tab (League Table / Fixtures & Results) now persists on page refresh via `sessionStorage` — page no longer reverts to the League Table tab
 
