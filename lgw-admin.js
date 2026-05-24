@@ -302,3 +302,78 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// ── Post edit screen: Save Changes button for lgw_scorecard meta box ─────────
+// This fires on post.php?post=X&action=edit where lgw-admin.js is the only
+// LGW script loaded. The scorecards admin page has its own inline handler;
+// this one covers the native WP post editor route.
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.lgw-save-edit').forEach(function (btn) {
+        // Skip buttons that already have a listener attached by the inline
+        // scorecards-admin-page script (they live inside an #sc-{id} wrapper).
+        if (btn.closest('[id^="sc-"]')) return;
+
+        btn.addEventListener('click', function () {
+            var postId = btn.dataset.postid;
+            var nonce  = btn.dataset.nonce;
+            // On the post edit screen the form is the closest .lgw-edit-form ancestor
+            var form   = btn.closest('.lgw-edit-form');
+            var msgEl  = form ? form.querySelector('.lgw-edit-msg') : null;
+            if (!form) return;
+
+            var ajaxUrl = (typeof lgwAdminData !== 'undefined' && lgwAdminData.ajaxUrl)
+                ? lgwAdminData.ajaxUrl
+                : (typeof ajaxurl !== 'undefined' ? ajaxurl : '');
+            if (!ajaxUrl) { alert('LGW: ajaxUrl not available.'); return; }
+
+            var data = new FormData();
+            data.append('action',  'lgw_admin_edit_scorecard');
+            data.append('post_id', postId);
+            data.append('nonce',   nonce);
+
+            ['home_team','away_team','match_date','venue','division','competition',
+             'home_total','away_total','home_points','away_points'].forEach(function (f) {
+                var el = form.querySelector('[name="' + f + '"]');
+                if (el) data.append(f, el.value);
+            });
+            form.querySelectorAll('[name="rink_num[]"]').forEach(function (el)          { data.append('rink_num[]', el.value); });
+            form.querySelectorAll('[name="rink_home_score[]"]').forEach(function (el)   { data.append('rink_home_score[]', el.value); });
+            form.querySelectorAll('[name="rink_away_score[]"]').forEach(function (el)   { data.append('rink_away_score[]', el.value); });
+            form.querySelectorAll('[name="rink_home_players[]"]').forEach(function (el) { data.append('rink_home_players[]', el.value); });
+            form.querySelectorAll('[name="rink_away_players[]"]').forEach(function (el) { data.append('rink_away_players[]', el.value); });
+
+            btn.disabled    = true;
+            btn.textContent = 'Saving…';
+
+            fetch(ajaxUrl, {method: 'POST', body: data, credentials: 'same-origin'})
+                .then(function (r) {
+                    return r.text().then(function (t) {
+                        try { return JSON.parse(t); }
+                        catch (e) { throw new Error('Bad JSON: ' + t.slice(0, 200)); }
+                    });
+                })
+                .then(function (res) {
+                    btn.disabled    = false;
+                    btn.textContent = '\ud83d\udcbe Save Changes';
+                    if (msgEl) {
+                        msgEl.style.display = '';
+                        msgEl.className     = 'lgw-edit-msg ' + (res.success ? 'success' : 'error');
+                        msgEl.textContent   = res.success
+                            ? (res.data && res.data.message ? res.data.message : 'Saved ✅')
+                            : ('Error: ' + (res.data || 'Unknown error'));
+                        if (res.success) {
+                            setTimeout(function () { location.reload(); }, 1800);
+                        }
+                    }
+                })
+                .catch(function (err) {
+                    btn.disabled    = false;
+                    btn.textContent = '\ud83d\udcbe Save Changes';
+                    if (msgEl) {
+                        msgEl.style.display = '';
+                        msgEl.className     = 'lgw-edit-msg error';
+                        msgEl.textContent   = 'Request failed: ' + err.message;
+                    }
+                });
+        });
+    });
+});

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.12
+Stable tag: 7.3.13
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,11 +71,16 @@ Parameters:
 
 == Changelog ==
 
-= 7.3.12 =
+= 7.3.13 =
+* Fix: Save Changes button on the scorecard post edit screen (post.php?post=X&action=edit) now correctly saves — the AJAX handler was missing from lgw-admin.js which is the only LGW script loaded on that screen; the inline handler in the scorecards admin page was not available there
+* Fix: Edit form styles (fields, grid, message feedback, audit log) now load correctly on the post edit screen via lgw-admin.css — previously they were only in an inline style block on the scorecards admin page
+
+
+= 7.3.13 =
 * New: Quick Score Entry — date jump filter; select a specific fixture date to focus the table on that date's matches only
 * New: Submitted Scorecards — division filter dropdown to narrow the list by division; status filter dropdown (Pending / Confirmed / Disputed / Admin resolved) for quick triage
 
-= 7.3.12 =
+= 7.3.13 =
 * Feature: On widescreen, postponed pill splits into two stacked pills in the notes column — red Postponed pill and blue Rescheduled pill separately; mobile keeps the single combined pill
 
 = 7.3.10 =

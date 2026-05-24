@@ -108,11 +108,16 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
-### v7.3.12
+### v7.3.13
+- **Fix:** Save Changes button on the scorecard post edit screen (`post.php?post=X&action=edit`) now correctly saves — AJAX handler added to `lgw-admin.js` which is the only LGW script loaded on that screen
+- **Fix:** Edit form and audit log styles now load via `lgw-admin.css` on the post edit screen — previously they were only present as an inline `<style>` block on the scorecards admin page
+
+
+### v7.3.13
 - **New:** Quick Score Entry — date jump filter; select a specific fixture date to focus the table on that date's matches only
 - **New:** Submitted Scorecards — division filter and status filter dropdowns for quick triage of the scorecard list
 
-### v7.3.12
+### v7.3.13
 - **Feature:** On widescreen, postponed entry splits into two stacked pills in the notes column — **🚫 Postponed** (red) and **📅 Rescheduled [date]** (blue) on separate lines; mobile keeps the single combined pill
 
 ### v7.3.10
