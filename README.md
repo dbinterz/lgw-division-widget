@@ -107,7 +107,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
-### v7.3.11
+
+### v7.3.12
+- **New:** Quick Score Entry — date jump filter; select a specific fixture date to focus the table on that date's matches only
+- **New:** Submitted Scorecards — division filter and status filter dropdowns for quick triage of the scorecard list
+
+### v7.3.12
 - **Feature:** On widescreen, postponed entry splits into two stacked pills in the notes column — **🚫 Postponed** (red) and **📅 Rescheduled [date]** (blue) on separate lines; mobile keeps the single combined pill
 
 ### v7.3.10

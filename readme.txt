@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.11
+Stable tag: 7.3.12
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,7 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
-= 7.3.11 =
+
+= 7.3.12 =
+* New: Quick Score Entry — date jump filter; select a specific fixture date to focus the table on that date's matches only
+* New: Submitted Scorecards — division filter dropdown to narrow the list by division; status filter dropdown (Pending / Confirmed / Disputed / Admin resolved) for quick triage
+
+= 7.3.12 =
 * Feature: On widescreen, postponed pill splits into two stacked pills in the notes column — red Postponed pill and blue Rescheduled pill separately; mobile keeps the single combined pill
 
 = 7.3.10 =

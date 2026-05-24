@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.3.11
+ * Version: 7.3.12
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.3.11');
+define('LGW_VERSION', '7.3.12');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -1267,6 +1267,59 @@ function lgw_scorecards_admin_page() {
                     });
             });
         });
+
+        // ── Quick Score Entry — date filter ─────────────────────────────────
+        var dateFilter = document.getElementById('lgw-date-filter');
+        var dateCount  = document.getElementById('lgw-date-filter-count');
+        if (dateFilter) {
+            function applyDateFilter() {
+                var val = dateFilter.value;
+                var rows = document.querySelectorAll('.lgw-score-row');
+                var shown = 0;
+                rows.forEach(function(r) {
+                    var match = !val || r.dataset.date === val;
+                    r.style.display = match ? '' : 'none';
+                    if (match) shown++;
+                });
+                if (dateCount) {
+                    dateCount.textContent = val ? shown + ' fixture' + (shown !== 1 ? 's' : '') + ' on this date' : '';
+                }
+                // Scroll first matching row into view
+                if (val) {
+                    var first = document.querySelector('.lgw-score-row[data-date="' + val + '"]');
+                    if (first) first.scrollIntoView({behavior:'smooth', block:'nearest'});
+                }
+            }
+            dateFilter.addEventListener('change', applyDateFilter);
+        }
+
+        // ── Submitted Scorecards — division + status filters ─────────────────
+        var scDivFilter    = document.getElementById('lgw-sc-div-filter');
+        var scStatusFilter = document.getElementById('lgw-sc-status-filter');
+        var scFilterCount  = document.getElementById('lgw-sc-filter-count');
+        function applyScFilters() {
+            var divVal    = scDivFilter    ? scDivFilter.value    : '';
+            var statusVal = scStatusFilter ? scStatusFilter.value : '';
+            var rows = document.querySelectorAll('#lgw-sc-table .lgw-sc-row');
+            var shown = 0;
+            rows.forEach(function(row) {
+                // Each data row is followed by a detail row (td colspan=7)
+                var detailRow = row.nextElementSibling;
+                var matchDiv    = !divVal    || row.dataset.division === divVal;
+                var matchStatus = !statusVal || row.dataset.status   === statusVal;
+                var visible = matchDiv && matchStatus;
+                row.style.display = visible ? '' : 'none';
+                if (detailRow) detailRow.style.display = visible ? '' : 'none';
+                if (visible) shown++;
+            });
+            if (scFilterCount) {
+                var hasFilter = divVal || statusVal;
+                scFilterCount.textContent = hasFilter ? shown + ' scorecard' + (shown !== 1 ? 's' : '') + ' shown' : '';
+            }
+        }
+        if (scDivFilter)    scDivFilter.addEventListener('change',    applyScFilters);
+        if (scStatusFilter) scStatusFilter.addEventListener('change', applyScFilters);
+
     });
     </script>
 
@@ -1312,6 +1365,22 @@ function lgw_scorecards_admin_page() {
             <?php elseif ($sel && empty($fixtures)): ?>
                 <div class="notice notice-warning inline"><p>No fixtures found in CSV for this division.</p></div>
             <?php elseif ($sel): ?>
+            <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <label for="lgw-date-filter" style="font-weight:600;font-size:13px">Jump to date:</label>
+                <select id="lgw-date-filter" style="font-size:13px;max-width:240px">
+                    <option value="">— All dates —</option>
+                    <?php
+                    $seen_dates = array();
+                    foreach ($fixtures as $fx) {
+                        if (!in_array($fx['date'], $seen_dates, true)) {
+                            $seen_dates[] = $fx['date'];
+                            echo '<option value="' . esc_attr($fx['date']) . '">' . esc_html($fx['date']) . '</option>';
+                        }
+                    }
+                    ?>
+                </select>
+                <span id="lgw-date-filter-count" style="font-size:12px;color:#666"></span>
+            </div>
             <table class="widefat striped" id="lgw-scores-table" style="font-size:13px;max-width:900px">
                 <thead><tr>
                     <th style="width:130px">Date</th>
@@ -1427,7 +1496,41 @@ function lgw_scorecards_admin_page() {
         </div>
         <?php endif; ?>
 
-        <table class="widefat striped">
+        <?php
+        // Collect unique divisions for the filter dropdown
+        $sc_divisions = array();
+        foreach ($posts as $_sp) {
+            $_sc_d = get_post_meta($_sp->ID, 'lgw_scorecard_data', true);
+            $_div  = trim($_sc_d['division'] ?? '');
+            if ($_div && !in_array($_div, $sc_divisions, true)) $sc_divisions[] = $_div;
+        }
+        sort($sc_divisions);
+        ?>
+        <div style="margin-bottom:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <?php if (!empty($sc_divisions)): ?>
+            <div style="display:flex;align-items:center;gap:6px">
+                <label for="lgw-sc-div-filter" style="font-weight:600;font-size:13px">Division:</label>
+                <select id="lgw-sc-div-filter" style="font-size:13px;max-width:200px">
+                    <option value="">— All —</option>
+                    <?php foreach ($sc_divisions as $_d): ?>
+                    <option value="<?php echo esc_attr($_d); ?>"><?php echo esc_html($_d); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
+            <div style="display:flex;align-items:center;gap:6px">
+                <label for="lgw-sc-status-filter" style="font-weight:600;font-size:13px">Status:</label>
+                <select id="lgw-sc-status-filter" style="font-size:13px">
+                    <option value="">— All —</option>
+                    <option value="pending">Pending</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="disputed">Disputed</option>
+                    <option value="admin_resolved">Admin resolved</option>
+                </select>
+            </div>
+            <span id="lgw-sc-filter-count" style="font-size:12px;color:#666"></span>
+        </div>
+        <table class="widefat striped" id="lgw-sc-table">
         <thead><tr>
             <th>Match</th><th>Division</th>
             <th>Season</th>
@@ -1454,7 +1557,7 @@ function lgw_scorecards_admin_page() {
             $status_labels = array('pending'=>'Pending','confirmed'=>'Confirmed','disputed'=>'Disputed');
             $sc_tag    = get_post_meta($p->ID, 'lgw_sc_season', true) ?: '';
         ?>
-        <tr>
+        <tr class="lgw-sc-row" data-division="<?php echo esc_attr($sc['division'] ?? ''); ?>" data-status="<?php echo esc_attr($status); ?>">
             <td>
                 <strong><?php echo esc_html($p->post_title); ?></strong>
                 <?php if (get_post_meta($p->ID, 'lgw_admin_edited', true)): ?>
