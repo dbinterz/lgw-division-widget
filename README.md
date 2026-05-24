@@ -107,6 +107,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.3.5
+- **Fix:** Played date pill no longer shows when the scorecard date and fixture date are the same day but different formats (e.g. `25/4/2026` vs `Sat 25-Apr-2026`); `lgw_parse_any_date()` normalises both to a timestamp before comparing
+
+### v7.3.4
+- **Feature:** Postponed fixtures — admin can mark any unplayed fixture as postponed via the fixture modal, optionally adding a rescheduled date; a red **🚫 Postponed** pill appears on the fixture row immediately; non-admins see an informational notice; stored in `lgw_postponements` WP option; no spreadsheet changes
+- **Fix:** Fixture date pill and scorecard status pill CSS re-applied after working copy refresh
+
 ### v7.3.3
 - **Fix:** Fixture date pill and scorecard status indicator not appearing — PHP map keys were not fully lowercased on the date component, causing a mismatch with the JavaScript lookup (which lowercases the entire key)
 

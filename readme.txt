@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.3
+Stable tag: 7.3.5
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,8 +70,16 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+= 7.3.5 =
+* Fix: Played date pill no longer appears when the scorecard date and fixture date are the same calendar day but in different formats (e.g. 25/4/2026 vs Sat 25-Apr-2026); date comparison now normalises both strings to a timestamp before comparing
+
+= 7.3.4 =
+* Feature: Postponed fixtures — admin can mark any unplayed fixture as postponed via the fixture modal, with an optional rescheduled date; a red pill appears on the fixture row; non-admins see a notice when clicking the fixture; no spreadsheet changes are made
+* Fix: Fixture date pill and scorecard status pill CSS re-applied (lost in working copy refresh)
+
 = 7.3.3 =
-* Fix: Fixture date pill and scorecard status indicator not appearing — PHP map keys were not fully lowercased on the date component, causing a mismatch with the JavaScript lookup which lowercases the entire key
+* Feature: Postponed fixtures — admin can mark any unplayed fixture as postponed via the fixture modal, with an optional rescheduled date; a red pill appears on the fixture row; non-admins see a notice when clicking the fixture; no spreadsheet changes are made
+* Fix: Fixture date pill and scorecard status pill CSS re-applied (lost in working copy refresh)
 
 = 7.3.2 =
 * Feature: Fixture rows now show a blue pill with the date the game was played when it differs from the scheduled date (replaces the previous italic text annotation)

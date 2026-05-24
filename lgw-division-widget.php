@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.3.3
+ * Version: 7.3.5
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.3.3');
+define('LGW_VERSION', '7.3.5');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -414,6 +414,36 @@ function lgw_csv_proxy() {
  * whose value is the actual played date — only when it differs from fixture date.
  * Used by widget JS to annotate fixture rows where the game was rescheduled.
  */
+/**
+ * Parse a date string in any of the formats used by the plugin and return
+ * a Unix timestamp at midnight, or null on failure.
+ *
+ * Handles:
+ *   dd/mm/yyyy          — scorecard submission form
+ *   Sat dd-Mon-yyyy     — CSV fixture date (e.g. 'Sat 25-Apr-2026')
+ *   dd-Mon-yyyy         — same without day-of-week prefix
+ */
+function lgw_parse_any_date($str) {
+    $str = trim($str);
+    if (!$str) return null;
+
+    // dd/mm/yyyy
+    if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $str, $m)) {
+        $ts = mktime(0,0,0,(int)$m[2],(int)$m[1],(int)$m[3]);
+        return $ts ?: null;
+    }
+
+    // Sat 25-Apr-2026  or  25-Apr-2026
+    if (preg_match('#(?:^|\s)(\d{1,2})-([A-Za-z]{3})-(\d{4})$#', $str, $m)) {
+        $ts = strtotime($m[1] . ' ' . $m[2] . ' ' . $m[3]);
+        return ($ts !== false) ? $ts : null;
+    }
+
+    // Fallback — let PHP try
+    $ts = strtotime($str);
+    return ($ts !== false) ? $ts : null;
+}
+
 function lgw_build_played_dates_map() {
     try {
         $active_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
@@ -437,7 +467,11 @@ function lgw_build_played_dates_map() {
             if (!$sc || empty($sc['date'])) continue;
             $played_date = $sc['date'];
             $fix_date    = $fixture_date ?: $played_date; // fall back if not stored
-            if ($played_date === $fix_date) continue;     // same — no annotation needed
+            // Normalise both to a timestamp for comparison — handles mixed formats
+            // e.g. '25/4/2026' (scorecard) vs 'Sat 25-Apr-2026' (CSV fixture date)
+            $played_ts  = lgw_parse_any_date($played_date);
+            $fix_ts     = lgw_parse_any_date($fix_date);
+            if ($played_ts && $fix_ts && $played_ts === $fix_ts) continue; // same calendar day
             $key = strtolower($sc['home_team'] ?? '') . '||' . strtolower($sc['away_team'] ?? '') . '||' . strtolower($fix_date);
             $map[$key] = $played_date;
         }
@@ -445,6 +479,49 @@ function lgw_build_played_dates_map() {
     } catch (Exception $e) {
         return array();
     }
+}
+
+// ── Postponements ────────────────────────────────────────────────────────────
+/**
+ * Returns the postponements map: fixture_key → { rescheduled_for: 'dd/mm/yyyy'|'' }
+ * Key format: home||away||fixture_date (lowercase).
+ */
+function lgw_get_postponements() {
+    return get_option('lgw_postponements', array());
+}
+
+function lgw_build_postponements_map() {
+    return lgw_get_postponements();
+}
+
+// Save or clear a postponement via AJAX
+add_action('wp_ajax_lgw_save_postponement', 'lgw_ajax_save_postponement');
+function lgw_ajax_save_postponement() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Not authorised');
+    }
+    $home   = strtolower(sanitize_text_field($_POST['home'] ?? ''));
+    $away   = strtolower(sanitize_text_field($_POST['away'] ?? ''));
+    $date   = strtolower(sanitize_text_field($_POST['date'] ?? ''));
+    $action = sanitize_text_field($_POST['postpone_action'] ?? 'set');
+    $reschedule = sanitize_text_field($_POST['rescheduled_for'] ?? '');
+
+    if (!$home || !$away || !$date) {
+        wp_send_json_error('Missing fixture details');
+    }
+
+    $key  = $home . '||' . $away . '||' . $date;
+    $map  = lgw_get_postponements();
+
+    if ($action === 'clear') {
+        unset($map[$key]);
+    } else {
+        $map[$key] = array('rescheduled_for' => $reschedule);
+    }
+
+    update_option('lgw_postponements', $map);
+    wp_send_json_success(array('key' => $key, 'action' => $action));
 }
 
 // ── Scorecard submission status map ──────────────────────────────────────────
@@ -597,7 +674,8 @@ function lgw_enqueue() {
         'isAdmin'        => current_user_can('manage_options') ? '1' : '0',
         'authClub'       => lgw_get_auth_club(),
         'playedDates'    => lgw_build_played_dates_map(),
-        'scorecardStatus' => lgw_build_scorecard_status_map(),
+        'scorecardStatus'  => lgw_build_scorecard_status_map(),
+        'postponements'    => lgw_build_postponements_map(),
         'recentResults'  => lgw_get_recent_results(30),
     ));
 }
