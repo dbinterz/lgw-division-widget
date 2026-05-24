@@ -781,19 +781,27 @@
     }
 
     var activeFilter='all', allRows=null;
+    var filterStoreKey = 'lgw_filter_' + (divisionTitle || widget.id || 'default');
+    try { var storedFilter = sessionStorage.getItem(filterStoreKey); if(storedFilter) activeFilter = storedFilter; } catch(e){}
     var parseFxGroups=parseFixtureGroups;
     var panels=widget.querySelectorAll('.lgw-panel');
     var tabs=widget.querySelectorAll('.lgw-tab');
 
+    var tabStoreKey = 'lgw_tab_' + (divisionTitle || widget.id || 'default');
+
+    function activateTab(name){
+      tabs.forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-tab') === name); });
+      panels.forEach(function(p){ p.classList.toggle('active', p.getAttribute('data-panel') === name); });
+    }
+
+    // Restore saved tab on load
+    try { var savedTab = sessionStorage.getItem(tabStoreKey); if(savedTab) activateTab(savedTab); } catch(e){}
+
     tabs.forEach(function(tab){
       tab.addEventListener('click',function(){
-        tabs.forEach(function(t){t.classList.remove('active');});
-        panels.forEach(function(p){p.classList.remove('active');});
-        tab.classList.add('active');
-        var name=tab.getAttribute('data-tab');
-        for(var i=0;i<panels.length;i++){
-          if(panels[i].getAttribute('data-panel')===name){panels[i].classList.add('active');break;}
-        }
+        var name = tab.getAttribute('data-tab');
+        activateTab(name);
+        try { sessionStorage.setItem(tabStoreKey, name); } catch(e){}
       });
     });
 
@@ -884,14 +892,34 @@
       });
     }
 
+    function buildPostponePanel(home, away, date, effectiveAdmin){
+      var pdKey2    = (home+'||'+away+'||'+date).toLowerCase();
+      var postEntry2 = postponements[pdKey2] || null;
+      if(!effectiveAdmin && !postEntry2) return { html: '', key: pdKey2, entry: null };
+
+      var html = '';
+      if(effectiveAdmin){
+        var isPostponed = !!postEntry2;
+        var reschedVal  = postEntry2 ? (postEntry2.rescheduled_for || '') : '';
+        html =
+          '<div class="lgw-postpone-panel" id="lgw-postpone-panel">'          +'<div class="lgw-postpone-toggle">'          +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'          +'<input type="checkbox" id="lgw-postpone-chk"'+(isPostponed?' checked':'')+' style="width:16px;height:16px;cursor:pointer">'          +'<span>&#x1F6AB; Mark as postponed</span>'          +'</label>'          +'</div>'          +'<div class="lgw-reschedule-row" id="lgw-reschedule-row" style="margin-top:8px;display:'+(isPostponed?'flex':'none')+';align-items:center;gap:8px">'          +'<label style="font-size:12px;color:#666;white-space:nowrap">Rescheduled for:</label>'          +'<input type="text" id="lgw-reschedule-date" placeholder="dd/mm/yyyy" value="'+reschedVal+'" style="flex:1;padding:5px 8px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px">'          +'</div>'          +'<div style="display:flex;gap:8px;margin-top:8px">'          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-postpone-save">Save</button>'          +(isPostponed?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-postpone-clear">&#x274C; Clear postponement</button>':'')          +'</div>'          +'<p id="lgw-postpone-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'          +'</div>'          +'<hr class="lgw-sc-divider">';
+      } else if(postEntry2){
+        html = '<div class="lgw-postponed-notice">'          +'<span class="fx-postponed-pill" style="font-size:13px;padding:4px 14px">&#x1F6AB; This fixture has been postponed'          +(postEntry2.rescheduled_for?' &mdash; Rescheduled for <strong>'+postEntry2.rescheduled_for+'</strong>':'')+'</span>'          +'</div><hr class="lgw-sc-divider">';
+      }
+      return { html: html, key: pdKey2, entry: postEntry2 };
+    }
+
     function showFixtureModal(home, away, date){
       var effectiveAdmin = isAdmin && viewAsAdmin; // respects view toggle
+      var pp = buildPostponePanel(home, away, date, effectiveAdmin);
       var titleHtml='<h2>'+home+' v '+away+'</h2>';
       var bodyHtml='<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
+        + pp.html
         +'<hr class="lgw-sc-divider">'
         +'<div class="lgw-sc-title">Full Scorecard</div>'
         +'<div id="lgw-sc-container"><p class="lgw-sc-loading">Loading…</p></div>';
       openModal(titleHtml, bodyHtml, widget);
+      bindPostponePanel(home, away, date, pp.key, pp.entry);
       var container=document.getElementById('lgw-sc-container');
       if(!container) return;
 
@@ -1083,6 +1111,7 @@
       widget.querySelectorAll('.fix-filter button').forEach(function(b){
         b.addEventListener('click',function(){
           activeFilter=b.getAttribute('data-f');
+          try { sessionStorage.setItem(filterStoreKey, activeFilter); } catch(e){}
           widget.querySelectorAll('.fix-filter button').forEach(function(x){
             x.classList.toggle('active',x.getAttribute('data-f')===activeFilter);
           });

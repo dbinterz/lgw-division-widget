@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.5
+Stable tag: 7.3.7
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+= 7.3.7 =
+* Fix: Main widget tab (League Table / Fixtures & Results) now persists on page refresh via sessionStorage — page no longer reverts to the League Table tab
+
+= 7.3.6 =
+* Fix: Fixtures & Results filter tab (All / Upcoming / Results) now persists across page loads using sessionStorage, keyed per division — navigating away and back stays on the active tab
+
 = 7.3.5 =
 * Fix: Played date pill no longer appears when the scorecard date and fixture date are the same calendar day but in different formats (e.g. 25/4/2026 vs Sat 25-Apr-2026); date comparison now normalises both strings to a timestamp before comparing
 

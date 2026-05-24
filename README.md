@@ -107,6 +107,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ---
 
 ## Changelog
+### v7.3.7
+- **Fix:** Main widget tab (League Table / Fixtures & Results) now persists on page refresh via `sessionStorage` — page no longer reverts to the League Table tab
+
+### v7.3.6
+- **Fix:** Fixtures & Results filter tab (All / Upcoming / Results) now persists across page loads using `sessionStorage`, keyed per division — navigating away and back stays on the active tab
+
 ### v7.3.5
 - **Fix:** Played date pill no longer shows when the scorecard date and fixture date are the same day but different formats (e.g. `25/4/2026` vs `Sat 25-Apr-2026`); `lgw_parse_any_date()` normalises both to a timestamp before comparing
 
