@@ -120,7 +120,7 @@
 
 /* ── Widget shell ────────────────────────────────────────────────────────────── */
 /* Explicitly declare text colour so WordPress theme inheritance can't bleed in */
-.lgw-w{font-family:'Saira',Arial,sans-serif;width:100%;color:var(--lgw-text)}
+.lgw-w{font-family:var(--lgw-font,'Saira',Arial,sans-serif);width:100%;color:var(--lgw-text)}
 .lgw-w *{box-sizing:border-box;margin:0;padding:0}
 
 /* ── Tabs ────────────────────────────────────────────────────────────────────── */

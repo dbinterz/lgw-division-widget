@@ -108,6 +108,30 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.3.44
+- **Fix:** Multi-champ font now always applied — enqueue reads font option directly, loads Google Font independently via  handle, sets  directly on  rather than relying on CSS variable propagation from another stylesheet
+
+### v7.3.43
+- **Fix:** Multi-champ widget now uses the font picker selection — enqueue depends on  and injects  variable on ; previously ignored the setting and fell back to 
+
+### v7.3.42
+- **Feature:** Font picker in Settings — 10 curated Google Fonts with live preview; selected font applied via `--lgw-font` CSS variable across all widgets
+- **Fix:** Start game button AJAX action corrected
+
+### v7.3.41
+- **Fix:** Start game button posted to wrong AJAX action ( → )
+
+### v7.3.40
+- **Feature:** Ends counter (−/+) on admin game cards and frontend entry forms — shows current end / max ends, stored as `ends_played`; only visible for ends-mode disciplines
+- **Feature:** End indicator badge in discipline label row during in-progress games — amber pill showing e.g. **End 7/21**, visible to all viewers
+- **Feature:** ▶ Start game button on not-started rows — takes player names, marks game in_progress at 0–0, replaces itself with score entry form
+- **Fix:** Frontend status select includes Not started as first default option; selecting it re-collapses the row
+
+### v7.3.38
+- **Fix:** Fixture status badge miscounting — "started" now requires shots saved OR status set, fixing mismatch between admin (Not started) and frontend (In progress) for games with shots but default status
+- **Feature:** Manual ▲/▼ toggle on each fixture card to expand/collapse the games breakdown independently
+- **Feature:** Not-started games render as compact label-only rows; entire fixture collapses when nothing started; auto-expands when any game begins
+
 ### v7.3.33
 - **Fix:** `ReferenceError: scoresWrap is not defined` on frontend pages — club management, status patch, and unlock bar code was appended after the IIFE `})()` closing, outside its scope; all code moved back inside the single IIFE
 - **Fix:** Browser DOM warning about password field not in a form — passphrase input changed from `type="password"` to `type="text" autocomplete="off"`

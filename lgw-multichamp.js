@@ -86,10 +86,10 @@ function lgwMcUpdateFixtureTotal(widget, fixId) {
 
     if (!hasScore) return;
 
-    // Apply bonus
+    // Apply bonus — winner determined by overall shots, not discipline points
     var dispPh = totPh, dispPa = totPa;
-    if (totPh > totPa)      { dispPh += bonusWin;  dispPa += bonusLoss; }
-    else if (totPh < totPa) { dispPh += bonusLoss; dispPa += bonusWin; }
+    if (totSh > totSa)      { dispPh += bonusWin;  dispPa += bonusLoss; }
+    else if (totSh < totSa) { dispPh += bonusLoss; dispPa += bonusWin; }
     else                    { dispPh += bonusDraw;  dispPa += bonusDraw; }
 
     var ptsEl   = card.querySelector('.lgw-mc-score-pts');
@@ -115,6 +115,48 @@ function lgwMcUpdateFixtureTotal(widget, fixId) {
     var awayClub = card.querySelector('.lgw-mc-club:last-child');
     if (homeClub) homeClub.classList.toggle('winner', dispPh > dispPa);
     if (awayClub) awayClub.classList.toggle('winner', dispPa > dispPh);
+}
+
+// ── Fixture card expand/collapse toggle ──────────────────────────────────────
+
+document.querySelectorAll('.lgw-mc-fixture-card').forEach(function(card){
+    var btn = card.querySelector('.lgw-mc-toggle-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var grid = card.querySelector('.lgw-mc-games-grid');
+        var expanded = card.classList.toggle('lgw-mc-card-expanded');
+        card.classList.toggle('lgw-mc-card-collapsed', !expanded);
+        if (grid) grid.style.display = expanded ? '' : 'none';
+        btn.textContent = expanded ? '▲' : '▼';
+        btn.title = expanded ? 'Collapse games' : 'Expand games';
+    });
+});
+
+// ── Update fixture-level status badge from game row data-status attrs ─────────
+
+function lgwMcUpdateFixtureStatus(card) {
+    if (!card) return;
+    var rows = card.querySelectorAll('.lgw-mc-game-row');
+    var total = rows.length, complete = 0, started = 0;
+    rows.forEach(function(r){
+        var st  = r.dataset.status || 'not_started';
+        var hsh = parseInt(r.dataset.sh || '0', 10);
+        var hsa = parseInt(r.dataset.sa || '0', 10);
+        // "started" = status says so, OR shots were actually saved
+        if (st === 'complete')                            complete++;
+        if (st !== 'not_started' || hsh > 0 || hsa > 0) started++;
+    });
+    var status, label;
+    if (started === 0)            { status = 'not_started'; label = 'Not started'; }
+    else if (complete === total)  { status = 'complete';    label = '✅ Complete'; }
+    else                          { status = 'in_progress'; label = '🟡 In progress'; }
+    card.dataset.fixStatus = status;
+    var badge = card.querySelector('.lgw-mc-fix-status-badge');
+    if (badge) {
+        badge.textContent = label;
+        badge.className = 'lgw-mc-fix-status-badge lgw-mc-fix-status-' + status;
+    }
 }
 
 // ── Admin: discipline builder ─────────────────────────────────────────────────
@@ -290,6 +332,19 @@ if (scoresWrap) {
     var nonce   = scoresWrap.dataset.nonce;
 
     scoresWrap.addEventListener('click', function(e){
+        // ── Ends counter +/- ─────────────────────────────────────────────────
+        if (e.target.classList.contains('lgw-mc-ends-dec') || e.target.classList.contains('lgw-mc-ends-inc')) {
+            var ctr   = e.target.closest('.lgw-mc-ends-counter');
+            var inp   = ctr ? ctr.querySelector('input') : null;
+            if (!inp) return;
+            var maxE  = parseInt(ctr.dataset.max || '99', 10);
+            var val   = parseInt(inp.value || '0', 10);
+            if (e.target.classList.contains('lgw-mc-ends-inc')) val = Math.min(maxE, val + 1);
+            else                                                  val = Math.max(0,    val - 1);
+            inp.value = val;
+            return;
+        }
+
         if (!e.target.classList.contains('mc-save-game')) return;
         var btn = e.target;
         var card = btn.closest('.lgw-mc-game-card');
@@ -320,6 +375,8 @@ if (scoresWrap) {
         fd.append('shots_away',   shotsAway);
         var statusSel = card.querySelector('.mc-game-status');
         var gameStatus = statusSel ? statusSel.value : 'not_started';
+        var endsInp = card.querySelector('.mc-ends-played');
+        if (endsInp) fd.append('ends_played', endsInp.value);
         fd.append('players_home', playersHome);
         fd.append('players_away', playersAway);
         fd.append('game_status',  gameStatus);
@@ -345,6 +402,20 @@ if (scoresWrap) {
                     }
                 }
                 btn.textContent = '✓ Saved';
+                // Update ends badge in card header
+                if (endsInp) {
+                    var endsShown = typeof pts.ends_played !== 'undefined' ? pts.ends_played : parseInt(endsInp.value||'0',10);
+                    var ctrEl = card.querySelector('.lgw-mc-ends-counter');
+                    var maxE2 = ctrEl ? parseInt(ctrEl.dataset.max||'21',10) : 21;
+                    var hdrEl = card.querySelector('.lgw-mc-game-card-hdr');
+                    if (hdrEl) {
+                        var eb = hdrEl.querySelector('.lgw-mc-ends-badge');
+                        if (endsShown > 0) {
+                            if (!eb) { eb = document.createElement('span'); eb.className='lgw-mc-ends-badge'; hdrEl.appendChild(eb); }
+                            eb.textContent = 'End ' + endsShown + '/' + maxE2;
+                        } else if (eb) { eb.remove(); }
+                    }
+                }
                 setTimeout(function(){ btn.textContent = 'Save'; btn.disabled = false; }, 1800);
                 lgwMcUpdateFixTotals(card.closest('.lgw-mc-fix-card'));
             })
@@ -607,8 +678,8 @@ document.querySelectorAll('.lgw-mc-widget').forEach(function(widget){
                     status.textContent = '✅ Unlocked';
                     status.style.color = '#2e7d32';
                     bar.classList.add('unlocked');
-                    // Show all score entry forms
-                    widget.querySelectorAll('.lgw-mc-fe-inputs').forEach(function(f){ f.style.display = ''; });
+                    // Show all score entry forms and start-game rows
+                    widget.querySelectorAll('.lgw-mc-fe-inputs, .lgw-mc-fe-start-row').forEach(function(f){ f.style.display = ''; });
                 } else {
                     if (!silent) { status.textContent = '❌ Incorrect passphrase'; status.style.color = '#c62828'; }
                     unlocked = false;
@@ -625,6 +696,106 @@ document.querySelectorAll('.lgw-mc-widget').forEach(function(widget){
 
     // Save handler for frontend score entry
     widget.addEventListener('click', function(e){
+
+        // ── Ends counter +/- ─────────────────────────────────────────────────
+        if (e.target.classList.contains('lgw-mc-ends-dec') || e.target.classList.contains('lgw-mc-ends-inc')) {
+            var ctr  = e.target.closest('.lgw-mc-ends-counter');
+            var inp  = ctr ? ctr.querySelector('input') : null;
+            if (!inp) return;
+            var maxE = parseInt(ctr.dataset.max || '99', 10);
+            var val  = parseInt(inp.value || '0', 10);
+            if (e.target.classList.contains('lgw-mc-ends-inc')) val = Math.min(maxE, val + 1);
+            else                                                  val = Math.max(0,   val - 1);
+            inp.value = val;
+            return;
+        }
+
+        // ── Start game button ─────────────────────────────────────────────────
+        if (e.target.classList.contains('lgw-mc-fe-start-btn')) {
+            if (!unlocked) { alert('Please unlock score entry first.'); return; }
+            var startRow = e.target.closest('.lgw-mc-fe-start-row');
+            var gameRow  = e.target.closest('.lgw-mc-game-row');
+            var card     = e.target.closest('.lgw-mc-fixture-card');
+            if (!startRow || !gameRow) return;
+            var playersH = (startRow.querySelector('.lgw-mc-fe-players-home') || {}).value || '';
+            var playersA = (startRow.querySelector('.lgw-mc-fe-players-away') || {}).value || '';
+            var fd = new FormData();
+            fd.append('action',       'lgw_mc_frontend_score');
+            fd.append('nonce',        nonce);
+            fd.append('champ_id',     champ);
+            fd.append('fix_id',       gameRow.dataset.fix);
+            fd.append('disc_id',      gameRow.dataset.disc);
+            fd.append('game_idx',     gameRow.dataset.idx);
+            fd.append('shots_home',   '0');
+            fd.append('shots_away',   '0');
+            fd.append('ends_played',  '0');
+            fd.append('game_status',  'in_progress');
+            fd.append('players_home', playersH);
+            fd.append('players_away', playersA);
+            fd.append('passphrase',   passphrase);
+            e.target.disabled = true; e.target.textContent = '…';
+            fetch((typeof lgwMcData !== 'undefined' ? lgwMcData.ajaxurl : window.ajaxurl) || '/wp-admin/admin-ajax.php', { method:'POST', body: fd })
+                .then(function(r){ return r.json(); })
+                .then(function(data){
+                    e.target.disabled = false; e.target.textContent = '▶ Start game';
+                    if (!data.success) { alert('Error: ' + (data.data || 'save failed')); return; }
+                    gameRow.dataset.status = 'in_progress';
+                    gameRow.dataset.sh = '0'; gameRow.dataset.sa = '0'; gameRow.dataset.ends = '0';
+                    gameRow.dataset.ph = data.data.pts_home; gameRow.dataset.pa = data.data.pts_away;
+                    gameRow.classList.remove('lgw-mc-game-row-collapsed');
+                    // Inject score row
+                    var scoreRow = document.createElement('div');
+                    scoreRow.className = 'lgw-mc-game-score-row';
+                    scoreRow.innerHTML =
+                        '<div class="lgw-mc-game-side lgw-mc-game-side-home">' + (playersH ? '<span class="lgw-mc-players">' + playersH + '</span>' : '') + '</div>' +
+                        '<span class="lgw-mc-game-shots">0</span>' +
+                        '<span class="lgw-mc-game-sep">–</span>' +
+                        '<span class="lgw-mc-game-shots">0</span>' +
+                        '<div class="lgw-mc-game-side lgw-mc-game-side-away">' + (playersA ? '<span class="lgw-mc-players">' + playersA + '</span>' : '') + '</div>';
+                    gameRow.insertBefore(scoreRow, startRow);
+                    // Build ends counter HTML if ends mode
+                    var isEnds = gameRow.dataset.scoringMode !== 'target';
+                    var maxE2  = parseInt(gameRow.dataset.maxEnds || '21', 10);
+                    var endsCtrHtml = isEnds
+                        ? '<div class="lgw-mc-ends-counter" data-max="' + maxE2 + '">' +
+                          '<button type="button" class="lgw-mc-ends-dec">−</button>' +
+                          '<span class="lgw-mc-ends-val"><input type="number" class="lgw-mc-fe-ends" min="0" max="' + maxE2 + '" value="0"> <span class="lgw-mc-ends-of">/ ' + maxE2 + ' ends</span></span>' +
+                          '<button type="button" class="lgw-mc-ends-inc">+</button></div>'
+                        : '';
+                    // Replace start row with full entry form
+                    var feDiv = document.createElement('div');
+                    feDiv.className = 'lgw-mc-fe-inputs';
+                    feDiv.innerHTML = '<div class="lgw-mc-fe-row">' +
+                        '<div class="lgw-mc-fe-side"><label>Home</label>' +
+                        '<input type="number" class="lgw-mc-fe-home" min="0" placeholder="Shots" value="0">' +
+                        '<input type="text" class="lgw-mc-fe-players-home" placeholder="Players" value="' + playersH + '"></div>' +
+                        '<div class="lgw-mc-fe-mid">' + endsCtrHtml +
+                        '<select class="lgw-mc-fe-status">' +
+                        '<option value="not_started">Not started</option>' +
+                        '<option value="in_progress" selected>🟡 In progress</option>' +
+                        '<option value="complete">✅ Complete</option>' +
+                        '</select><button type="button" class="lgw-mc-fe-save">Save</button></div>' +
+                        '<div class="lgw-mc-fe-side lgw-mc-fe-side-away"><label>Away</label>' +
+                        '<input type="number" class="lgw-mc-fe-away" min="0" placeholder="Shots" value="0">' +
+                        '<input type="text" class="lgw-mc-fe-players-away" placeholder="Players" value="' + playersA + '"></div>' +
+                        '</div>';
+                    startRow.replaceWith(feDiv);
+                    // Update status badge
+                    var labelRow2 = gameRow.querySelector('.lgw-mc-game-label-row');
+                    if (labelRow2) {
+                        var b = labelRow2.querySelector('.lgw-mc-status-badge') || document.createElement('span');
+                        b.className = 'lgw-mc-status-badge'; b.textContent = '🟡 In progress';
+                        labelRow2.appendChild(b);
+                    }
+                    // Show games grid, expand card, update status
+                    var gGrid = card ? card.querySelector('.lgw-mc-games-grid') : null;
+                    if (gGrid) gGrid.style.display = '';
+                    if (card) { card.classList.remove('lgw-mc-card-collapsed'); card.classList.add('lgw-mc-card-expanded'); lgwMcUpdateFixtureStatus(card); }
+                    lgwMcUpdateFixtureTotal(widget, gameRow.dataset.fix);
+                }).catch(function(){ e.target.disabled = false; e.target.textContent = '▶ Start game'; });
+            return;
+        }
+
         if (!e.target.classList.contains('lgw-mc-fe-save')) return;
         if (!unlocked) { alert('Please unlock score entry first.'); return; }
 
@@ -656,6 +827,8 @@ document.querySelectorAll('.lgw-mc-widget').forEach(function(widget){
         fd.append('shots_home',  sh);
         fd.append('shots_away',  sa);
         fd.append('game_status',   gstatus);
+        var feEndsInp = inputs.querySelector('.lgw-mc-fe-ends');
+        if (feEndsInp) fd.append('ends_played', feEndsInp.value);
         fd.append('players_home',  playersH);
         fd.append('players_away',  playersA);
         fd.append('passphrase',    passphrase);
@@ -669,33 +842,75 @@ document.querySelectorAll('.lgw-mc-widget').forEach(function(widget){
                     return;
                 }
                 saveBtn.textContent = '✓'; saveBtn.disabled = false;
-                // Update displayed scores
-                var homeEl = row.querySelector('.lgw-mc-score-col .lgw-mc-game-shots');
-                var awayEl = row.querySelector('.lgw-mc-score-col-away .lgw-mc-game-shots');
-                if (homeEl) { homeEl.textContent = sh; homeEl.classList.toggle('bold-winner', data.data.pts_home > data.data.pts_away); }
-                if (awayEl) { awayEl.textContent = sa; awayEl.classList.toggle('bold-winner', data.data.pts_away > data.data.pts_home); }
-                // Update game row data attrs so live total can read them
                 row.dataset.sh = sh; row.dataset.sa = sa;
                 row.dataset.ph = data.data.pts_home; row.dataset.pa = data.data.pts_away;
-                // Update displayed player names
-                var pHomeEl = row.querySelector('.lgw-mc-score-col .lgw-mc-players');
-                var pAwayEl = row.querySelector('.lgw-mc-score-col-away .lgw-mc-players');
-                if (playersH) {
-                    if (!pHomeEl) { pHomeEl = document.createElement('span'); pHomeEl.className = 'lgw-mc-players'; row.querySelector('.lgw-mc-score-col').appendChild(pHomeEl); }
-                    pHomeEl.textContent = playersH;
+                row.dataset.status = gstatus;
+                if (feEndsInp) row.dataset.ends = feEndsInp.value;
+
+                // If status reset to not_started, collapse row
+                if (gstatus === 'not_started') {
+                    row.classList.add('lgw-mc-game-row-collapsed');
+                    var srEl = row.querySelector('.lgw-mc-game-score-row');
+                    if (srEl) srEl.remove();
+                    var lrBadge = row.querySelector('.lgw-mc-game-label-row .lgw-mc-status-badge');
+                    if (lrBadge) lrBadge.remove();
+                    var lrEndBadge = row.querySelector('.lgw-mc-game-label-row .lgw-mc-end-indicator');
+                    if (lrEndBadge) lrEndBadge.remove();
+                    lgwMcUpdateFixtureStatus(card);
+                    lgwMcUpdateFixtureTotal(widget, row.dataset.fix);
+                    setTimeout(function(){ saveBtn.textContent = 'Save'; }, 1500);
+                    return;
                 }
-                if (playersA) {
-                    if (!pAwayEl) { pAwayEl = document.createElement('span'); pAwayEl.className = 'lgw-mc-players'; row.querySelector('.lgw-mc-score-col-away').appendChild(pAwayEl); }
-                    pAwayEl.textContent = playersA;
+
+                // Expand collapsed row if needed
+                var wasCollapsed = row.classList.contains('lgw-mc-game-row-collapsed');
+                if (wasCollapsed) {
+                    row.classList.remove('lgw-mc-game-row-collapsed');
+                    var scoreRow2 = document.createElement('div');
+                    scoreRow2.className = 'lgw-mc-game-score-row';
+                    scoreRow2.innerHTML =
+                        '<div class="lgw-mc-game-side lgw-mc-game-side-home"></div>' +
+                        '<span class="lgw-mc-game-shots"></span>' +
+                        '<span class="lgw-mc-game-sep">–</span>' +
+                        '<span class="lgw-mc-game-shots"></span>' +
+                        '<div class="lgw-mc-game-side lgw-mc-game-side-away"></div>';
+                    var feInputs2 = row.querySelector('.lgw-mc-fe-inputs');
+                    feInputs2 ? row.insertBefore(scoreRow2, feInputs2) : row.appendChild(scoreRow2);
                 }
-                // Update status badge
+
+                // Update score row
+                var scoreRowEl = row.querySelector('.lgw-mc-game-score-row');
+                if (scoreRowEl) {
+                    var shots = scoreRowEl.querySelectorAll('.lgw-mc-game-shots');
+                    if (shots[0]) { shots[0].textContent = sh; shots[0].classList.toggle('bold-winner', data.data.pts_home > data.data.pts_away); }
+                    if (shots[1]) { shots[1].textContent = sa; shots[1].classList.toggle('bold-winner', data.data.pts_away > data.data.pts_home); }
+                    var sideHome = scoreRowEl.querySelector('.lgw-mc-game-side-home');
+                    var sideAway = scoreRowEl.querySelector('.lgw-mc-game-side-away');
+                    if (sideHome && playersH) { var pH2 = sideHome.querySelector('.lgw-mc-players') || document.createElement('span'); pH2.className='lgw-mc-players'; pH2.textContent=playersH; sideHome.appendChild(pH2); }
+                    if (sideAway && playersA) { var pA2 = sideAway.querySelector('.lgw-mc-players') || document.createElement('span'); pA2.className='lgw-mc-players'; pA2.textContent=playersA; sideAway.appendChild(pA2); }
+                }
+
+                // Update status badge + end indicator in label row
                 var statusLabels = { 'in_progress': '🟡 In progress', 'complete': '✅ Complete' };
-                var badge = row.querySelector('.lgw-mc-status-badge');
-                if (!badge) { badge = document.createElement('span'); badge.className = 'lgw-mc-status-badge'; row.querySelector('.lgw-mc-disc-label').appendChild(badge); }
-                badge.textContent = statusLabels[gstatus] || '';
-                // Show this row if hidden
+                var labelRow = row.querySelector('.lgw-mc-game-label-row');
+                if (labelRow) {
+                    var badge = labelRow.querySelector('.lgw-mc-status-badge') || document.createElement('span');
+                    badge.className = 'lgw-mc-status-badge'; badge.textContent = statusLabels[gstatus] || '';
+                    labelRow.appendChild(badge);
+                    var endsVal  = feEndsInp ? parseInt(feEndsInp.value || '0', 10) : 0;
+                    var maxEnds  = parseInt(row.dataset.maxEnds || '21', 10);
+                    var endsBadge = labelRow.querySelector('.lgw-mc-end-indicator');
+                    if (endsVal > 0 && gstatus !== 'not_started') {
+                        if (!endsBadge) { endsBadge = document.createElement('span'); endsBadge.className='lgw-mc-end-indicator'; labelRow.appendChild(endsBadge); }
+                        endsBadge.textContent = 'End ' + endsVal + '/' + maxEnds;
+                    } else if (endsBadge) { endsBadge.remove(); }
+                }
+
+                lgwMcUpdateFixtureStatus(card);
                 row.style.display = '';
-                // Update fixture total header
+                var gGrid2 = card.querySelector('.lgw-mc-games-grid');
+                if (gGrid2) gGrid2.style.display = '';
+                card.classList.remove('lgw-mc-card-collapsed'); card.classList.add('lgw-mc-card-expanded');
                 lgwMcUpdateFixtureTotal(widget, row.dataset.fix);
                 setTimeout(function(){ saveBtn.textContent = 'Save'; }, 2000);
             })
@@ -771,7 +986,7 @@ document.querySelectorAll('.lgw-mc-widget').forEach(function(widget){
         handle.className = 'lgw-mc-fe-drag-handle';
         handle.title = 'Drag to reorder';
         handle.textContent = '⠿';
-        card.querySelector('.lgw-mc-match-header').prepend(handle);
+        card.prepend(handle);
         card.draggable = true;
         lgwMcBindCardDrag(card, panel, champId, nonce);
     });

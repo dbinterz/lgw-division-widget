@@ -229,6 +229,7 @@ function lgw_mc_ajax_save_scores() {
     if ( ! in_array( $game_status, [ 'not_started', 'in_progress', 'complete' ] ) ) $game_status = 'not_started';
     $scores   = get_option( 'lgw_multichamp_' . $champ_id . '_scores', [] );
 
+    $ends_played = max( 0, (int)( $_POST['ends_played'] ?? $scores[ $fix_id ][ $game_key ]['ends_played'] ?? 0 ) );
     $scores[ $fix_id ][ $game_key ] = [
         'shots_home'   => $shots_home,
         'shots_away'   => $shots_away,
@@ -237,6 +238,7 @@ function lgw_mc_ajax_save_scores() {
         'players_home' => array_values( $players_home ),
         'players_away' => array_values( $players_away ),
         'status'       => $game_status,
+        'ends_played'  => $ends_played,
         'scorecard_id' => (int)( $scores[ $fix_id ][ $game_key ]['scorecard_id'] ?? 0 ),
     ];
 
@@ -256,10 +258,11 @@ function lgw_mc_ajax_save_scores() {
     }
 
     wp_send_json_success( [
-        'pts_home'   => $pts_home,
-        'pts_away'   => $pts_away,
-        'game_key'   => $game_key,
-        'game_status'=> $game_status,
+        'pts_home'    => $pts_home,
+        'pts_away'    => $pts_away,
+        'game_key'    => $game_key,
+        'game_status' => $game_status,
+        'ends_played' => $ends_played,
     ] );
 }
 
@@ -414,13 +417,15 @@ function lgw_mc_ajax_frontend_score() {
     $fe_players_away = array_filter( array_map( 'sanitize_text_field',
         explode( ',', $_POST['players_away'] ?? '' ) ) );
 
-    $existing_game = $scores[ $fix_id ][ $game_key ] ?? [];
+    $existing_game  = $scores[ $fix_id ][ $game_key ] ?? [];
+    $fe_ends_played = isset( $_POST['ends_played'] ) ? max( 0, (int)$_POST['ends_played'] ) : ( $existing_game['ends_played'] ?? 0 );
     $scores[ $fix_id ][ $game_key ] = array_merge( $existing_game, [
         'shots_home'   => $shots_home,
         'shots_away'   => $shots_away,
         'pts_home'     => $pts_home,
         'pts_away'     => $pts_away,
         'status'       => $status,
+        'ends_played'  => $fe_ends_played,
         'players_home' => $fe_players_home ? array_values( $fe_players_home ) : ( $existing_game['players_home'] ?? [] ),
         'players_away' => $fe_players_away ? array_values( $fe_players_away ) : ( $existing_game['players_away'] ?? [] ),
     ] );
@@ -439,7 +444,7 @@ function lgw_mc_ajax_frontend_score() {
 
     $standings = lgw_mc_compute_standings( $champ, $scores );
     wp_send_json_success( [ 'pts_home' => $pts_home, 'pts_away' => $pts_away,
-        'game_key' => $game_key, 'standings' => $standings ] );
+        'game_key' => $game_key, 'ends_played' => $fe_ends_played, 'standings' => $standings ] );
 }
 
 
@@ -669,12 +674,12 @@ function lgw_mc_compute_standings( array $champ, array $scores ) {
             }
         }
 
-        // Fixture-level bonus points (overall win/draw/loss based on aggregate pts)
+        // Fixture-level bonus points (overall win/draw/loss based on aggregate shots)
         if ( $fix_has_score && ( $bonus_win || $bonus_draw || $bonus_loss ) ) {
-            if ( $fix_ph > $fix_pa ) {
+            if ( $fix_sh > $fix_sa ) {
                 if ( isset( $overall[$home] ) ) $overall[$home]['pts'] += $bonus_win;
                 if ( isset( $overall[$away] ) ) $overall[$away]['pts'] += $bonus_loss;
-            } elseif ( $fix_ph < $fix_pa ) {
+            } elseif ( $fix_sh < $fix_sa ) {
                 if ( isset( $overall[$home] ) ) $overall[$home]['pts'] += $bonus_loss;
                 if ( isset( $overall[$away] ) ) $overall[$away]['pts'] += $bonus_win;
             } else {
@@ -1041,8 +1046,10 @@ function lgw_mc_tab_scores( $champ, $champ_id, $scores ) {
                 echo '</div>';
 
                 // Score inputs row
+                $is_ends_mode = ( ($d['scoring_mode'] ?? 'ends') === 'ends' );
+                $max_ends     = (int)($d['ends'] ?? 21);
+                $cur_ends     = (int)($g['ends_played'] ?? 0);
                 echo '<div class="lgw-mc-game-inputs">';
-
                 echo '<div class="lgw-mc-side">';
                 echo '<label>' . esc_html($fix['home']) . '</label>';
                 echo '<input type="number" class="mc-shots-home" min="0" placeholder="Shots" value="' . esc_attr($g['shots_home'] ?? '') . '">';
@@ -1053,13 +1060,19 @@ function lgw_mc_tab_scores( $champ, $champ_id, $scores ) {
                 if ( isset($g['pts_home']) ) echo esc_html($g['pts_home']) . '<br>v<br>' . esc_html($g['pts_away']);
                 else echo 'v';
                 echo '</span>';
+                if ( $is_ends_mode ) {
+                    echo '<div class="lgw-mc-ends-counter" data-max="' . $max_ends . '">'
+                       . '<button type="button" class="lgw-mc-ends-dec">−</button>'
+                       . '<span class="lgw-mc-ends-val"><input type="number" class="mc-ends-played" min="0" max="' . $max_ends . '" value="' . $cur_ends . '"> <span class="lgw-mc-ends-of">/ ' . $max_ends . ' ends</span></span>'
+                       . '<button type="button" class="lgw-mc-ends-inc">+</button>'
+                       . '</div>';
+                }
                 echo '</div>';
 
                 echo '<div class="lgw-mc-side lgw-mc-side-away">';
                 echo '<label>' . esc_html($fix['away']) . '</label>';
                 echo '<input type="number" class="mc-shots-away" min="0" placeholder="Shots" value="' . esc_attr($g['shots_away'] ?? '') . '">';
                 echo '</div>';
-
                 echo '</div>'; // lgw-mc-game-inputs
 
                 // Players row — full width, below the score grid
@@ -1220,8 +1233,8 @@ function lgw_multichamp_shortcode( $atts ) {
                 // Apply bonus to display total
                 $disp_ph = $tot_ph; $disp_pa = $tot_pa;
                 if ( $fix_has_score ) {
-                    if ( $tot_ph > $tot_pa ) { $disp_ph += $bonus_win; $disp_pa += $bonus_loss; }
-                    elseif ( $tot_ph < $tot_pa ) { $disp_ph += $bonus_loss; $disp_pa += $bonus_win; }
+                    if ( $tot_sh > $tot_sa ) { $disp_ph += $bonus_win; $disp_pa += $bonus_loss; }
+                    elseif ( $tot_sh < $tot_sa ) { $disp_ph += $bonus_loss; $disp_pa += $bonus_win; }
                     else { $disp_ph += $bonus_draw; $disp_pa += $bonus_draw; }
                 }
                 $has_result = $fix_has_score;
@@ -1234,7 +1247,37 @@ function lgw_multichamp_shortcode( $atts ) {
                 $home_badge_html = $home_badge ? '<img src="' . esc_url($home_badge) . '" class="lgw-badge lgw-mc-club-badge" alt=""> ' : '';
                 $away_badge_html = $away_badge ? '<img src="' . esc_url($away_badge) . '" class="lgw-badge lgw-mc-club-badge" alt=""> ' : '';
             ?>
-            <div class="lgw-mc-fixture-card" data-fix="<?php echo esc_attr($fix['id']); ?>">
+            <?php
+                // Compute fixture-level status.
+                // "started" = has shots saved OR status is in_progress/complete (status is authoritative)
+                // "complete" = status is explicitly 'complete'
+                $fix_game_count    = 0;
+                $fix_complete_count = 0;
+                $fix_started_count  = 0;
+                foreach ( $disciplines as $_d ) {
+                    for ( $_i = 0; $_i < $_d['count']; $_i++ ) {
+                        $fix_game_count++;
+                        $_gk  = $_d['id'] . '_' . $_i;
+                        $_g   = $fix_scores[$_gk] ?? null;
+                        $_gs  = $_g['status'] ?? 'not_started';
+                        $_hg  = $_g && isset($_g['shots_home']);
+                        if ( $_gs === 'complete' )                           $fix_complete_count++;
+                        if ( $_gs !== 'not_started' || $_hg )               $fix_started_count++;
+                    }
+                }
+                if ( $fix_started_count === 0 ) {
+                    $fix_status = 'not_started'; $fix_status_label = 'Not started';
+                } elseif ( $fix_complete_count === $fix_game_count ) {
+                    $fix_status = 'complete';    $fix_status_label = '✅ Complete';
+                } else {
+                    $fix_status = 'in_progress'; $fix_status_label = '🟡 In progress';
+                }
+                // Expand/collapse state: expand if in_progress or complete, or score_entry enabled
+                $fix_expanded = ( $fix_status !== 'not_started' || $score_entry );
+            ?>
+            <div class="lgw-mc-fixture-card <?php echo $fix_expanded ? 'lgw-mc-card-expanded' : 'lgw-mc-card-collapsed'; ?>"
+                 data-fix="<?php echo esc_attr($fix['id']); ?>"
+                 data-fix-status="<?php echo esc_attr($fix_status); ?>">
                 <div class="lgw-mc-match-header">
                     <span class="lgw-mc-club <?php echo $home_wins ? 'winner' : ''; ?>"
                           <?php if ($home_colour) echo 'style="color:' . esc_attr($home_colour) . '"'; ?>>
@@ -1249,16 +1292,21 @@ function lgw_multichamp_shortcode( $atts ) {
                             <span class="lgw-mc-score-pts" data-ph="0" data-pa="0" style="display:none"></span>
                             <span class="lgw-mc-score-shots" data-sh="0" data-sa="0" style="display:none"></span>
                         <?php endif; ?>
+                        <span class="lgw-mc-fix-status-badge lgw-mc-fix-status-<?php echo esc_attr($fix_status); ?>"><?php echo esc_html($fix_status_label); ?></span>
                     </div>
-                    <span class="lgw-mc-club <?php echo $away_wins ? 'winner' : ''; ?>"
-                          <?php if ($away_colour) echo 'style="color:' . esc_attr($away_colour) . '"'; ?>>
-                        <?php echo $away_badge_html; ?><?php echo esc_html($fix['away']); ?>
-                    </span>
+                    <div class="lgw-mc-match-actions">
+                        <span class="lgw-mc-club <?php echo $away_wins ? 'winner' : ''; ?>"
+                              <?php if ($away_colour) echo 'style="color:' . esc_attr($away_colour) . '"'; ?>>
+                            <?php echo $away_badge_html; ?><?php echo esc_html($fix['away']); ?>
+                        </span>
+                        <button type="button" class="lgw-mc-toggle-btn" title="<?php echo $fix_expanded ? 'Collapse' : 'Expand'; ?> games">
+                            <?php echo $fix_expanded ? '▲' : '▼'; ?>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Per-game breakdown -->
-                <?php if ( $has_result ) : ?>
-                <div class="lgw-mc-games-grid">
+                <div class="lgw-mc-games-grid" <?php echo $fix_expanded ? '' : 'style="display:none"'; ?>>
                     <?php foreach ( $disciplines as $d ) :
                         for ( $i = 0; $i < $d['count']; $i++ ) :
                             $gk     = $d['id'] . '_' . $i;
@@ -1270,46 +1318,71 @@ function lgw_multichamp_shortcode( $atts ) {
                                 ? 'First to ' . $d['ends'] . ' shots'
                                 : $d['ends'] . ' ends';
                             $time   = ! empty( $d['time_limit'] ) ? ' · ' . $d['time_limit'] : '';
-                            // Only show rows for games that have started or have a score
-                            // Hide not-started rows unless score entry is enabled (scorer needs to see all games)
-                            if ( $g_status === 'not_started' && ! $has_g && ! $score_entry ) continue;
                             $ph = (int)($g['pts_home'] ?? 0);
                             $pa = (int)($g['pts_away'] ?? 0);
                             $sh = $g['shots_home'] ?? '';
                             $sa = $g['shots_away'] ?? '';
-                            $result_class = $ph > $pa ? 'home-win' : ( $pa > $ph ? 'away-win' : 'draw' );
+                            $result_class = $has_g ? ( $ph > $pa ? 'home-win' : ( $pa > $ph ? 'away-win' : 'draw' ) ) : '';
                             $players_h = implode(', ', $g['players_home'] ?? []);
                             $players_a = implode(', ', $g['players_away'] ?? []);
+                            // Collapsed row: not started, no shots yet
+                            $row_collapsed = ( $g_status === 'not_started' && ! $has_g );
                             $status_labels = [ 'in_progress' => '🟡 In progress', 'complete' => '✅ Complete', 'not_started' => '' ];
                             $status_label = $status_labels[ $g_status ] ?? '';
                     ?>
-                    <div class="lgw-mc-game-row <?php echo $result_class; ?>"
+                    <div class="lgw-mc-game-row <?php echo $result_class; ?> <?php echo $row_collapsed ? 'lgw-mc-game-row-collapsed' : ''; ?>"
                          data-fix="<?php echo esc_attr($fix['id']); ?>"
                          data-disc="<?php echo esc_attr($d['id']); ?>"
                          data-idx="<?php echo $i; ?>"
                          data-champ="<?php echo esc_attr($champ_id); ?>"
+                         data-status="<?php echo esc_attr($g_status); ?>"
+                         data-ends="<?php echo (int)($g['ends_played'] ?? 0); ?>"
+                         data-max-ends="<?php echo (int)($d['ends'] ?? 21); ?>"
+                         data-scoring-mode="<?php echo esc_attr($d['scoring_mode'] ?? 'ends'); ?>"
                          data-sh="<?php echo (int)($g['shots_home'] ?? 0); ?>"
                          data-sa="<?php echo (int)($g['shots_away'] ?? 0); ?>"
                          data-ph="<?php echo (int)($g['pts_home'] ?? 0); ?>"
                          data-pa="<?php echo (int)($g['pts_away'] ?? 0); ?>">
-                        <div class="lgw-mc-disc-label">
-                            <?php echo esc_html($label); ?>
+                        <!-- Label row: full-width discipline name -->
+                        <div class="lgw-mc-game-label-row">
+                            <span class="lgw-mc-disc-label"><?php echo esc_html($label); ?></span>
                             <span class="lgw-mc-disc-meta"><?php echo esc_html($mode . $time); ?></span>
                             <?php if ($status_label) echo '<span class="lgw-mc-status-badge">' . $status_label . '</span>'; ?>
+                            <?php $is_ends_disp = ( ($d['scoring_mode'] ?? 'ends') === 'ends' );
+                                  $disp_e = (int)($g['ends_played'] ?? 0);
+                                  $disp_max_e = (int)($d['ends'] ?? 21);
+                                  if ( $is_ends_disp && $g_status !== 'not_started' && $disp_e > 0 ) : ?>
+                            <span class="lgw-mc-end-indicator">End <?php echo $disp_e; ?>/<?php echo $disp_max_e; ?></span>
+                            <?php endif; ?>
                         </div>
-                        <div class="lgw-mc-score-col">
+                        <?php if ( ! $row_collapsed ) : ?>
+                        <!-- Score row: home players | home score | dash | away score | away players -->
+                        <div class="lgw-mc-game-score-row">
+                            <div class="lgw-mc-game-side lgw-mc-game-side-home">
+                                <?php if ($players_h) echo '<span class="lgw-mc-players">' . esc_html($players_h) . '</span>'; ?>
+                            </div>
                             <span class="lgw-mc-game-shots <?php echo $ph > $pa ? 'bold-winner' : ''; ?>">
-                                <?php echo $has_g ? esc_html($sh) : ( $score_entry ? '<span class="lgw-mc-pending">—</span>' : '' ); ?>
+                                <?php echo $has_g ? esc_html($sh) : ''; ?>
                             </span>
-                            <?php if ($players_h) echo '<span class="lgw-mc-players">' . esc_html($players_h) . '</span>'; ?>
-                        </div>
-                        <div class="lgw-mc-score-col lgw-mc-score-col-away">
+                            <span class="lgw-mc-game-sep">–</span>
                             <span class="lgw-mc-game-shots <?php echo $pa > $ph ? 'bold-winner' : ''; ?>">
-                                <?php echo $has_g ? esc_html($sa) : ( $score_entry ? '<span class="lgw-mc-pending">—</span>' : '' ); ?>
+                                <?php echo $has_g ? esc_html($sa) : ''; ?>
                             </span>
-                            <?php if ($players_a) echo '<span class="lgw-mc-players">' . esc_html($players_a) . '</span>'; ?>
+                            <div class="lgw-mc-game-side lgw-mc-game-side-away">
+                                <?php if ($players_a) echo '<span class="lgw-mc-players">' . esc_html($players_a) . '</span>'; ?>
+                            </div>
                         </div>
+                        <?php endif; ?>
                         <?php if ( $score_entry ) : ?>
+                        <?php if ( $row_collapsed ) : ?>
+                        <div class="lgw-mc-fe-start-row" style="display:none">
+                            <span class="lgw-mc-fe-start-players">
+                                <input type="text" class="lgw-mc-fe-players-home" placeholder="<?php echo esc_attr($fix['home']); ?> players" value="<?php echo esc_attr($players_h); ?>">
+                                <input type="text" class="lgw-mc-fe-players-away" placeholder="<?php echo esc_attr($fix['away']); ?> players" value="<?php echo esc_attr($players_a); ?>">
+                            </span>
+                            <button type="button" class="lgw-mc-fe-start-btn">▶ Start game</button>
+                        </div>
+                        <?php else : ?>
                         <div class="lgw-mc-fe-inputs" style="display:none">
                             <div class="lgw-mc-fe-row">
                                 <div class="lgw-mc-fe-side">
@@ -1318,10 +1391,20 @@ function lgw_multichamp_shortcode( $atts ) {
                                     <input type="text" class="lgw-mc-fe-players-home" placeholder="Players (comma-separated)" value="<?php echo esc_attr($players_h); ?>">
                                 </div>
                                 <div class="lgw-mc-fe-mid">
+                                    <?php $fe_is_ends = (($d['scoring_mode'] ?? 'ends') === 'ends');
+                                          $fe_max_e   = (int)($d['ends'] ?? 21);
+                                          $fe_cur_e   = (int)($g['ends_played'] ?? 0);
+                                          if ($fe_is_ends) : ?>
+                                    <div class="lgw-mc-ends-counter" data-max="<?php echo $fe_max_e; ?>">
+                                        <button type="button" class="lgw-mc-ends-dec">−</button>
+                                        <span class="lgw-mc-ends-val"><input type="number" class="lgw-mc-fe-ends" min="0" max="<?php echo $fe_max_e; ?>" value="<?php echo $fe_cur_e; ?>"> <span class="lgw-mc-ends-of">/ <?php echo $fe_max_e; ?> ends</span></span>
+                                        <button type="button" class="lgw-mc-ends-inc">+</button>
+                                    </div>
+                                    <?php endif; ?>
                                     <select class="lgw-mc-fe-status">
-                                        <?php foreach ( [ 'in_progress' => '🟡 In progress', 'complete' => '✅ Complete' ] as $sv => $sl ) : ?>
-                                        <option value="<?php echo $sv; ?>" <?php selected($g_status, $sv); ?>><?php echo $sl; ?></option>
-                                        <?php endforeach; ?>
+                                        <option value="not_started"<?php echo $g_status === 'not_started' ? ' selected' : ''; ?>>Not started</option>
+                                        <option value="in_progress"<?php echo $g_status === 'in_progress' ? ' selected' : ''; ?>>🟡 In progress</option>
+                                        <option value="complete"<?php echo $g_status === 'complete'    ? ' selected' : ''; ?>>✅ Complete</option>
                                     </select>
                                     <button type="button" class="lgw-mc-fe-save">Save</button>
                                 </div>
@@ -1333,10 +1416,10 @@ function lgw_multichamp_shortcode( $atts ) {
                             </div>
                         </div>
                         <?php endif; ?>
+                        <?php endif; ?>
                     </div>
                     <?php endfor; endforeach; ?>
                 </div>
-                <?php endif; ?>
             </div>
             <?php endforeach; ?>
             <?php endif; ?>
@@ -1383,7 +1466,20 @@ add_action( 'wp_enqueue_scripts', 'lgw_multichamp_enqueue' );
 function lgw_multichamp_enqueue() {
     global $post;
     if ( ! is_a( $post, 'WP_Post' ) || ! has_shortcode( $post->post_content, 'lgw_multichamp' ) ) return;
+
     wp_enqueue_style( 'lgw-multichamp', plugin_dir_url(__FILE__) . 'lgw-multichamp.css', [], LGW_VERSION );
+
+    // Always set --lgw-font so the widget uses whichever font the picker chose (or Saira as default)
+    $theme        = get_option( 'lgw_theme', [] );
+    $font_key     = ! empty( $theme['font_family'] ) ? $theme['font_family'] : 'Saira';
+    $font_name    = str_replace( '+', ' ', $font_key );
+    $font_weights = [ 'Saira' => '400;600;700', 'Inter' => '400;600;700', 'Roboto' => '400;700',
+                      'Oswald' => '400;600;700', 'Barlow' => '400;600;700', 'Nunito Sans' => '400;600;700',
+                      'Raleway' => '400;600;700', 'Exo 2' => '400;600;700', 'Titillium Web' => '400;600;700', 'DM Sans' => '400;600;700' ];
+    $weights      = $font_weights[ $font_name ] ?? '400;600;700';
+    wp_enqueue_style( 'lgw-mc-font', 'https://fonts.googleapis.com/css2?family=' . urlencode( $font_name ) . ':wght@' . $weights . '&display=swap', [], null );
+    wp_add_inline_style( 'lgw-multichamp', ".lgw-mc-widget, .lgw-mc-widget * { font-family: '{$font_name}', Arial, sans-serif; }" );
+
     wp_enqueue_script( 'lgw-multichamp', plugin_dir_url(__FILE__) . 'lgw-multichamp.js', [], LGW_VERSION, true );
     wp_localize_script( 'lgw-multichamp', 'lgwMcData', [
         'ajaxurl' => admin_url( 'admin-ajax.php' ),

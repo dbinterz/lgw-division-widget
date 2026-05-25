@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.33
+Stable tag: 7.3.44
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,32 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.3.44 =
+* Fix: Multi-champ widget font — removed fragile dependency on lgw_font_options() and lgw-font handle registration; now reads lgw_theme option directly, enqueues its own lgw-mc-font Google Fonts handle, and sets font-family directly on .lgw-mc-widget and all children
+
+= 7.3.43 =
+* Fix: Multi-discipline championship widget now correctly inherits the chosen font from the font picker — lgw-multichamp enqueue now depends on lgw-font and applies the same --lgw-font CSS variable; previously fell back to sans-serif instead of Saira
+
+= 7.3.42 =
+* Feature: Font picker in Settings > Theme — choose from 10 curated Google Fonts (Saira default, plus Inter, Roboto, Oswald, Barlow, Nunito Sans, Raleway, Exo 2, Titillium Web, DM Sans); live preview in admin; applied via CSS variable across all widgets
+* Fix: Start game button now posts to correct AJAX action lgw_mc_frontend_score
+
+= 7.3.41 =
+* Fix: Start game button was posting to non-existent action lgw_mc_frontend_save instead of lgw_mc_frontend_score
+
+= 7.3.40 =
+* Feature: Ends counter added to admin and frontend — +/- buttons with current/max display (e.g. End 7/21); only shown for ends-mode disciplines (not target-score)
+* Feature: End indicator shown in discipline label row when game is in progress (e.g. End 7/21); amber pill badge visible without unlocking
+* Feature: Start game button on not-started rows when score entry unlocked — enter player names and click Start to begin; replaced with full score entry form
+* Feature: ends_played stored per game and included in all AJAX responses
+* Fix: Frontend status select now includes Not started as first option; saving with Not started re-collapses the row
+
+= 7.3.38 =
+* Fix: Fixture-level status badge now correctly reads both saved status field AND presence of shots — games saved before status tracking existed (or with status still not_started) are no longer miscounted, resolving admin showing Not started while webpage showed In progress
+* Feature: Manual expand/collapse toggle button (▲/▼) added to each fixture card — collapses games grid independently of auto-expand logic
+* Feature: Not-started games collapse to compact label-only row; fixture card collapses entirely for not-started fixtures; expands automatically when any game is in progress or complete
+* Carries forward: bonus points on shots, symmetric score layout, drag-handle-as-bar, score entry for fresh fixtures
 
 = 7.3.33 =
 * Fix: Frontend tab switching not working — tab nav elements changed from <button> to <div role="button"> to avoid form-submit interference and WordPress button resets; JS wrapped in DOMContentLoaded guard; keyboard navigation (Enter/Space) added

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.3.33
+ * Version: 7.3.44
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.3.33');
+define('LGW_VERSION', '7.3.44');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -632,8 +632,16 @@ function lgw_enqueue() {
     global $post;
     if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'lgw_division')) return;
 
-    wp_enqueue_style('lgw-saira', 'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
-    wp_enqueue_style('lgw-widget', plugin_dir_url(__FILE__) . 'lgw-widget.css', array('lgw-saira'), LGW_VERSION);
+    $lgw_theme_opt = get_option('lgw_theme', array());
+    $lgw_font_key  = ! empty( $lgw_theme_opt['font_family'] ) ? $lgw_theme_opt['font_family'] : 'Saira';
+    $lgw_fonts     = lgw_font_options();
+    $lgw_weights   = $lgw_fonts[ $lgw_font_key ]['weights'] ?? '400;600;700';
+    $lgw_font_url  = 'https://fonts.googleapis.com/css2?family=' . urlencode( str_replace('+', ' ', $lgw_font_key) ) . ':wght@' . $lgw_weights . '&display=swap';
+    wp_enqueue_style( 'lgw-font', $lgw_font_url, array(), null );
+    wp_enqueue_style( 'lgw-widget', plugin_dir_url(__FILE__) . 'lgw-widget.css', array('lgw-font'), LGW_VERSION );
+    // Inline CSS var so .lgw-w picks up the chosen font
+    $lgw_font_css_name = str_replace('+', ' ', $lgw_font_key);
+    wp_add_inline_style( 'lgw-widget', ".lgw-w { --lgw-font: '{$lgw_font_css_name}', Arial, sans-serif; font-family: var(--lgw-font); }" );
 
     // Register scorecard script here so lgw-widget can declare it as a dependency.
     // This guarantees lgw-scorecard.js loads before lgw-widget.js on any page
@@ -1739,11 +1747,14 @@ function lgw_save_settings() {
     }
     update_option('lgw_sponsors', $sponsors);
 
-    // Theme colours
+    // Theme colours + font
+    $allowed_fonts = array_keys( lgw_font_options() );
+    $font_raw      = sanitize_text_field( $_POST['lgw_font_family'] ?? '' );
     $theme = array(
         'color_primary'   => sanitize_hex_color($_POST['lgw_color_primary']   ?? '') ?: '',
         'color_secondary' => sanitize_hex_color($_POST['lgw_color_secondary'] ?? '') ?: '',
         'color_bg'        => sanitize_hex_color($_POST['lgw_color_bg']        ?? '') ?: '',
+        'font_family'     => in_array( $font_raw, $allowed_fonts ) ? $font_raw : '',
     );
     update_option('lgw_theme', $theme);
 
@@ -1873,6 +1884,27 @@ function lgw_save_league_setup() {
 
     wp_redirect(admin_url('admin.php?page=' . LGW_SETUP_PAGE . '&saved=1'));
     exit;
+}
+
+// ── Font options ──────────────────────────────────────────────────────────────
+
+function lgw_font_options() {
+    return [
+        'Saira'          => [ 'label' => 'Saira (default)',       'weights' => '400;600;700' ],
+        'Inter'          => [ 'label' => 'Inter',                 'weights' => '400;600;700' ],
+        'Roboto'         => [ 'label' => 'Roboto',                'weights' => '400;700' ],
+        'Oswald'         => [ 'label' => 'Oswald',                'weights' => '400;600;700' ],
+        'Barlow'         => [ 'label' => 'Barlow',                'weights' => '400;600;700' ],
+        'Nunito+Sans'    => [ 'label' => 'Nunito Sans',           'weights' => '400;600;700' ],
+        'Raleway'        => [ 'label' => 'Raleway',               'weights' => '400;600;700' ],
+        'Exo+2'          => [ 'label' => 'Exo 2',                 'weights' => '400;600;700' ],
+        'Titillium+Web'  => [ 'label' => 'Titillium Web',        'weights' => '400;600;700' ],
+        'DM+Sans'        => [ 'label' => 'DM Sans',               'weights' => '400;600;700' ],
+    ];
+}
+
+function lgw_font_display_name( $key ) {
+    return lgw_font_options()[ $key ]['label'] ?? $key;
 }
 
 // ── Theme colour helpers ───────────────────────────────────────────────────────
@@ -2072,10 +2104,54 @@ function lgw_settings_page() {
             <p><button type="button" class="button" id="lgw-add-club">+ Add Club</button></p>
 
             <hr>
-            <h2>Theme Colours</h2>
-            <p>Default colours for all widgets on this site. Can be overridden per-widget using shortcode attributes: <code>color_primary</code>, <code>color_secondary</code>, <code>color_bg</code>.</p>
+            <h2>Theme &amp; Font</h2>
+            <p>Default appearance for all widgets on this site. Colours can be overridden per-widget using shortcode attributes: <code>color_primary</code>, <code>color_secondary</code>, <code>color_bg</code>.</p>
             <?php $theme = get_option('lgw_theme', array()); ?>
             <table class="form-table">
+                <tr>
+                    <th>Widget Font</th>
+                    <td>
+                        <?php
+                        $cur_font  = $theme['font_family'] ?? 'Saira';
+                        $font_opts = lgw_font_options();
+                        ?>
+                        <select name="lgw_font_family" id="lgw-font-picker" style="min-width:200px">
+                            <?php foreach ( $font_opts as $key => $meta ) : ?>
+                            <option value="<?php echo esc_attr($key); ?>" <?php selected($cur_font, $key); ?>>
+                                <?php echo esc_html($meta['label']); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <span id="lgw-font-preview" style="margin-left:14px;font-size:16px;font-weight:700;transition:font-family .3s">
+                            The quick brown fox
+                        </span>
+                        <p class="description">Applies to all league, cup, and championship widgets.</p>
+                        <style id="lgw-font-preview-style"></style>
+                        <script>
+                        (function(){
+                            var sel = document.getElementById('lgw-font-picker');
+                            var prev = document.getElementById('lgw-font-preview');
+                            var styleEl = document.getElementById('lgw-font-preview-style');
+                            var loaded = {};
+                            function loadAndPreview(key) {
+                                var fontName = key.replace(/\+/g, ' ');
+                                prev.style.fontFamily = "'" + fontName + "', Arial, sans-serif";
+                                if (!loaded[key]) {
+                                    loaded[key] = true;
+                                    var link = document.createElement('link');
+                                    link.rel = 'stylesheet';
+                                    link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(fontName) + ':wght@400;700&display=swap';
+                                    document.head.appendChild(link);
+                                }
+                            }
+                            if (sel) {
+                                loadAndPreview(sel.value);
+                                sel.addEventListener('change', function(){ loadAndPreview(this.value); });
+                            }
+                        })();
+                        </script>
+                    </td>
+                </tr>
                 <tr>
                     <th>Primary Colour <span style="font-weight:400;color:#666">(tabs, headers, accents)</span></th>
                     <td>
