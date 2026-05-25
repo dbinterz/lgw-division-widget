@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.3.13
+ * Version: 7.3.33
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.3.13');
+define('LGW_VERSION', '7.3.33');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -62,6 +62,7 @@ $lgw_modules = array(
     'lgw-cup.php',
     'lgw-champ.php',
     'lgw-gchamp.php',
+    'lgw-multichamp.php',
     'lgw-export.php',
     'lgw-players.php',
     'lgw-sc-admin.php',
@@ -886,6 +887,10 @@ function lgw_admin_menu() {
     if (function_exists('lgw_champs_register_submenu')) {
         lgw_champs_register_submenu();
     }
+    // Multi-Discipline Championships — function defined in lgw-multichamp.php
+    if (function_exists('lgw_multichamp_register_submenu')) {
+        lgw_multichamp_register_submenu();
+    }
     // Seasons — function defined in lgw-seasons.php
     if (function_exists('lgw_seasons_register_submenu')) {
         lgw_seasons_register_submenu();
@@ -1042,6 +1047,11 @@ function lgw_scorecards_admin_page() {
     .lgw-audit-changes li{margin-bottom:2px}
     .lgw-sc-amended{font-size:10px;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle}
     .lgw-sc-div-warn{font-size:10px;background:#f8d7da;color:#842029;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;font-weight:600}
+    .lgw-sc-ctx-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;margin-left:4px;vertical-align:middle}
+    .lgw-sc-ctx-cup{background:#e8f0fe;color:#1a56a0}
+    .lgw-sc-ctx-multichamp{background:#eaf3de;color:#276221}
+    .lgw-sc-ctx-champ{background:#fff3cd;color:#7a5c00}
+    .lgw-sc-mc-ref{font-size:10px;color:#666;margin-left:4px;font-style:italic}
     /* ── Score entry styles ── */
     .lgw-overridden td{background:#fff8f8 !important}
     .lgw-overridden input{color:#8f1520 !important;font-weight:700}
@@ -1546,10 +1556,12 @@ function lgw_scorecards_admin_page() {
             $sub_by   = get_post_meta($p->ID, 'lgw_submitted_by',    true);
             $con_by   = get_post_meta($p->ID, 'lgw_confirmed_by',    true);
             $away_sc  = get_post_meta($p->ID, 'lgw_away_scorecard',  true);
+            $sc_ctx   = get_post_meta($p->ID, 'lgw_sc_context',      true) ?: 'league';
+            $mc_game  = get_post_meta($p->ID, 'lgw_multichamp_game_id', true);
             // Re-evaluate live so stale flags don't persist after division is corrected
             $drive_opts_list  = get_option('lgw_drive', array());
             $resolved_tab_list = lgw_sheets_tab_for_division($sc['division'] ?? '', $drive_opts_list);
-            $div_unresolved   = empty($sc['division']) || !$resolved_tab_list;
+            $div_unresolved   = ($sc_ctx === 'league') && (empty($sc['division']) || !$resolved_tab_list);
             if (!$div_unresolved) delete_post_meta($p->ID, 'lgw_division_unresolved');
             $result   = ($sc && isset($sc['home_total']))
                 ? $sc['home_total'].' ('.$sc['home_points'].'pts) – '.$sc['away_total'].' ('.$sc['away_points'].'pts)'
@@ -1563,6 +1575,12 @@ function lgw_scorecards_admin_page() {
                 <?php if (get_post_meta($p->ID, 'lgw_admin_edited', true)): ?>
                     <span class="lgw-sc-amended" title="Amended by admin">Amended</span>
                 <?php endif; ?>
+                <?php
+                $ctx_labels = [ 'league' => '', 'cup' => '🏆 Cup', 'multichamp' => '🏅 Multi-champ', 'champ' => '🎯 Champ' ];
+                $ctx_label  = $ctx_labels[ $sc_ctx ] ?? esc_html( $sc_ctx );
+                if ( $ctx_label ) echo ' <span class="lgw-sc-ctx-badge lgw-sc-ctx-' . esc_attr($sc_ctx) . '">' . $ctx_label . '</span>';
+                if ( $mc_game ) echo ' <span class="lgw-sc-mc-ref" title="' . esc_attr($mc_game) . '">ref: ' . esc_html( implode( ' · ', array_slice( explode(':', $mc_game), 2 ) ) ) . '</span>';
+                ?>
             </td>
             <td>
                 <?php echo esc_html($sc['division'] ?? '—'); ?>

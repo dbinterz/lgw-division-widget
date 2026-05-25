@@ -1,0 +1,602 @@
+/* ── LGW Multi-Discipline Championship ────────────────────────────────────── */
+
+/* ── Frontend widget ─────────────────────────────────────────────────────── */
+
+.lgw-mc-widget {
+    font-family: var(--lgw-font, 'Saira', sans-serif);
+    color: var(--lgw-text, #1a1a2e);
+    max-width: 900px;
+    margin: 0 auto;
+    /* --lgw-mc-primary is set inline from championship config; falls back to league navy */
+    --lgw-mc-primary: var(--lgw-mc-primary, #072a82);
+}
+
+.lgw-mc-header {
+    background: var(--lgw-mc-primary, #072a82);
+    color: #fff;
+    padding: 16px 20px 14px;
+    border-radius: 8px 8px 0 0;
+}
+
+.lgw-mc-title {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: .03em;
+}
+
+.lgw-mc-meta {
+    font-size: 12px;
+    opacity: .8;
+    display: flex;
+    gap: 16px;
+}
+
+/* Tab nav */
+.lgw-mc-tabnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    background: var(--lgw-mc-primary, #0d3db5);
+    padding: 4px 8px 0;
+}
+
+.lgw-mc-tab {
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,.7);
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    cursor: pointer;
+    border-radius: 4px 4px 0 0;
+    transition: background .15s, color .15s;
+    user-select: none;
+    display: inline-block;
+    line-height: 1.4;
+}
+
+.lgw-mc-tab:hover { background: rgba(255,255,255,.1); color: #fff; }
+.lgw-mc-tab.active { background: var(--lgw-bg, #fff); color: var(--lgw-mc-primary, #072a82); }
+
+/* Panels */
+.lgw-mc-panel { display: none; padding: 16px; background: var(--lgw-bg, #fff); border: 1px solid var(--lgw-border, #d0d5e8); border-top: none; }
+.lgw-mc-panel.active { display: block; }
+
+.lgw-mc-standings-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--lgw-text-muted, #666);
+    margin: 0 0 4px;
+}
+
+.lgw-mc-standings-note {
+    font-size: 11px;
+    color: var(--lgw-text-muted, #666);
+    font-style: italic;
+    margin: 0 0 8px;
+}
+
+/* Standings table — reuses existing lg class */
+.lgw-mc-standings { width: 100%; border-collapse: collapse; }
+.lgw-mc-standings th, .lgw-mc-standings td { padding: 6px 8px; font-size: 12px; border-bottom: 1px solid var(--lgw-border, #d0d5e8); text-align: center; }
+.lgw-mc-standings th { background: var(--lgw-mc-primary, #072a82); color: #fff; font-weight: 700; font-size: 11px; letter-spacing: .05em; }
+.lgw-mc-standings td.cp { font-weight: 800; color: var(--lgw-text-muted, #666); }
+.lgw-mc-standings td.ct { text-align: left; font-weight: 600; }
+.lgw-mc-standings td.ck { font-weight: 800; color: var(--lgw-mc-primary, #072a82); }
+.lgw-mc-standings tr:nth-child(even) td { background: var(--lgw-bg-alt, #f4f5f8); }
+.lgw-mc-standings tr:first-child td { background: #eaf3de; }
+
+/* Fixture cards */
+.lgw-mc-fixture-card {
+    border: 1px solid var(--lgw-border, #d0d5e8);
+    border-radius: 6px;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.lgw-mc-match-header {
+    display: grid;
+    grid-template-columns: 1fr minmax(120px, auto) 1fr;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--lgw-bg-alt, #f4f5f8);
+}
+
+.lgw-mc-club {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--lgw-text, #1a1a2e);
+}
+
+.lgw-mc-club:first-child { text-align: right; }
+.lgw-mc-club:last-child  { text-align: left; }
+.lgw-mc-club.winner { color: var(--lgw-green, #138211); }
+
+.lgw-mc-match-score {
+    text-align: center;
+    white-space: nowrap;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.lgw-mc-vs { font-size: 16px; font-weight: 800; color: var(--lgw-text-muted, #666); }
+
+.lgw-mc-score-pts {
+    display: block;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--lgw-mc-primary, #072a82);
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.lgw-mc-score-shots {
+    display: block;
+    font-size: 11px;
+    color: var(--lgw-text-muted, #666);
+}
+
+/* Per-game breakdown grid */
+.lgw-mc-games-grid {
+    padding: 8px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.lgw-mc-games-hdr,
+.lgw-mc-game-row {
+    display: grid;
+    grid-template-columns: 1fr 60px 24px 60px;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    padding: 3px 6px;
+    border-radius: 4px;
+}
+
+.lgw-mc-games-hdr {
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--lgw-text-muted, #666);
+    letter-spacing: .04em;
+}
+
+.lgw-mc-game-row.home-win { background: #eaf3de; }
+.lgw-mc-game-row.away-win { background: #e8f0fe; }
+.lgw-mc-game-row.draw     { background: var(--lgw-bg-alt, #f4f5f8); }
+
+.lgw-mc-disc-label { font-weight: 600; color: var(--lgw-text, #1a1a2e); }
+.lgw-mc-disc-meta  { display: block; font-size: 10px; font-weight: 400; color: var(--lgw-text-muted, #666); margin-top: 1px; }
+.lgw-mc-game-shots { text-align: center; font-weight: 700; }
+.lgw-mc-game-sep   { text-align: center; color: var(--lgw-text-muted, #666); font-size: 11px; }
+
+/* ── Admin styles ────────────────────────────────────────────────────────── */
+
+.lgw-mc-tab-content {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-top: none;
+    padding: 20px;
+}
+
+.lgw-mc-disc-table input { margin: 0; }
+
+/* ── Scores tab: game cards ──────────────────────────────────────────────── */
+
+.lgw-mc-fix-inside { padding: 12px 16px 16px; }
+
+.lgw-mc-games-wrap { display: flex; flex-direction: column; gap: 12px; }
+
+.lgw-mc-game-card {
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #fafafa;
+}
+
+.lgw-mc-game-card-hdr {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: #f0f0f1;
+    border-bottom: 1px solid #c3c4c7;
+    font-size: 13px;
+}
+
+.lgw-mc-game-card-hdr strong { color: #1a2e5a; }
+.lgw-mc-game-meta  { font-size: 11px; color: #666; }
+.lgw-mc-game-result { margin-left: auto; font-size: 12px; font-weight: 700; color: #1a2e5a; background: #e8f0fe; padding: 2px 8px; border-radius: 3px; }
+
+.lgw-mc-game-inputs {
+    display: grid;
+    grid-template-columns: 1fr 48px 1fr;
+    gap: 0;
+    padding: 12px;
+    align-items: start;
+}
+
+.lgw-mc-side {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lgw-mc-side label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #1a2e5a;
+}
+
+.lgw-mc-side-away { text-align: right; }
+.lgw-mc-side-away label { text-align: right; }
+.lgw-mc-side-away input { text-align: right; }
+
+.lgw-mc-side input[type="number"] {
+    width: 100%;
+    max-width: 80px;
+    padding: 5px 7px;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+}
+
+.lgw-mc-side-away input[type="number"] { margin-left: auto; }
+
+.lgw-mc-score-mid {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 26px;
+}
+
+.mc-pts-display {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1a2e5a;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.lgw-mc-game-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-top: 1px solid #e0e0e0;
+    background: #fff;
+}
+
+.lgw-mc-players-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+    padding: 0 12px 12px;
+    border-top: 1px solid #f0f0f1;
+    margin-top: 0;
+    background: #fff;
+}
+
+.lgw-mc-players-side {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lgw-mc-players-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #555;
+    padding-top: 10px;
+}
+
+.lgw-mc-players-side input[type="text"] {
+    width: 100%;
+    font-size: 12px;
+    padding: 5px 8px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+    .lgw-mc-tabnav { gap: 1px; padding: 3px 4px 0; }
+    .lgw-mc-tab { font-size: 11px; padding: 6px 8px; }
+
+    .lgw-mc-match-header { grid-template-columns: 1fr auto 1fr; gap: 6px; padding: 10px; }
+    .lgw-mc-club { font-size: 12px; }
+    .lgw-mc-score-pts { font-size: 16px; }
+
+    .lgw-mc-games-hdr,
+    .lgw-mc-game-row { grid-template-columns: 1fr 48px 20px 48px; }
+}
+
+/* ── Unlock bar ──────────────────────────────────────────────────────────── */
+
+.lgw-mc-unlock-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--lgw-bg-alt, #f4f5f8);
+    border-bottom: 1px solid var(--lgw-border, #d0d5e8);
+    flex-wrap: wrap;
+}
+
+.lgw-mc-unlock-label { font-size: 12px; font-weight: 600; color: var(--lgw-text-muted, #666); }
+
+.lgw-mc-passphrase-input {
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid var(--lgw-border, #d0d5e8);
+    border-radius: 4px;
+    width: 160px;
+    background: var(--lgw-bg, #fff);
+    color: var(--lgw-text, #1a1a2e);
+}
+
+.lgw-mc-unlock-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--lgw-mc-primary, #072a82);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.lgw-mc-unlock-status { font-size: 12px; }
+.lgw-mc-unlock-bar.unlocked { background: #eaf3de; border-color: #b7d9a0; }
+
+/* ── Game row: bold winner scores ────────────────────────────────────────── */
+
+.lgw-mc-score-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    text-align: center;
+}
+
+.lgw-mc-score-col-away { align-items: center; text-align: center; }
+
+.lgw-mc-game-shots.bold-winner {
+    font-weight: 900;
+    font-size: 18px;
+    color: var(--lgw-mc-primary, #072a82);
+}
+
+.lgw-mc-players {
+    font-size: 10px;
+    color: var(--lgw-text-muted, #666);
+    text-align: center;
+    line-height: 1.3;
+}
+
+/* ── Game row: updated grid for score-col structure ─────────────────────── */
+
+.lgw-mc-games-grid {
+    padding: 0 16px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.lgw-mc-game-row {
+    display: grid;
+    grid-template-columns: 1fr 80px 80px;
+    align-items: start;
+    gap: 4px;
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+/* When score entry is unlocked, add a 4th column */
+.lgw-mc-game-row .lgw-mc-fe-inputs {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 6px 0 2px;
+    border-top: 1px dashed var(--lgw-border, #d0d5e8);
+    margin-top: 4px;
+}
+
+.lgw-mc-fe-inputs input[type="number"] {
+    width: 60px;
+    padding: 4px 6px;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+    border: 1px solid var(--lgw-border, #d0d5e8);
+    border-radius: 4px;
+    background: var(--lgw-bg, #fff);
+    color: var(--lgw-text, #1a1a2e);
+}
+
+.lgw-mc-fe-inputs select {
+    font-size: 12px;
+    padding: 4px 6px;
+    border: 1px solid var(--lgw-border, #d0d5e8);
+    border-radius: 4px;
+    background: var(--lgw-bg, #fff);
+    color: var(--lgw-text, #1a1a2e);
+}
+
+.lgw-mc-fe-save {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--lgw-mc-primary, #072a82);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* ── Status badges ───────────────────────────────────────────────────────── */
+
+.lgw-mc-status-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--lgw-bg-alt, #f4f5f8);
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.lgw-mc-status-badge-admin {
+    font-size: 11px;
+    margin-left: 8px;
+}
+
+/* ── Club badge in fixtures ──────────────────────────────────────────────── */
+
+.lgw-mc-club-badge {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    vertical-align: middle;
+    margin-right: 4px;
+    border-radius: 2px;
+}
+
+/* ── Discipline table: compact ───────────────────────────────────────────── */
+
+.lgw-mc-disc-table { width: auto; }
+.lgw-mc-disc-table th, .lgw-mc-disc-table td { padding: 4px 6px; font-size: 12px; border: 1px solid #ddd; background: #fff; }
+.lgw-mc-disc-table thead th { background: #f6f7f7; font-weight: 600; }
+
+
+/* ── Admin / visitor view toggle ─────────────────────────────────────────── */
+
+.lgw-mc-header { position: relative; }
+
+.lgw-mc-view-toggle {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.3);
+    color: #fff;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background .15s;
+}
+.lgw-mc-view-toggle:hover { background: rgba(255,255,255,.25); }
+
+/* In visitor preview mode, hide score entry controls */
+.lgw-mc-visitor-preview .lgw-mc-unlock-bar  { display: none !important; }
+.lgw-mc-visitor-preview .lgw-mc-fe-inputs   { display: none !important; }
+
+
+/* ── Drag-and-drop ───────────────────────────────────────────────────────── */
+
+/* Admin fixture table drag handle */
+.lgw-mc-drag-handle {
+    cursor: grab;
+    color: #aaa;
+    font-size: 16px;
+    padding: 0 6px;
+    user-select: none;
+    text-align: center;
+}
+.lgw-mc-drag-handle:active { cursor: grabbing; }
+
+.lgw-mc-fix-row.lgw-mc-dragging { opacity: .4; }
+.lgw-mc-fix-row.lgw-mc-drag-over { outline: 2px dashed var(--lgw-mc-primary, #072a82); }
+
+/* Frontend fixture card drag handle */
+.lgw-mc-fe-drag-handle {
+    cursor: grab;
+    color: rgba(255,255,255,.5);
+    font-size: 16px;
+    padding: 0 8px 0 0;
+    user-select: none;
+    flex-shrink: 0;
+}
+.lgw-mc-fe-drag-handle:active { cursor: grabbing; }
+
+.lgw-mc-fixture-card.lgw-mc-dragging { opacity: .4; }
+.lgw-mc-fixture-card.lgw-mc-drag-over {
+    outline: 2px dashed var(--lgw-mc-primary, #072a82);
+    outline-offset: 2px;
+}
+
+/* Frontend score entry — updated layout with player names ───────────────── */
+.lgw-mc-fe-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 8px;
+    align-items: start;
+    width: 100%;
+}
+
+.lgw-mc-fe-side {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lgw-mc-fe-side label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--lgw-text-muted, #666);
+}
+
+.lgw-mc-fe-side-away { align-items: flex-end; }
+.lgw-mc-fe-side-away label { text-align: right; }
+.lgw-mc-fe-side-away input { text-align: right; }
+
+.lgw-mc-fe-mid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding-top: 18px;
+}
+
+.lgw-mc-fe-side input[type="number"] {
+    width: 70px;
+    padding: 4px 6px;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+    border: 1px solid var(--lgw-border, #d0d5e8);
+    border-radius: 4px;
+    background: var(--lgw-bg, #fff);
+    color: var(--lgw-text, #1a1a2e);
+}
+
+.lgw-mc-fe-side input[type="text"] {
+    font-size: 11px;
+    padding: 3px 6px;
+    border: 1px solid var(--lgw-border, #d0d5e8);
+    border-radius: 4px;
+    background: var(--lgw-bg, #fff);
+    color: var(--lgw-text, #1a1a2e);
+    width: 100%;
+}
+
+
+/* Pending score placeholder */
+.lgw-mc-pending {
+    color: var(--lgw-text-muted, #aaa);
+    font-size: 14px;
+}
+

@@ -304,9 +304,11 @@ function lgw_render_admin_edit_form($post_id, $sc) {
     $rinks           = $sc['rinks'] ?? array();
     $drive_opts      = get_option('lgw_drive', array());
     $known_divisions = array_map(function($e){ return $e['division']; }, $drive_opts['sheets_tabs'] ?? array());
+    $sc_ctx          = get_post_meta($post_id, 'lgw_sc_context', true) ?: 'league';
+    $mc_game_id      = get_post_meta($post_id, 'lgw_multichamp_game_id', true);
     // Re-evaluate live so a stale flag doesn't persist after the division is corrected
-    $resolved_tab   = lgw_sheets_tab_for_division($sc['division'] ?? '', $drive_opts);
-    $div_unresolved = empty($sc['division']) || !$resolved_tab;
+    $resolved_tab   = ($sc_ctx === 'league') ? lgw_sheets_tab_for_division($sc['division'] ?? '', $drive_opts) : true;
+    $div_unresolved = ($sc_ctx === 'league') && (empty($sc['division']) || !$resolved_tab);
     if (!$div_unresolved) {
         // Proactively clear any stale flag
         delete_post_meta($post_id, 'lgw_division_unresolved');
@@ -314,6 +316,21 @@ function lgw_render_admin_edit_form($post_id, $sc) {
     ?>
     <div class="lgw-edit-form" id="lgw-edit-<?php echo $post_id; ?>">
         <h4 style="margin:0 0 12px;color:#1a2e5a">✏️ Edit Scorecard</h4>
+
+        <?php if ($mc_game_id):
+            // Parse: champ_id:fix_id:disc_id:game_idx
+            $mc_parts = explode(':', $mc_game_id);
+            $mc_champ = get_option('lgw_multichamp_' . ($mc_parts[0] ?? ''), []);
+            $mc_edit_url = admin_url('admin.php?page=lgw-multichamp&action=edit&id=' . ($mc_parts[0] ?? '') . '&tab=scores');
+        ?>
+        <div style="background:#eaf3de;border:1px solid #b7d9a0;border-radius:4px;padding:8px 12px;margin-bottom:14px;font-size:12px;display:flex;align-items:center;gap:12px;">
+            <span>🏅 <strong>Multi-Discipline Championship scorecard</strong></span>
+            <span><?php echo esc_html($mc_champ['title'] ?? $mc_parts[0] ?? ''); ?></span>
+            <span>·</span>
+            <span><?php echo esc_html(ucfirst($mc_parts[2] ?? '')); ?><?php if (!empty($mc_parts[3])) echo ' game ' . ((int)$mc_parts[3] + 1); ?></span>
+            <a href="<?php echo esc_url($mc_edit_url); ?>" style="margin-left:auto">← Back to championship scores</a>
+        </div>
+        <?php endif; ?>
 
         <div class="lgw-edit-grid">
             <div class="lgw-edit-row">

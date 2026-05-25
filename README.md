@@ -108,16 +108,76 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.3.33
+- **Fix:** `ReferenceError: scoresWrap is not defined` on frontend pages — club management, status patch, and unlock bar code was appended after the IIFE `})()` closing, outside its scope; all code moved back inside the single IIFE
+- **Fix:** Browser DOM warning about password field not in a form — passphrase input changed from `type="password"` to `type="text" autocomplete="off"`
+
+### v7.3.33
+- **Fix:** Frontend unlock not working — `window.ajaxurl` is undefined on public pages (only set in wp-admin); `wp_localize_script` now provides `lgwMcData.ajaxurl` to the frontend script; all 7 fetch calls updated to use `lgwMcData.ajaxurl` with fallback chain
+- **Fix:** No game rows rendered for score entry when all games are `not_started` — the display skip logic now only hides unstarted rows when score entry is disabled; when enabled, all game rows render so scorers can enter first results
+
+### v7.3.33
+- **Fix:** Widget colour picker now drives the full colour scheme — `--lgw-mc-primary` CSS variable wired through all 12 colour references (header, tab bar, standings headers, pts column, buttons); defaults to `var(--lgw-navy)` so existing installs are unchanged
+- **Fix:** Club colours and badges now appear in per-discipline standings tabs — `$club_colour_map` and `$club_badge_map` were not being passed to the per-discipline `lgw_mc_render_standings_table()` calls
+
+### v7.3.33
+- **Fix:** Club names not saving — `mc_entries[]` field name conflicted with `mc_entries` hidden sentinel; all club name inputs renamed to `club_name[]` in PHP form, JS row builder, and save handler
+
+### v7.3.33
+- **Feature:** Club colours and badges per championship — colour picker and WP media badge per club in Setup; applied to standings row and fixture club names
+- **Feature:** Widget primary colour picker in Setup
+- **Feature:** Frontend score entry — enable toggle + per-championship passphrase; persistent unlock bar; inline score + status inputs on game rows after unlock; sessionStorage passphrase persistence
+- **Feature:** Game status (Not started / In progress / Complete) — badge in frontend and admin; dropdown in admin scores tab
+- **Feature:** Player names shown in frontend fixture card game rows
+- **Feature:** Bold winning score replaces checkmark symbol in fixture breakdown
+- **Feature:** Bonus-adjusted total shown in fixture card match header
+- **Feature:** Club entries table (name + colour + badge) replaces plain textarea in Setup
+- **Fix:** Discipline table narrowed to compact auto-width
+
+### v7.3.33
+- **Fix:** Cleared games counting as 0-0 draws in standings — `lgw_mc_compute_standings()` now skips game entries that have no `shots_home` key (scorecard-link-only entries left by the clear handler)
+- **Feature:** Match bonus points — new Overall win / Overall draw / Overall loss fields in Setup; bonus pts added to overall standings after all game pts are aggregated; a note is shown in the frontend Overall standings panel when bonus points are configured
+
+### v7.3.33
+- **Fix:** PHP warnings `Undefined array key "pts_home"` / `"pts_away"` in `lgw-multichamp.php` — bare `$g['pts_home']` access replaced with `$g['pts_home'] ?? 0` in three locations: frontend fixture card game row, `lgw_mc_compute_standings()`, and admin scores tab game card header
+
+### v7.3.33
+- **Fix:** JavaScript syntax error (`Unexpected token '}'`) in `lgw-multichamp.js` — stray orphaned closing braces left from a prior refactor of the create-scorecard handler, preventing the entire script from loading
+
+### v7.3.33
+- **Fix:** Frontend tabs not responding to clicks — tab nav changed from `<button>` to `<div role="button">` to avoid form-submit interference from wrapping page forms and WordPress global button resets; JS initialisation wrapped in `DOMContentLoaded` guard; keyboard support (Enter/Space) added
+
+### v7.3.33
+- **Feature:** Clear scores buttons in Multi-Discipline Championship scores tab — per-game "✕ Clear" button on each game card; per-fixture "✕ Clear all" on the accordion header; both confirm before clearing; scorecard links preserved
+- **Feature:** Shortcode reference block shown on championship edit page once an ID exists — copy-ready `[lgw_multichamp id="..."]` snippet
+
+### v7.3.33
+- **Fix:** Player name fields in the scores tab now clearly visible — moved out of the shots column into a dedicated two-column players row below each game score grid, with labelled inputs for home and away sides
+
+### v7.3.33
+- **Fix:** Multi-Discipline Championship scores tab layout — replaced 9-column table (which overflowed the admin panel) with a card-per-game layout; each game card shows a two-column home/away grid with shots input, player names, pts display, save button, and scorecard link all cleanly within panel width
+
+### v7.3.33
+- **Fix:** Multi-Discipline Championship admin JS was never loading on wp-admin pages — `lgw-multichamp.js` and `lgw-multichamp.css` were only hooked to `wp_enqueue_scripts` (frontend only); `admin_enqueue_scripts` hook added, scoped to the `lgw-multichamp` page — discipline builder, fixture builder, auto-draw, score saving, and scorecard creation now all work in admin
+
+### v7.3.17
+- **Feature:** Scorecard integration — `+ Full scorecard` button creates a `lgw_scorecard` CPT post tagged `context=multichamp` with `lgw_multichamp_game_id` meta; edit screen shows green info banner with back-link to championship scores tab; scorecard list shows context badges (🏅 Multi-champ, 🏆 Cup, 🎯 Champ); division-unresolved check and Drive/Sheets warning scoped to league context only
+
+### v7.3.16
+- **Fix:** Discipline config now includes **Scoring mode** — "Ends" or "Target score" (first to N shots); Singles defaults to target score; ends/shots label updates live in admin
+- **Fix:** **Time limit** field added per discipline — optional free text shown in fixture card game rows
+
+### v7.3.15
+- **Feature:** Multi-Discipline Championship — new `[lgw_multichamp]` shortcode; `lgw-multichamp.php`, `lgw-multichamp.js`, `lgw-multichamp.css`; admin setup, fixtures, and score entry panels; overall and per-discipline standings; fixture result cards
+
+### v7.3.14
+- **Fix:** Time pill (e.g. ⏰ 5:30) now centres correctly over the fixture columns on widescreen — `grid-column` changed from `1/-1` to `1/6` to exclude the notes column
+
 ### v7.3.13
 - **Fix:** Save Changes button on the scorecard post edit screen (`post.php?post=X&action=edit`) now correctly saves — AJAX handler added to `lgw-admin.js` which is the only LGW script loaded on that screen
 - **Fix:** Edit form and audit log styles now load via `lgw-admin.css` on the post edit screen — previously they were only present as an inline `<style>` block on the scorecards admin page
-
-
-### v7.3.13
 - **New:** Quick Score Entry — date jump filter; select a specific fixture date to focus the table on that date's matches only
 - **New:** Submitted Scorecards — division filter and status filter dropdowns for quick triage of the scorecard list
-
-### v7.3.13
 - **Feature:** On widescreen, postponed entry splits into two stacked pills in the notes column — **🚫 Postponed** (red) and **📅 Rescheduled [date]** (blue) on separate lines; mobile keeps the single combined pill
 
 ### v7.3.10
