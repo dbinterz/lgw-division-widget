@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.13
+Stable tag: 7.3.33
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,16 +71,45 @@ Parameters:
 
 == Changelog ==
 
+= 7.3.33 =
+* Fix: Frontend tab switching not working — tab nav elements changed from <button> to <div role="button"> to avoid form-submit interference and WordPress button resets; JS wrapped in DOMContentLoaded guard; keyboard navigation (Enter/Space) added
+
+= 7.3.33 =
+* Feature: Clear scores buttons added to Multi-Discipline Championship scores tab — each game card has a "Clear" button (clears that game only); each fixture accordion has a "Clear all" button (clears all games in the pairing); scorecard links preserved on clear
+* Feature: Shortcode reference displayed on championship edit page once an ID exists — copy-ready code snippet with usage note
+
+= 7.3.33 =
+* Fix: Player name fields in the scores tab are now clearly visible — moved out of the shots column into a dedicated two-column Players row below each game's score grid, with explicit labelled inputs for each side
+
+= 7.3.33 =
+* Fix: Multi-Discipline Championship scores tab layout replaced — wide 9-column table swapped for a card-per-game layout with a two-column home/away grid; shots inputs, player name fields, pts display, save button, and scorecard link all sit cleanly within the admin panel width
+
+= 7.3.33 =
+* Fix: Multi-Discipline Championship admin JS (discipline builder, fixture builder, auto-draw, score save, scorecard create) was never loading on wp-admin pages — lgw-multichamp.js and lgw-multichamp.css were only enqueued on the frontend; admin_enqueue_scripts hook added, scoped to the lgw-multichamp page
+
+= 7.3.17 =
+* Feature: Multi-Discipline Championship scorecard integration — "+  Full scorecard" button in the Scores tab creates a scorecard CPT entry (context=multichamp, lgw_multichamp_game_id meta); edit screen shows a green info banner; scorecard list shows context badges
+* Feature: Scorecard list context badges (Cup / Multi-champ / Champ); division-unresolved warning suppressed for non-league scorecards
+
+= 7.3.16 =
+* Fix: Multi-Discipline Championship disciplines now support a Scoring mode field — "Ends" (play N ends) or "Target score" (first to N shots); Singles defaults to Target score; frontend fixture cards show the mode and value (e.g. "First to 21 shots") alongside results
+* Fix: Time limit field added per discipline — optional free text (e.g. "75 mins"), displayed in fixture card game rows; scoring mode label dynamically updates in admin when mode select changes
+
+= 7.3.33 =
+* Feature: Multi-Discipline Championship scorecard integration — "+ Full scorecard" button in the Scores tab creates a scorecard CPT entry (context=multichamp, lgw_multichamp_game_id meta) and opens the edit screen directly; edit screen shows a green info banner linking back to the championship scores tab
+* Feature: Scorecard list now shows context badges (Cup, Multi-champ, Champ) beside the scorecard title, plus a discipline/game ref for multichamp entries; division-unresolved warning suppressed for non-league scorecards
+
+= 7.3.33 =
+* Feature: Multi-Discipline Championship — new [lgw_multichamp] shortcode; admin pages for setup, fixtures, and score entry; overall and per-discipline standings tables; fixture result cards; integrates with existing scorecard CPT and appearances tracking
+
+= 7.3.14 =
+* Fix: Time pill (e.g. 5:30) now centres correctly over the fixture columns on widescreen — grid-column changed from 1/-1 to 1/6 to exclude the notes column
+
 = 7.3.13 =
 * Fix: Save Changes button on the scorecard post edit screen (post.php?post=X&action=edit) now correctly saves — the AJAX handler was missing from lgw-admin.js which is the only LGW script loaded on that screen; the inline handler in the scorecards admin page was not available there
 * Fix: Edit form styles (fields, grid, message feedback, audit log) now load correctly on the post edit screen via lgw-admin.css — previously they were only in an inline style block on the scorecards admin page
-
-
-= 7.3.13 =
 * New: Quick Score Entry — date jump filter; select a specific fixture date to focus the table on that date's matches only
 * New: Submitted Scorecards — division filter dropdown to narrow the list by division; status filter dropdown (Pending / Confirmed / Disputed / Admin resolved) for quick triage
-
-= 7.3.13 =
 * Feature: On widescreen, postponed pill splits into two stacked pills in the notes column — red Postponed pill and blue Rescheduled pill separately; mobile keeps the single combined pill
 
 = 7.3.10 =
