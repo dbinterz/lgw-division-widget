@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.44
+Stable tag: 7.3.48
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,7 +71,24 @@ Parameters:
 
 == Changelog ==
 
-= 7.3.44 =
+= 7.3.48 =
+* Fixed: fatal error in lgw_ajax_confirm_scorecard — replaced call to lgw_user_can_manage_scores() with inline capability check (manage_options or edit_others_posts) to avoid load-order dependency
+
+
+= 7.3.48 =
+* Admin confirm for pending scorecards: when viewing a pending scorecard as a logged-in admin, the club passphrase gate is replaced with a direct "Confirm on behalf of [club]" button; no passphrase required
+* PHP: lgw_ajax_confirm_scorecard now allows admin bypass — confirms as the other team with a distinct audit log entry
+
+
+= 7.3.48 =
+* Fixed: admin "confirm on behalf of other club" now also works when a scorecard has already been submitted by one team — admin can confirm the pending card without needing to log in as the other club
+
+
+= 7.3.48 =
+* Admin scorecard submission: new "Also confirm on behalf of the other club" checkbox available when submitting for home or away team; scorecard is immediately marked confirmed with a distinct audit log entry; checkbox is hidden when "Both teams" is selected
+
+
+= 7.3.48 =
 * Fix: Multi-champ widget font — removed fragile dependency on lgw_font_options() and lgw-font handle registration; now reads lgw_theme option directly, enqueues its own lgw-mc-font Google Fonts handle, and sets font-family directly on .lgw-mc-widget and all children
 
 = 7.3.43 =

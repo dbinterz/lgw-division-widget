@@ -1511,7 +1511,36 @@
           +'Skip Google Drive &amp; Sheets writeback <span style="color:#888">(use when backfilling historical scorecards)</span>'
           +'</label>'
           +'</div>'
+          +'<div class="lgw-admin-confirm-row" style="margin-top:6px;display:none">'
+          +'<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'
+          +'<input type="checkbox" name="lgw_modal_admin_confirm" value="1"> '
+          +'Also confirm on behalf of the other club <span style="color:#888">(scorecard will be marked confirmed immediately)</span>'
+          +'</label>'
+          +'</div>'
           +'</div>';
+      }
+
+      // Show/hide admin-confirm checkbox based on submitted_for selection
+      if (isAdm) {
+        setTimeout(function() {
+          var form = document.querySelector('.lgw-modal-sc-form');
+          if (!form) return;
+          function toggleConfirmRow() {
+            var sfEl = form.querySelector('input[name="lgw_modal_submitted_for"]:checked');
+            var row = form.querySelector('.lgw-admin-confirm-row');
+            if (!row) return;
+            var isBoth = sfEl && sfEl.value === 'both';
+            row.style.display = isBoth ? 'none' : '';
+            if (isBoth) {
+              var cb = row.querySelector('input[name="lgw_modal_admin_confirm"]');
+              if (cb) cb.checked = false;
+            }
+          }
+          form.addEventListener('change', function(e) {
+            if (e.target && e.target.name === 'lgw_modal_submitted_for') toggleConfirmRow();
+          });
+          toggleConfirmRow();
+        }, 0);
       }
 
       return '<div class="lgw-modal-sc-form">'
@@ -2367,6 +2396,8 @@
         if (isAdm) {
           var skipSheetsEl = el.querySelector('input[name="lgw_modal_skip_sheets"]');
           if (skipSheetsEl && skipSheetsEl.checked) fd.append('skip_sheets', '1');
+          var adminConfirmEl = el.querySelector('input[name="lgw_modal_admin_confirm"]');
+          if (adminConfirmEl && adminConfirmEl.checked) fd.append('admin_confirm', '1');
         }
         var xhr2 = new XMLHttpRequest();
         xhr2.open('POST', ajaxUrl);
@@ -2470,6 +2501,52 @@
   // Appended below the scorecard when status=pending and no club is authenticated.
   // On successful login re-fetches the scorecard so confirm/amend buttons appear.
   function lgwRenderModalLoginGate(containerEl, scData, opts, home, away, date) {
+    var gateId = 'lgw-modal-confirm-gate';
+
+    // ── Admin shortcut: confirm directly without a passphrase ────────────────
+    if (opts.isAdmin) {
+      var submittedBy = scData['_submitted_by'] || '';
+      var homeTeam    = scData.home_team || home;
+      var awayTeam    = scData.away_team || away;
+      var confirmAs   = lgwClubMatchesTeam(homeTeam, submittedBy) ? awayTeam : homeTeam;
+      var adminHtml   = '<div id="'+gateId+'" class="lgw-submit-card" style="margin-top:16px;border-top:2px solid #e0e4f0;padding-top:16px">'        +'<p style="margin:0 0 10px;font-weight:600;color:#1a2e5a">Admin: confirm on behalf of '+esc(confirmAs)+'</p>'        +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-gate-admin-confirm" style="width:100%">&#x2705; Confirm on behalf of '+esc(confirmAs)+'</button>'        +'<p id="lgw-modal-gate-status" class="lgw-notice" style="display:none;margin-top:8px"></p>'        +'</div>';
+      containerEl.insertAdjacentHTML('beforeend', adminHtml);
+      var gateEl    = containerEl.querySelector('#'+gateId);
+      var statusEl  = gateEl.querySelector('#lgw-modal-gate-status');
+      var confirmBtn = gateEl.querySelector('#lgw-modal-gate-admin-confirm');
+      confirmBtn.addEventListener('click', function(){
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ Confirming…';
+        var fd = new FormData();
+        fd.append('action', 'lgw_confirm_scorecard');
+        fd.append('nonce',  nonce);
+        fd.append('id',     scData._id || '');
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', ajaxUrl);
+        xhr.onload = function(){
+          var res;
+          try { res = JSON.parse(xhr.responseText || '{}'); } catch(e) { res = {}; }
+          confirmBtn.disabled = false;
+          if (res.success) {
+            confirmBtn.textContent = '✅ Confirmed';
+            confirmBtn.style.background = '#0a5a0a';
+            showStatus(statusEl, res.data.message || 'Scorecard confirmed.', 'ok');
+            window.lgwFetchScorecardOrSubmit(home, away, date, containerEl, opts);
+          } else {
+            confirmBtn.textContent = '✅ Confirm on behalf of '+confirmAs;
+            showStatus(statusEl, '❌ ' + (res.data || 'Error confirming.'), 'error');
+          }
+        };
+        xhr.onerror = function(){
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = '✅ Confirm on behalf of '+confirmAs;
+          showStatus(statusEl, '❌ Network error — please try again.', 'error');
+        };
+        xhr.send(fd);
+      });
+      return;
+    }
+
     var allClubs = (typeof lgwSubmit !== 'undefined' && lgwSubmit.clubs) ? lgwSubmit.clubs : [];
     var homeTeam = scData.home_team || home;
     var awayTeam = scData.away_team || away;
@@ -2484,7 +2561,6 @@
       return '<option value="'+esc(c)+'">'+esc(c)+'</option>';
     }).join('');
 
-    var gateId   = 'lgw-modal-confirm-gate';
     var gateHtml = '<div id="'+gateId+'" class="lgw-submit-card" style="margin-top:16px;border-top:2px solid #e0e4f0;padding-top:16px">'
       +'<p style="margin:0 0 10px;font-weight:600;color:#1a2e5a">Are you the opposing club? Log in to confirm or amend these scores.</p>'
       +(clubs.length

@@ -204,6 +204,32 @@ add_action('wp_ajax_nopriv_lgw_confirm_scorecard', 'lgw_ajax_confirm_scorecard')
 add_action('wp_ajax_lgw_confirm_scorecard',        'lgw_ajax_confirm_scorecard');
 function lgw_ajax_confirm_scorecard() {
     check_ajax_referer('lgw_submit_nonce', 'nonce');
+
+    $is_admin = current_user_can('manage_options') || current_user_can('edit_others_posts');
+
+    // Admins can confirm directly without a passphrase
+    if ($is_admin) {
+        $id  = intval($_POST['id'] ?? 0);
+        if (!$id) wp_send_json_error('Missing ID');
+        $sc = lgw_get_scorecard_data($id);
+        if (!$sc) wp_send_json_error('Scorecard not found');
+        $admin_login = wp_get_current_user()->user_login;
+        $submitted_by = get_post_meta($id, 'lgw_submitted_by', true);
+        // Confirm as the other team
+        $club = lgw_club_matches_team($sc['home_team'], $submitted_by) ? $sc['away_team'] : $sc['home_team'];
+        update_post_meta($id, 'lgw_sc_status',    'confirmed');
+        update_post_meta($id, 'lgw_confirmed_by', $club);
+        $drive_opts_adm   = get_option('lgw_drive', array());
+        $resolved_tab_adm = lgw_sheets_tab_for_division($sc['division'] ?? '', $drive_opts_adm);
+        if (!empty($sc['division']) && $resolved_tab_adm) {
+            delete_post_meta($id, 'lgw_division_unresolved');
+        }
+        lgw_log_appearances($id);
+        lgw_audit_log($id, 'confirmed', 'Confirmed by admin (' . $admin_login . ') on behalf of ' . $club);
+        do_action('lgw_scorecard_confirmed', $id);
+        wp_send_json_success(array('message' => 'Scorecard confirmed on behalf of ' . $club . '. ✅'));
+    }
+
     if (!lgw_passphrase_verified()) wp_send_json_error('Not authorised');
 
     $id   = intval($_POST['id'] ?? 0);
@@ -629,6 +655,8 @@ function lgw_ajax_save_scorecard() {
     // submitted_for: 'home' | 'away' | 'both' — only meaningful for admin submissions
     $submitted_for = $is_admin ? sanitize_text_field($_POST['submitted_for'] ?? 'home') : 'home';
     if (!in_array($submitted_for, array('home', 'away', 'both'))) $submitted_for = 'home';
+    // admin_confirm: admin is confirming on behalf of the other club as well
+    $admin_confirm = $is_admin && ($submitted_for !== 'both') && !empty($_POST['admin_confirm']);
 
     $raw_string  = stripslashes($_POST['scorecard'] ?? '');
     $raw         = json_decode($raw_string, true);
@@ -673,6 +701,12 @@ function lgw_ajax_save_scorecard() {
         return lgw_save_scorecard_admin_both($sc);
     }
 
+    // For admin submitting for one club but choosing to confirm on behalf of the other
+    if ($admin_confirm) {
+        $confirm_as = ($submitted_for === 'away') ? $sc['home_team'] : $sc['away_team'];
+        return lgw_save_scorecard_admin_confirm($sc, $submitted_for, $confirm_as);
+    }
+
     // For admin "home" or "away" submissions, use the team name as the submitter identity
     if ($is_admin) {
         $club = ($submitted_for === 'away') ? $sc['away_team'] : $sc['home_team'];
@@ -685,6 +719,12 @@ function lgw_ajax_save_scorecard() {
     if ($existing) {
         $existing_status = get_post_meta($existing->ID, 'lgw_sc_status', true);
         $submitted_by    = get_post_meta($existing->ID, 'lgw_submitted_by', true);
+
+        // Admin confirm override: bypass the normal second-club flow entirely
+        if ($admin_confirm) {
+            $confirm_as = ($submitted_for === 'away') ? $sc['home_team'] : $sc['away_team'];
+            return lgw_save_scorecard_admin_confirm($sc, $submitted_for, $confirm_as);
+        }
 
         if (lgw_club_matches_team($club, $submitted_by)) {
             // Same club resubmitting — update their version
@@ -826,6 +866,101 @@ function lgw_save_scorecard_admin_both($sc) {
 
     wp_send_json_success(array(
         'message'             => 'Scorecard submitted and confirmed for both teams. ✅',
+        'status'              => 'confirmed',
+        'id'                  => $post_id,
+        'division_unresolved' => (empty($sc['division']) || !$resolved_tab) ? 1 : 0,
+    ));
+}
+
+// ── Admin confirms on behalf of the other club ─────────────────────────────────────────────
+/**
+ * Admin submitted for one team ($submitted_for = 'home'|'away') but ticked
+ * "Also confirm on behalf of the other club". Saves the scorecard immediately
+ * as confirmed, logging which team the admin submitted for and which they
+ * confirmed on behalf of.
+ *
+ * @param array  $sc            Scorecard data array.
+ * @param string $submitted_for 'home' or 'away' — the team admin filled in for.
+ * @param string $confirm_as    The other team's name (the one being confirmed for).
+ */
+function lgw_save_scorecard_admin_confirm($sc, $submitted_for, $confirm_as) {
+    $match_key   = sanitize_title($sc['home_team'] . '-' . $sc['away_team']);
+    $sc_context  = sanitize_key($sc['context'] ?? 'league');
+    $existing    = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context);
+    $admin_login = wp_get_current_user()->user_login;
+    $submitted_by = ($submitted_for === 'away') ? $sc['away_team'] : $sc['home_team'];
+    $audit_note  = 'Admin submitted for ' . $submitted_by . ' and confirmed on behalf of ' . $confirm_as . ' (' . $admin_login . ')';
+
+    if ($existing) {
+        update_post_meta($existing->ID, 'lgw_scorecard_data', $sc);
+        update_post_meta($existing->ID, 'lgw_sc_status',      'confirmed');
+        update_post_meta($existing->ID, 'lgw_submitted_by',   $submitted_by);
+        update_post_meta($existing->ID, 'lgw_confirmed_by',   $confirm_as);
+        update_post_meta($existing->ID, 'lgw_submitted_for',  $submitted_for);
+        if (!empty($sc['fixture_date'])) update_post_meta($existing->ID, 'lgw_fixture_date', $sc['fixture_date']);
+        lgw_log_appearances($existing->ID);
+        lgw_audit_log($existing->ID, 'confirmed', $audit_note);
+        $skip_sheets = !empty($_POST['skip_sheets']);
+        if ($skip_sheets) {
+            remove_action('lgw_scorecard_confirmed', 'lgw_sheets_on_confirmed');
+            update_post_meta($existing->ID, 'lgw_skip_google', 1);
+        }
+        do_action('lgw_scorecard_confirmed', $existing->ID);
+        if ($skip_sheets) {
+            add_action('lgw_scorecard_confirmed', 'lgw_sheets_on_confirmed');
+            delete_post_meta($existing->ID, 'lgw_skip_google');
+        }
+        wp_send_json_success(array(
+            'message' => 'Scorecard submitted for ' . $submitted_by . ' and confirmed on behalf of ' . $confirm_as . '. ✅',
+            'status'  => 'confirmed',
+            'id'      => $existing->ID,
+        ));
+    }
+
+    $title   = $sc['home_team'] . ' v ' . $sc['away_team'] . ' (' . $sc['date'] . ')';
+    $post_id = wp_insert_post(array(
+        'post_type'   => 'lgw_scorecard',
+        'post_title'  => $title,
+        'post_status' => 'publish',
+    ));
+    if (is_wp_error($post_id)) wp_send_json_error('Could not save scorecard: ' . $post_id->get_error_message());
+
+    update_post_meta($post_id, 'lgw_match_key',      $match_key);
+    update_post_meta($post_id, 'lgw_scorecard_data', $sc);
+    update_post_meta($post_id, 'lgw_sc_status',      'confirmed');
+    update_post_meta($post_id, 'lgw_submitted_by',   $submitted_by);
+    update_post_meta($post_id, 'lgw_confirmed_by',   $confirm_as);
+    update_post_meta($post_id, 'lgw_submitted_for',  $submitted_for);
+    update_post_meta($post_id, 'lgw_sc_context',     $sc_context);
+    if (!empty($sc['fixture_date'])) update_post_meta($post_id, 'lgw_fixture_date', $sc['fixture_date']);
+
+    if (function_exists('lgw_get_active_season_id')) {
+        $season_id = lgw_get_active_season_id();
+        if ($season_id) update_post_meta($post_id, 'lgw_sc_season', $season_id);
+    }
+
+    $drive_opts   = get_option('lgw_drive', array());
+    $resolved_tab = lgw_sheets_tab_for_division($sc['division'], $drive_opts);
+    if (empty($sc['division']) || !$resolved_tab) {
+        update_post_meta($post_id, 'lgw_division_unresolved', 1);
+    }
+
+    lgw_log_appearances($post_id);
+    lgw_audit_log($post_id, 'confirmed', $audit_note);
+
+    $skip_sheets = !empty($_POST['skip_sheets']);
+    if ($skip_sheets) {
+        remove_action('lgw_scorecard_confirmed', 'lgw_sheets_on_confirmed');
+        update_post_meta($post_id, 'lgw_skip_google', 1);
+    }
+    do_action('lgw_scorecard_confirmed', $post_id);
+    if ($skip_sheets) {
+        add_action('lgw_scorecard_confirmed', 'lgw_sheets_on_confirmed');
+        delete_post_meta($post_id, 'lgw_skip_google');
+    }
+
+    wp_send_json_success(array(
+        'message'             => 'Scorecard submitted for ' . $submitted_by . ' and confirmed on behalf of ' . $confirm_as . '. ✅',
         'status'              => 'confirmed',
         'id'                  => $post_id,
         'division_unresolved' => (empty($sc['division']) || !$resolved_tab) ? 1 : 0,

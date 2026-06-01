@@ -108,7 +108,24 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
-### v7.3.44
+### 7.3.48
+- Fixed: fatal error in `lgw_ajax_confirm_scorecard` — replaced `lgw_user_can_manage_scores()` with inline capability check to avoid load-order dependency
+
+
+### 7.3.48
+- Admin confirm for pending scorecards: passphrase gate replaced with direct "Confirm on behalf of [club]" button for logged-in admins
+- PHP: `lgw_ajax_confirm_scorecard` allows admin bypass — confirms as the other team with audit log entry
+
+
+### 7.3.48
+- Fixed: admin "confirm on behalf of other club" now also works when a scorecard has already been submitted by one team — admin can confirm the pending card without logging in as the other club
+
+
+### 7.3.48
+- Admin scorecard submission: new "Also confirm on behalf of the other club" checkbox when submitting for home or away team; scorecard is immediately marked confirmed with a distinct audit log entry; checkbox hidden when "Both teams" is selected
+
+
+### v7.3.48
 - **Fix:** Multi-champ font now always applied — enqueue reads font option directly, loads Google Font independently via  handle, sets  directly on  rather than relying on CSS variable propagation from another stylesheet
 
 ### v7.3.43
