@@ -453,6 +453,21 @@
 .lgw-champ-name-links{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0}
 .lgw-champ-entry-sep{color:#aaa;font-size:.85em;padding:0 1px}
 .lgw-champ-entry-club{color:var(--lgw-text-muted,#888);font-size:.88em}
+/* ── Triples/fours skip-only display with expand toggle ────────────────────── */
+.lgw-champ-multi-entry{display:inline-flex;flex-direction:column;align-items:flex-start}
+.lgw-champ-team-collapsed,.lgw-champ-team-expanded{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0}
+.lgw-champ-team-collapsed[hidden],.lgw-champ-team-expanded[hidden]{display:none}
+.lgw-champ-expand-toggle{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:none;border:none;padding:0 0 0 3px;margin:0;
+  cursor:pointer;font-size:.8em;color:var(--lgw-text-muted,#888);
+  line-height:1;vertical-align:middle;transition:color .12s
+}
+.lgw-champ-expand-toggle:hover,.lgw-champ-expand-toggle:focus-visible{
+  color:var(--lgw-navy,#1a2e5a);outline:none
+}
+[data-lgw-theme="dark"] .lgw-champ-expand-toggle{color:rgba(200,214,248,.5)}
+[data-lgw-theme="dark"] .lgw-champ-expand-toggle:hover{color:#7ab0ff}
 
 /* ── Dark mode: tab switcher ─────────────────────────────────────────────────── */
 [data-lgw-theme="dark"] .lgw-pp-tabs{border-bottom-color:#2a3a5a}

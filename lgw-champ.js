@@ -148,26 +148,65 @@
     return c !== -1 ? entry.slice(c + 1).trim() : '';
   }
 
-  // Render a clickable player name button for stats popover
-  // Only activates when statsEligible=true and the entry is not a TBD placeholder
+  // Render a clickable player name button for stats popover.
+  // Only activates when statsEligible=true and the entry is not a TBD placeholder.
+  // For triples/fours (3+ players): shows only the skip (last player) on the bracket.
+  // A ▾ toggle beside the skip expands to reveal all team members as clickable links.
+  // For singles/pairs: all players shown as before.
   function renderEntryNameHtml(entry, statsEligible) {
-    if (!entry || !statsEligible) return '<span class="lgw-champ-team-name">' + escHtml(entry || 'TBD') + '</span>';
+    if (!entry) return '<span class="lgw-champ-team-name">TBD</span>';
     var club = entryClubFromStr(entry);
-    // For multi-player entries (pairs etc.), split by '/' and render each as a link
     var comma = entry.lastIndexOf(',');
     var playersPart = comma !== -1 ? entry.slice(0, comma) : entry;
     var players = playersPart.split('/').map(function(p){ return p.trim(); }).filter(Boolean);
     var clubPart = comma !== -1 ? entry.slice(comma + 1).trim() : '';
-    var links = players.map(function(p) {
+
+    // Non-stats path: plain text, but still apply skip-only for 3+ players
+    function makePlain(p) {
+      return '<span class="lgw-champ-plain-name">' + escHtml(p) + '</span>';
+    }
+    function makeLink(p) {
       return '<button type="button" class="lgw-player-link lgw-champ-player-link"'
         + ' data-player="' + escHtml(p) + '"'
         + ' data-club="' + escHtml(club) + '">'
         + escHtml(p)
         + '</button>';
-    }).join('<span class="lgw-champ-entry-sep"> / </span>');
-    return '<span class="lgw-champ-team-name lgw-champ-name-links">'
-      + links
-      + (clubPart ? '<span class="lgw-champ-entry-club">, ' + escHtml(clubPart) + '</span>' : '')
+    }
+    var makeName = statsEligible ? makeLink : makePlain;
+
+    // Singles or pairs — show all players
+    if (players.length <= 2) {
+      var sep = statsEligible
+        ? '<span class="lgw-champ-entry-sep"> / </span>'
+        : '<span class="lgw-champ-entry-sep"> / </span>';
+      var links = players.map(makeName).join(sep);
+      return '<span class="lgw-champ-team-name' + (statsEligible ? ' lgw-champ-name-links' : '') + '">'
+        + links
+        + (clubPart ? '<span class="lgw-champ-entry-club">, ' + escHtml(clubPart) + '</span>' : '')
+        + '</span>';
+    }
+
+    // Triples / fours — show skip only with expand toggle
+    var skip = players[players.length - 1];
+    var rest = players.slice(0, players.length - 1);
+    var restNames = rest.map(makeName).join('<span class="lgw-champ-entry-sep"> / </span>');
+    return '<span class="lgw-champ-team-name lgw-champ-name-links lgw-champ-multi-entry">'
+      + '<span class="lgw-champ-team-collapsed">'
+        + makeName(skip)
+        + (clubPart ? '<span class="lgw-champ-entry-club">, ' + escHtml(clubPart) + '</span>' : '')
+        + '<button type="button" class="lgw-champ-expand-toggle" title="Show all team members" aria-expanded="false">'
+          + '\u25be'
+        + '</button>'
+      + '</span>'
+      + '<span class="lgw-champ-team-expanded" hidden>'
+        + restNames
+        + '<span class="lgw-champ-entry-sep"> / </span>'
+        + makeName(skip)
+        + (clubPart ? '<span class="lgw-champ-entry-club">, ' + escHtml(clubPart) + '</span>' : '')
+        + '<button type="button" class="lgw-champ-expand-toggle lgw-champ-collapse-btn" title="Show skip only" aria-expanded="true">'
+          + '\u25b4'
+        + '</button>'
+      + '</span>'
       + '</span>';
   }
 

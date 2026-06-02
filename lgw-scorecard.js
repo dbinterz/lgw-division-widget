@@ -3079,6 +3079,21 @@
     xhr.send(fd);
   }
 
+  // Event delegation — expand/collapse team members for triples/fours bracket entries
+  document.addEventListener('click', function(e) {
+    var toggle = e.target.closest ? e.target.closest('.lgw-champ-expand-toggle') : null;
+    if (!toggle) return;
+    e.stopPropagation();
+    var entry = toggle.closest('.lgw-champ-multi-entry');
+    if (!entry) return;
+    var collapsed = entry.querySelector('.lgw-champ-team-collapsed');
+    var expanded  = entry.querySelector('.lgw-champ-team-expanded');
+    if (!collapsed || !expanded) return;
+    var isOpen = !expanded.hidden;
+    collapsed.hidden = !isOpen;
+    expanded.hidden  = isOpen;
+  });
+
   // Event delegation — handle player link clicks anywhere in the document
   document.addEventListener('click', function(e) {
     var btn = e.target.closest ? e.target.closest('.lgw-player-link') : null;
