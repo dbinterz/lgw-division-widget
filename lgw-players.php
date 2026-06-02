@@ -547,6 +547,23 @@ function lgw_find_dotted_initial_duplicates() {
 
 // ── AJAX: Get player game history ────────────────────────────────────────────
 add_action('wp_ajax_lgw_get_player_history', 'lgw_ajax_get_player_history');
+add_action('wp_ajax_lgw_check_player_name', 'lgw_ajax_check_player_name');
+function lgw_ajax_check_player_name() {
+    check_ajax_referer('lgw_players_nonce', 'nonce');
+    if (!current_user_can('manage_options') && !current_user_can('edit_others_posts'))
+        wp_send_json_error('Not authorised');
+    global $wpdb;
+    $pt      = $wpdb->prefix . 'lgw_players';
+    $club    = sanitize_text_field(wp_unslash($_POST['club']    ?? ''));
+    $name    = sanitize_text_field(wp_unslash($_POST['name']    ?? ''));
+    $exclude = intval($_POST['exclude_id'] ?? 0);
+    if (!$club || !$name) wp_send_json_error('Missing parameters');
+    $existing = $wpdb->get_row($wpdb->prepare(
+        "SELECT id, name FROM $pt WHERE club = %s AND name = %s AND id != %d LIMIT 1",
+        $club, $name, $exclude
+    ));
+    wp_send_json_success(array('exists' => !empty($existing), 'id' => $existing->id ?? null));
+}
 function lgw_ajax_get_player_history() {
     if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
     check_ajax_referer('lgw_players_nonce', 'nonce');
@@ -1004,8 +1021,31 @@ function lgw_players_admin_page() {
             $pid  = intval($_POST['player_id']  ?? 0);
             $name = sanitize_text_field(wp_unslash($_POST['new_name'] ?? ''));
             if ($pid && $name) {
-                $wpdb->update($pt, array('name' => $name), array('id' => $pid), array('%s'), array('%d'));
-                echo '<div class="notice notice-success"><p>Player renamed.</p></div>';
+                $old_name = $wpdb->get_var($wpdb->prepare("SELECT name FROM $pt WHERE id = %d", $pid));
+                $club     = $wpdb->get_var($wpdb->prepare("SELECT club FROM $pt WHERE id = %d", $pid));
+
+                if (!$old_name || $old_name === $name) {
+                    echo '<div class="notice notice-success"><p>No change.</p></div>';
+                } else {
+                    // Check if the target name already exists for this club (merge scenario)
+                    $existing_id = $wpdb->get_var($wpdb->prepare(
+                        "SELECT id FROM $pt WHERE club = %s AND name = %s AND id != %d LIMIT 1",
+                        $club, $name, $pid
+                    ));
+
+                    if ($existing_id) {
+                        // Merge: re-point all appearances from $pid to $existing_id, then delete $pid
+                        $apps_moved = $wpdb->update($at, array('player_id' => $existing_id), array('player_id' => $pid), array('%d'), array('%d'));
+                        $wpdb->delete($pt, array('id' => $pid), array('%d'));
+                        $rows = $apps_moved !== false ? $apps_moved : 0;
+                        echo '<div class="notice notice-success"><p>Player <strong>' . esc_html($old_name) . '</strong> merged into <strong>' . esc_html($name) . '</strong>. ' . $rows . ' appearance record' . ($rows !== 1 ? 's' : '') . ' reassigned.</p></div>';
+                    } else {
+                        // Simple rename — just update the name in lgw_players;
+                        // lgw_appearances stores player_id (not name) so no further update needed
+                        $wpdb->update($pt, array('name' => $name), array('id' => $pid), array('%s'), array('%d'));
+                        echo '<div class="notice notice-success"><p>Player renamed from <strong>' . esc_html($old_name) . '</strong> to <strong>' . esc_html($name) . '</strong>.</p></div>';
+                    }
+                }
             }
         }
 
@@ -1091,7 +1131,13 @@ function lgw_players_admin_page() {
 
     ?>
     <div class="wrap">
-    <h1>Player Tracking<?php if ($viewing_season && empty($viewing_season['active'])): ?> <span style="font-size:18px;color:#666;font-weight:400">— <?php echo esc_html($viewing_season['label']); ?></span><?php endif; ?></h1>
+    <?php
+    $page_title = 'Player Tracking';
+    if ($viewing_season && empty($viewing_season['active'])) {
+        $page_title .= ' â ' . $viewing_season['label'];
+    }
+    lgw_page_header($page_title);
+    ?>
 
     <style>
     .lgw-pt-tabs{display:flex;gap:0;margin-bottom:0;border-bottom:2px solid #1a2e5a}
@@ -1257,14 +1303,7 @@ function lgw_players_admin_page() {
     function lgwConfirmDelete(name) {
         return confirm('Delete player "' + name + '" and all their appearance records? This cannot be undone.');
     }
-    function lgwStartRename(id, currentName) {
-        var newName = prompt('Rename player:', currentName);
-        if (newName && newName.trim() && newName.trim() !== currentName) {
-            document.getElementById('rename-id-'+id).value = id;
-            document.getElementById('rename-name-'+id).value = newName.trim();
-            document.getElementById('rename-form-'+id).submit();
-        }
-    }
+    // Rename inline form toggling handled via event delegation in DOMContentLoaded
     // Populate merge dropdowns when club changes
     function lgwMergeClub(val) {
         var selA = document.getElementById('merge-keep');
@@ -1557,8 +1596,86 @@ function lgw_players_admin_page() {
             if (e.target === this) this.classList.remove('open');
         });
         document.addEventListener('keydown', function(e){
-            if (e.key === 'Escape') document.getElementById('lgw-history-modal').classList.remove('open');
+            if (e.key === 'Escape') {
+                document.getElementById('lgw-history-modal').classList.remove('open');
+                document.getElementById('lgw-rename-modal').style.display = 'none';
+            }
         });
+
+        // ── Player name link via event delegation ────────────────────────────
+        document.addEventListener('click', function(e) {
+            var histBtn = e.target.closest('.lgw-player-link[data-pid]');
+            if (histBtn) { lgwShowPlayerHistory(histBtn.dataset.pid); return; }
+
+            // Rename trigger: show inline input
+            var trigger = e.target.closest('.lgw-rename-trigger');
+            if (trigger) {
+                var form = trigger.closest('.lgw-rename-form');
+                form.querySelector('.lgw-rename-static').style.display = 'none';
+                var active = form.querySelector('.lgw-rename-active');
+                active.style.display = '';
+                var inp = active.querySelector('.lgw-rename-input');
+                inp.focus(); inp.select();
+                return;
+            }
+
+            // Rename cancel
+            var cancelBtn = e.target.closest('.lgw-rename-cancel');
+            if (cancelBtn) {
+                var form = cancelBtn.closest('.lgw-rename-form');
+                form.querySelector('.lgw-rename-active').style.display = 'none';
+                form.querySelector('.lgw-rename-static').style.display = '';
+                return;
+            }
+        });
+
+        // Rename form submit: check for duplicate name before allowing
+        document.querySelectorAll('.lgw-rename-form').forEach(function(form) {
+            form.addEventListener('submit', function(e) {
+                var inp     = form.querySelector('.lgw-rename-input');
+                var newName = inp.value.trim();
+                var pid     = form.querySelector('[name="player_id"]').value;
+                if (!newName) { e.preventDefault(); return; }
+
+                // Check for existing player with same name in same club via AJAX
+                // We store the club on the form's trigger button
+                var club = form.querySelector('.lgw-rename-trigger') 
+                    ? form.querySelector('.lgw-rename-trigger').dataset.club 
+                    : '';
+
+                if (!club || form.dataset.mergeConfirmed === '1') return; // allow submit
+
+                e.preventDefault();
+                var fd = new FormData();
+                fd.append('action',     'lgw_check_player_name');
+                fd.append('nonce',      lgwPlayersNonce);
+                fd.append('club',       club);
+                fd.append('name',       newName);
+                fd.append('exclude_id', pid);
+
+                fetch(lgwAjaxUrl, { method: 'POST', body: fd })
+                    .then(function(r){ return r.json(); })
+                    .then(function(res){
+                        if (res.success && res.data.exists) {
+                            if (confirm('⚠️ "' + newName + '" already exists for this club. Renaming will merge these two players. Continue?')) {
+                                form.dataset.mergeConfirmed = '1';
+                                form.submit();
+                            }
+                        } else {
+                            form.dataset.mergeConfirmed = '1';
+                            form.submit();
+                        }
+                    })
+                    .catch(function(){
+                        if (confirm('Could not check for duplicates. Submit anyway?')) {
+                            form.dataset.mergeConfirmed = '1';
+                            form.submit();
+                        }
+                    });
+            });
+        });
+
+
 
         // ── Club Summary: sort + filter + live totals ────────────────────────
         var csTable  = document.getElementById('lgw-cs-table');
@@ -1742,6 +1859,23 @@ function lgw_players_admin_page() {
     });
     </script>
 
+    <!-- Player rename modal -->
+    <div id="lgw-rename-modal" role="dialog" aria-modal="true" style="display:none;position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.5);align-items:flex-start;justify-content:center;padding:40px 16px">
+        <div style="background:#fff;border-radius:8px;box-shadow:0 4px 32px rgba(0,0,0,.25);width:100%;max-width:420px;padding:24px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <h2 id="lgw-rename-title" style="margin:0;font-size:16px;color:#1a2e5a">Rename player</h2>
+                <button id="lgw-rename-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#555;line-height:1">&times;</button>
+            </div>
+            <label style="display:block;font-size:13px;margin-bottom:6px;font-weight:600">New name</label>
+            <input type="text" id="lgw-rename-input" style="width:100%;padding:8px 10px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px;box-sizing:border-box">
+            <p id="lgw-rename-warning" style="display:none;margin:10px 0 0;padding:8px 12px;background:#fff8e1;border:1px solid #f0c040;border-radius:5px;font-size:13px;color:#7a5800"></p>
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+                <button id="lgw-rename-cancel" class="button button-secondary">Cancel</button>
+                <button id="lgw-rename-confirm" class="button button-primary">Rename</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Player history modal -->
     <div id="lgw-history-modal" role="dialog" aria-modal="true" aria-labelledby="lgw-history-title">
         <div id="lgw-history-inner">
@@ -1848,8 +1982,7 @@ function lgw_players_admin_page() {
                     data-teams="<?php echo esc_attr($pl->teams ?: ''); ?>"
                     data-name="<?php echo esc_attr(strtolower($pl->name)); ?>">
                     <td>
-                        <button class="lgw-player-link"
-                            onclick="lgwShowPlayerHistory(<?php echo $pl->id; ?>)"
+                        <button type="button" class="lgw-player-link" data-pid="<?php echo $pl->id; ?>"
                             title="View game history"><?php echo esc_html($pl->name); ?></button>
                     </td>
                     <td><?php echo esc_html($pl->teams ?: '—'); ?></td>
@@ -1884,19 +2017,24 @@ function lgw_players_admin_page() {
                     </td>
                     <td>
                         <div class="lgw-player-actions">
-                            <button class="button button-small" onclick="lgwStartRename(<?php echo $pl->id; ?>, <?php echo json_encode($pl->name); ?>)">Rename</button>
-                            <form method="post" style="display:inline" onsubmit="return lgwConfirmDelete(<?php echo json_encode($pl->name); ?>)">
+                            <form method="post" class="lgw-rename-form" id="lgw-rename-form-<?php echo $pl->id; ?>" style="display:inline">
+                                <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+                                <input type="hidden" name="lgw_players_action" value="rename_player">
+                                <input type="hidden" name="player_id" value="<?php echo $pl->id; ?>">
+                                <span class="lgw-rename-static">
+                                    <button type="button" class="button button-small lgw-rename-trigger">Rename</button>
+                                </span>
+                                <span class="lgw-rename-active" style="display:none">
+                                    <input type="text" name="new_name" class="lgw-rename-input" value="<?php echo esc_attr($pl->name); ?>" style="width:140px;padding:2px 6px;font-size:12px">
+                                    <button type="submit" class="button button-small button-primary">Save</button>
+                                    <button type="button" class="button button-small lgw-rename-cancel">✕</button>
+                                </span>
+                            </form>
+                            <form method="post" style="display:inline" onsubmit="return confirm('Delete player &quot;<?php echo esc_js($pl->name); ?>&quot; and all their appearance records? This cannot be undone.')">
                                 <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
                                 <input type="hidden" name="lgw_players_action" value="delete_player">
                                 <input type="hidden" name="player_id" value="<?php echo $pl->id; ?>">
                                 <button type="submit" class="button button-small button-link-delete">Delete</button>
-                            </form>
-                            <?php // Hidden rename forms ?>
-                            <form method="post" id="rename-form-<?php echo $pl->id; ?>" style="display:none">
-                                <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
-                                <input type="hidden" name="lgw_players_action" value="rename_player">
-                                <input type="hidden" name="player_id" id="rename-id-<?php echo $pl->id; ?>" value="">
-                                <input type="hidden" name="new_name"  id="rename-name-<?php echo $pl->id; ?>" value="">
                             </form>
                         </div>
                     </td>

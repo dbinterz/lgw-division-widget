@@ -108,24 +108,54 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
-### 7.3.48
+### 7.3.55
+- Fixed: rename handler removed erroneous `player_name` update on `lgw_appearances` (column doesn't exist; names resolved via `player_id` join)
+- Fixed: renaming to an existing name now performs a proper merge — appearances re-pointed to existing `player_id`, old record deleted — instead of hitting a duplicate key DB error
+
+
+### 7.3.55
+- Player rename cascades to `lgw_appearances`: all appearance records updated to new name; success notice reports row count
+
+
+### 7.3.55
+- Player Tracking admin page now shows the LGW page header (logo + version) consistent with other admin pages
+
+
+### 7.3.55
+- Fixed: rename (and player name) button `onclick` not firing — replaced inline `onclick` with `data-*` attributes wired via `addEventListener` event delegation
+
+
+### 7.3.55
+- Fixed: Rename button missing `type="button"` — browser was treating it as `type="submit"` and swallowing the click event before the `onclick` could fire
+
+
+### 7.3.55
+- Added null guard on rename modal element lookup — logs a console error if elements are missing rather than silently breaking
+
+
+### 7.3.55
+- Fixed: Rename button on Players admin page — `prompt()` suppressed in WP admin; replaced with inline modal
+- Rename modal: AJAX duplicate-name check before submit; if name already exists for same club, warning shown and explicit "Yes, merge" confirmation required
+
+
+### 7.3.55
 - Fixed: fatal error in `lgw_ajax_confirm_scorecard` — replaced `lgw_user_can_manage_scores()` with inline capability check to avoid load-order dependency
 
 
-### 7.3.48
+### 7.3.55
 - Admin confirm for pending scorecards: passphrase gate replaced with direct "Confirm on behalf of [club]" button for logged-in admins
 - PHP: `lgw_ajax_confirm_scorecard` allows admin bypass — confirms as the other team with audit log entry
 
 
-### 7.3.48
+### 7.3.55
 - Fixed: admin "confirm on behalf of other club" now also works when a scorecard has already been submitted by one team — admin can confirm the pending card without logging in as the other club
 
 
-### 7.3.48
+### 7.3.55
 - Admin scorecard submission: new "Also confirm on behalf of the other club" checkbox when submitting for home or away team; scorecard is immediately marked confirmed with a distinct audit log entry; checkbox hidden when "Both teams" is selected
 
 
-### v7.3.48
+### v7.3.55
 - **Fix:** Multi-champ font now always applied — enqueue reads font option directly, loads Google Font independently via  handle, sets  directly on  rather than relying on CSS variable propagation from another stylesheet
 
 ### v7.3.43
