@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.3.56
+ * Version: 7.3.57
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.3.56');
+define('LGW_VERSION', '7.3.57');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -549,12 +549,15 @@ function lgw_build_scorecard_status_map() {
         ));
         $map = array();
         foreach ($posts as $p) {
-            $sc           = get_post_meta($p->ID, 'lgw_scorecard_data', true);
-            $fixture_date = get_post_meta($p->ID, 'lgw_fixture_date',   true);
-            $status       = get_post_meta($p->ID, 'lgw_sc_status',      true) ?: 'pending';
+            $sc             = get_post_meta($p->ID, 'lgw_scorecard_data',  true);
+            $fixture_date   = get_post_meta($p->ID, 'lgw_fixture_date',    true);
+            $status         = get_post_meta($p->ID, 'lgw_sc_status',       true) ?: 'pending';
+            $submitted_by   = get_post_meta($p->ID, 'lgw_submitted_by',    true) ?: '';
             if (!$sc) continue;
-            $home = strtolower($sc['home_team'] ?? '');
-            $away = strtolower($sc['away_team'] ?? '');
+            $home_team = $sc['home_team'] ?? '';
+            $away_team = $sc['away_team'] ?? '';
+            $home = strtolower($home_team);
+            $away = strtolower($away_team);
             $date = $fixture_date ?: ($sc['date'] ?? '');
             if (!$home || !$away || !$date) continue;
             $key = $home . '||' . $away . '||' . strtolower($date);
@@ -565,7 +568,26 @@ function lgw_build_scorecard_status_map() {
             } elseif ($status === 'confirmed' || $existing === 'confirmed') {
                 $map[$key] = 'confirmed';
             } else {
-                $map[$key] = 'pending';
+                // Determine which side submitted using lgw_submitted_by (the actual club name).
+                // Encode as "pending:home" or "pending:away" so the widget can show
+                // the NON-submitting team, e.g. "Pending (Hilden)" means Hilden hasn't submitted.
+                $submitted_side = 'home'; // fallback
+                if ($submitted_by) {
+                    if (function_exists('lgw_club_matches_team') && lgw_club_matches_team($away_team, $submitted_by)) {
+                        $submitted_side = 'away';
+                    } elseif (stripos($away_team, $submitted_by) !== false || stripos($submitted_by, $away_team) !== false) {
+                        $submitted_side = 'away';
+                    }
+                }
+                $new_val = 'pending:' . $submitted_side;
+                // If already pending from the other side, both have submitted
+                if (strpos($existing, 'pending:') === 0) {
+                    $existing_side = substr($existing, 8);
+                    if ($existing_side !== $submitted_side) {
+                        $new_val = 'pending:both';
+                    }
+                }
+                $map[$key] = $new_val;
             }
         }
         return $map;

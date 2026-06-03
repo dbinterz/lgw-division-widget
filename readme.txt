@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.56
+Stable tag: 7.3.57
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,58 +71,62 @@ Parameters:
 
 == Changelog ==
 
-= 7.3.56 =
+= 7.3.57 =
+* Enhancement: Pending scorecard pill now identifies the awaiting team — e.g. "Pending (Hilden)" indicates Ards submitted and Hilden's confirmation is outstanding.
+
+
+= 7.3.57 =
 * Enhancement: Championship bracket displays only the skip for triples/fours entries; a ▾ toggle expands to show all team members as clickable player-stats links (stats-eligible championships only).
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Fixed: rename handler was attempting to update non-existent player_name column in lgw_appearances (names are resolved via player_id join — no column update needed)
 * Fixed: renaming to an existing player name now correctly merges the two records — appearances are re-pointed to the existing player_id and the old record is deleted — rather than hitting a duplicate key DB error
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Player rename now cascades to lgw_appearances: all appearance records for the player are updated to the new name; success notice reports how many records were updated
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Player Tracking admin page now displays the LGW page header (logo + version number) consistent with other admin pages
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Fixed: rename button onclick was not firing; replaced inline onclick attributes on Rename and player-name buttons with data attributes + event delegation via addEventListener, eliminating any CSP or inline-handler blocking issues
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Fixed: Rename button on Players page was missing type="button" — without it the browser treats it as type="submit" and swallows the click before the onclick handler fires
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Added null guard on rename modal elements in DOMContentLoaded to surface any missing-element errors in browser console rather than silently breaking
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Fixed: Rename button on Players admin page did not work — browser prompt() is suppressed in WP admin context; replaced with a proper inline modal
 * Rename modal: duplicate name check via AJAX before submitting — if the new name matches an existing player for the same club, a warning is shown and a second click ("Yes, merge") is required to confirm the merge intent
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Fixed: fatal error in lgw_ajax_confirm_scorecard — replaced call to lgw_user_can_manage_scores() with inline capability check (manage_options or edit_others_posts) to avoid load-order dependency
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Admin confirm for pending scorecards: when viewing a pending scorecard as a logged-in admin, the club passphrase gate is replaced with a direct "Confirm on behalf of [club]" button; no passphrase required
 * PHP: lgw_ajax_confirm_scorecard now allows admin bypass — confirms as the other team with a distinct audit log entry
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Fixed: admin "confirm on behalf of other club" now also works when a scorecard has already been submitted by one team — admin can confirm the pending card without needing to log in as the other club
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Admin scorecard submission: new "Also confirm on behalf of the other club" checkbox available when submitting for home or away team; scorecard is immediately marked confirmed with a distinct audit log entry; checkbox is hidden when "Both teams" is selected
 
 
-= 7.3.56 =
+= 7.3.57 =
 * Fix: Multi-champ widget font — removed fragile dependency on lgw_font_options() and lgw-font handle registration; now reads lgw_theme option directly, enqueues its own lgw-mc-font Google Fonts handle, and sets font-family directly on .lgw-mc-widget and all children
 
 = 7.3.43 =

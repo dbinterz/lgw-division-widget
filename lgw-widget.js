@@ -620,8 +620,20 @@
         var playedOn=playedDates[pdKey]||'';
         var playedPill=playedOn?'<span class="fx-played-pill">&#x1F4C5; Played '+playedOn+'</span>':'';
         // Scorecard submission status pill
-        var scStatus=scorecardStatus[pdKey]||'';
-        var scPill=scStatus?'<span class="fx-sc-status fx-sc-'+scStatus+'">'+(scStatus==='confirmed'?'&#x2705;':scStatus==='disputed'?'&#x26A0;&#xFE0F;':'&#x1F4CB;')+' '+(scStatus.charAt(0).toUpperCase()+scStatus.slice(1))+'</span>':'';
+        // scRaw may be 'confirmed', 'disputed', or 'pending:home'/'pending:away'/'pending:both'
+        var scRaw=scorecardStatus[pdKey]||'';
+        var scStatus=scRaw.indexOf(':')!==-1?scRaw.split(':')[0]:scRaw;
+        var scSide=scRaw.indexOf(':')!==-1?scRaw.split(':')[1]:'';
+        var scPendingLabel='Pending';
+        if(scStatus==='pending'&&scSide&&scSide!=='both'){
+          // Show which team is still awaited (the OTHER side from who submitted)
+          var submittedTeam=scSide==='home'?m.homeTeam:m.awayTeam;
+          var awaitingTeam=scSide==='home'?m.awayTeam:m.homeTeam;
+          scPendingLabel='Pending ('+awaitingTeam+')';
+        }
+        var scIcon=scStatus==='confirmed'?'&#x2705;':scStatus==='disputed'?'&#x26A0;&#xFE0F;':'&#x1F4CB;';
+        var scLabel=scStatus==='pending'?scPendingLabel:scStatus.charAt(0).toUpperCase()+scStatus.slice(1);
+        var scPill=scStatus?'<span class="fx-sc-status fx-sc-'+scStatus+'">'+scIcon+' '+scLabel+'</span>':'';
         // Postponed pill
         // All annotation pills
         var postEntry=postponements[pdKey]||null;
