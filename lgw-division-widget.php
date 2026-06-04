@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.3.57
+ * Version: 7.3.58
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.3.57');
+define('LGW_VERSION', '7.3.58');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -1145,6 +1145,7 @@ function lgw_scorecards_admin_page() {
         document.querySelectorAll('.lgw-save-edit').forEach(function(btn){
             btn.addEventListener('click', function(){
                 var postId=btn.dataset.postid, nonce=btn.dataset.nonce;
+                var isDisputed=btn.dataset.disputed==='1';
                 var wrap=document.getElementById('sc-'+postId);
                 var form=wrap?wrap.querySelector('.lgw-edit-form'):null;
                 var msgEl=form?form.querySelector('.lgw-edit-msg'):null;
@@ -1165,12 +1166,32 @@ function lgw_scorecards_admin_page() {
                 fetch(ajaxurl,{method:'POST',body:data,credentials:'same-origin'})
                     .then(function(r){ return r.text().then(function(t){ try{return JSON.parse(t);}catch(e){throw new Error('Bad JSON: '+t.slice(0,200));} }); })
                     .then(function(res){
-                        btn.disabled=false; btn.textContent='💾 Save Changes';
+                        var defaultLabel=isDisputed?'⚖️ Save & Resolve Dispute':'💾 Save Changes';
+                        btn.disabled=false; btn.textContent=defaultLabel;
                         if(msgEl){ msgEl.style.display=''; msgEl.className='lgw-edit-msg '+(res.success?'success':'error');
                             msgEl.textContent=res.success?(res.data.message||'Saved.'):('Error: '+(res.data||'unknown'));
-                            if(res.success) setTimeout(function(){location.reload();},1800); }
+                            if(res.success){
+                                // If this was a disputed card, update the status badge immediately
+                                if(isDisputed && wrap){
+                                    var row=wrap.closest('tr') ? wrap.closest('tr').previousElementSibling : null;
+                                    if(row){
+                                        var badge=row.querySelector('.lgw-sc-status');
+                                        if(badge){ badge.className='lgw-sc-status confirmed'; badge.textContent='Confirmed'; }
+                                        row.dataset.status='confirmed';
+                                    }
+                                    // Remove the disputed banner from the form
+                                    var notice=form.querySelector('.lgw-disputed-edit-notice');
+                                    if(notice) notice.remove();
+                                    // Remove data-disputed so button label resets on next open
+                                    btn.removeAttribute('data-disputed');
+                                    btn.textContent='💾 Save Changes';
+                                }
+                                setTimeout(function(){location.reload();},1800);
+                            }
+                        }
                     }).catch(function(err){
-                        btn.disabled=false; btn.textContent='💾 Save Changes';
+                        var defaultLabel=isDisputed?'⚖️ Save & Resolve Dispute':'💾 Save Changes';
+                        btn.disabled=false; btn.textContent=defaultLabel;
                         if(msgEl){ msgEl.style.display=''; msgEl.className='lgw-edit-msg error'; msgEl.textContent='Request failed: '+err.message; }
                     });
             });

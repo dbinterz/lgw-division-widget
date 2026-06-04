@@ -97,10 +97,14 @@ function lgw_audit_on_confirm($post_id, $club) {
 
 // Called when admin resolves a disputed scorecard
 function lgw_audit_on_resolve($post_id, $version, $sub_by, $con_by) {
-    $label = $version === 'away' ? 'Version B (' . $con_by . ')' : 'Version A (' . $sub_by . ')';
-    lgw_audit_log($post_id, 'resolved',
-        'Admin accepted ' . $label . ' to resolve dispute'
-    );
+    if ($version === 'admin_edit') {
+        $note = 'Admin edited scorecard directly to resolve dispute — both versions overridden';
+    } elseif ($version === 'away') {
+        $note = 'Admin accepted Version B (' . $con_by . ') to resolve dispute';
+    } else {
+        $note = 'Admin accepted Version A (' . $sub_by . ') to resolve dispute';
+    }
+    lgw_audit_log($post_id, 'resolved', $note);
 }
 
 // ── AJAX: save admin edit ─────────────────────────────────────────────────────
@@ -166,6 +170,18 @@ function lgw_ajax_admin_edit_scorecard() {
     // Save
     update_post_meta($post_id, 'lgw_scorecard_data', $after);
     update_post_meta($post_id, 'lgw_admin_edited',   current_time('mysql'));
+
+    // If the scorecard was disputed, an admin edit is the authoritative resolution —
+    // override both versions, clear the dispute, and confirm.
+    $pre_save_status = get_post_meta($post_id, 'lgw_sc_status', true) ?: 'pending';
+    if ($pre_save_status === 'disputed') {
+        $sub_by_res = get_post_meta($post_id, 'lgw_submitted_by', true);
+        $con_by_res = get_post_meta($post_id, 'lgw_confirmed_by', true);
+        update_post_meta($post_id, 'lgw_sc_status',      'confirmed');
+        update_post_meta($post_id, 'lgw_away_scorecard', '');
+        update_post_meta($post_id, 'lgw_confirmed_by',   wp_get_current_user()->user_login);
+        lgw_audit_on_resolve($post_id, 'admin_edit', $sub_by_res, $con_by_res);
+    }
     // Ensure sc_context is set (may be missing on older records — default to league)
     $existing_ctx = get_post_meta($post_id, 'lgw_sc_context', true);
     if (empty($existing_ctx)) {
@@ -314,8 +330,22 @@ function lgw_render_admin_edit_form($post_id, $sc) {
         delete_post_meta($post_id, 'lgw_division_unresolved');
     }
     ?>
-    <div class="lgw-edit-form" id="lgw-edit-<?php echo $post_id; ?>">
+    <?php
+    $edit_status     = get_post_meta($post_id, 'lgw_sc_status', true) ?: 'pending';
+    $is_disputed_edit = ($edit_status === 'disputed');
+    ?>
+    <div class="lgw-edit-form" id="lgw-edit-<?php echo $post_id; ?>"<?php if ($is_disputed_edit) echo ' data-disputed="1"'; ?>>
         <h4 style="margin:0 0 12px;color:#1a2e5a">✏️ Edit Scorecard</h4>
+
+        <?php if ($is_disputed_edit): ?>
+        <div class="lgw-disputed-edit-notice" style="background:#f8d7da;border:1px solid #f1aeb5;border-radius:4px;padding:10px 14px;margin-bottom:14px;font-size:13px;display:flex;align-items:flex-start;gap:10px">
+            <span style="font-size:16px;line-height:1.3">⚠️</span>
+            <div>
+                <strong>This scorecard is disputed.</strong><br>
+                <span style="color:#842029">Saving your edits will override both submitted versions and mark the scorecard as <strong>Confirmed</strong>. The dispute will be resolved.</span>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <?php if ($mc_game_id):
             // Parse: champ_id:fix_id:disc_id:game_idx
@@ -435,8 +465,9 @@ function lgw_render_admin_edit_form($post_id, $sc) {
         <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
             <button class="button button-primary lgw-save-edit"
                 data-postid="<?php echo $post_id; ?>"
-                data-nonce="<?php echo wp_create_nonce('lgw_admin_nonce'); ?>">
-                💾 Save Changes
+                data-nonce="<?php echo wp_create_nonce('lgw_admin_nonce'); ?>"
+                <?php if ($is_disputed_edit) echo 'data-disputed="1"'; ?>>
+                <?php echo $is_disputed_edit ? '⚖️ Save &amp; Resolve Dispute' : '💾 Save Changes'; ?>
             </button>
             <span class="lgw-edit-msg" style="display:none"></span>
         </div>
