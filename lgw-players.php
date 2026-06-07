@@ -1091,9 +1091,31 @@ function lgw_players_admin_page() {
         ORDER BY p.club, p.name
     ");
 
+    // Per-player, per-team league stats (for the expandable breakdown in the admin table)
+    $team_stats_raw = $wpdb->get_results(
+        "SELECT a.player_id, a.team,
+                SUM(CASE WHEN a.result='W' THEN 1 ELSE 0 END) as w,
+                SUM(CASE WHEN a.result='D' THEN 1 ELSE 0 END) as d,
+                SUM(CASE WHEN a.result='L' THEN 1 ELSE 0 END) as l,
+                SUM(CASE WHEN a.shots_for     IS NOT NULL THEN a.shots_for     ELSE 0 END) as sf,
+                SUM(CASE WHEN a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as sa,
+                COUNT(DISTINCT a.id) as apps
+         FROM $at a
+         WHERE a.game_type = 'league' AND a.team IS NOT NULL AND a.team != '' " .
+        ($season_where ? "AND 1=1 $season_where " : "") . "
+         GROUP BY a.player_id, a.team
+         ORDER BY a.player_id, a.team ASC"
+    );
+    // Index by player_id → array of team rows
+    $team_stats_by_player = array();
+    foreach ($team_stats_raw as $tr) {
+        $team_stats_by_player[$tr->player_id][] = $tr;
+    }
+
     // Group by club
     $by_club = array();
     foreach ($players as $pl) {
+        $pl->team_stats = $team_stats_by_player[$pl->id] ?? array();
         $by_club[$pl->club][] = $pl;
     }
 
@@ -1245,6 +1267,22 @@ function lgw_players_admin_page() {
     .lgw-cs-tfoot-note{font-size:11px;font-weight:400;opacity:.75;margin-left:6px}
     /* No-results row */
     #lgw-cs-no-results{display:none;color:#888;font-style:italic;padding:10px 14px;text-align:center}
+    /* ── Per-team league stats breakdown ────────────────────────────────────── */
+    .lgw-pts-cell{font-size:12px;min-width:180px}
+    .lgw-pts-summary{display:flex;align-items:center;gap:6px;white-space:nowrap}
+    .lgw-pts-toggle{
+        background:none;border:none;padding:0 2px;cursor:pointer;
+        font-size:.85em;color:#888;line-height:1;vertical-align:middle;
+        transition:color .12s
+    }
+    .lgw-pts-toggle:hover,.lgw-pts-toggle:focus-visible{color:#1a2e5a;outline:none}
+    .lgw-pts-toggle[aria-expanded="true"]{transform:rotate(180deg)}
+    .lgw-pts-detail{margin-top:4px;border-top:1px solid #e0e0e0;padding-top:4px}
+    .lgw-pts-row{display:flex;align-items:baseline;gap:6px;padding:2px 0;white-space:nowrap}
+    .lgw-pts-total-row{border-top:1px solid #ccc;margin-top:2px;padding-top:3px;font-weight:700}
+    .lgw-pts-team-name{color:#1a2e5a;font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+    .lgw-pts-wdl{color:#333;font-variant-numeric:tabular-nums}
+    .lgw-pts-sfsa{color:#666;font-size:11px;font-variant-numeric:tabular-nums}
     </style>
 
     <?php
@@ -1607,6 +1645,22 @@ function lgw_players_admin_page() {
             var histBtn = e.target.closest('.lgw-player-link[data-pid]');
             if (histBtn) { lgwShowPlayerHistory(histBtn.dataset.pid); return; }
 
+            // Per-team league stats expand/collapse toggle
+            var toggle = e.target.closest('.lgw-pts-toggle');
+            if (toggle) {
+                var isOpen = toggle.getAttribute('aria-expanded') === 'true';
+                var cell = toggle.closest('.lgw-pts-cell');
+                if (cell) {
+                    var detail = cell.querySelector('.lgw-pts-detail');
+                    if (detail) {
+                        detail.hidden = isOpen;
+                        toggle.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+                        toggle.title = isOpen ? 'Show per-team breakdown' : 'Hide per-team breakdown';
+                    }
+                }
+                return;
+            }
+
             // Rename trigger: show inline input
             var trigger = e.target.closest('.lgw-rename-trigger');
             if (trigger) {
@@ -1950,11 +2004,10 @@ function lgw_players_admin_page() {
                 <table class="widefat striped">
                 <thead><tr>
                     <th>Name</th>
-                    <th>Teams played for</th>
                     <th style="text-align:center">Apps<?php echo $season_where ? ' (season)' : ''; ?></th>
                     <th style="text-align:center" title="Wins / Draws / Losses (all games)">W/D/L</th>
                     <th style="text-align:center" title="Shots For – Shots Against (all games)">SF–SA</th>
-                    <th style="text-align:center" title="League: Wins / Draws / Losses">Lge W/D/L</th>
+                    <th title="League stats per team — click ▾ to expand">League (by team)</th>
                     <th style="text-align:center" title="Cup: Wins / Draws / Losses">Cup W/D/L</th>
                     <th style="text-align:center" title="Starred player">⭐</th>
                     <th style="text-align:center" title="Female player">♀</th>
@@ -1978,6 +2031,44 @@ function lgw_players_admin_page() {
                         ? intval($pl->cup_wins).'/'.intval($pl->cup_draws).'/'.intval($pl->cup_losses)
                         : '—';
                 ?>
+                <?php
+                    // Build per-team league breakdown HTML
+                    $ts = $pl->team_stats; // array of {team,w,d,l,sf,sa,apps}
+                    $multi_team = count($ts) > 1;
+                    $lge_team_html = '';
+                    if (empty($ts)) {
+                        $lge_team_html = '<span style="color:#bbb">—</span>';
+                    } elseif (!$multi_team) {
+                        // Single team — show inline, no toggle needed
+                        $tr0 = $ts[0];
+                        $lge_team_html = '<span class="lgw-pts-team-name">' . esc_html($tr0->team) . '</span>'
+                            . ' <span class="lgw-pts-wdl">' . intval($tr0->w).'/'.intval($tr0->d).'/'.intval($tr0->l) . '</span>'
+                            . ' <span class="lgw-pts-sfsa">' . intval($tr0->sf).'–'.intval($tr0->sa) . '</span>';
+                    } else {
+                        // Multiple teams — summary + expandable per-team rows
+                        $lge_team_html = '<div class="lgw-pts-summary">'
+                            . '<span class="lgw-pts-wdl">' . esc_html($wdl_lge) . '</span>'
+                            . ' <span class="lgw-pts-sfsa">'
+                                . intval($pl->lge_sf) . '–' . intval($pl->lge_sa)
+                            . '</span>'
+                            . ' <button type="button" class="lgw-pts-toggle" title="Show per-team breakdown" aria-expanded="false">&#x25be;</button>'
+                            . '</div>'
+                            . '<div class="lgw-pts-detail" hidden>';
+                        foreach ($ts as $tr) {
+                            $lge_team_html .= '<div class="lgw-pts-row">'
+                                . '<span class="lgw-pts-team-name">' . esc_html($tr->team) . '</span>'
+                                . ' <span class="lgw-pts-wdl">' . intval($tr->w).'/'.intval($tr->d).'/'.intval($tr->l) . '</span>'
+                                . ' <span class="lgw-pts-sfsa">' . intval($tr->sf).'–'.intval($tr->sa) . '</span>'
+                                . '</div>';
+                        }
+                        $lge_team_html .= '<div class="lgw-pts-row lgw-pts-total-row">'
+                            . '<span class="lgw-pts-team-name">Total</span>'
+                            . ' <span class="lgw-pts-wdl">' . esc_html($wdl_lge) . '</span>'
+                            . ' <span class="lgw-pts-sfsa">' . intval($pl->lge_sf).'–'.intval($pl->lge_sa) . '</span>'
+                            . '</div>'
+                            . '</div>';
+                    }
+                ?>
                 <tr<?php echo $pl->appearances == 0 ? ' class="lgw-appearances-zero"' : ''; ?>
                     data-teams="<?php echo esc_attr($pl->teams ?: ''); ?>"
                     data-name="<?php echo esc_attr(strtolower($pl->name)); ?>">
@@ -1985,11 +2076,10 @@ function lgw_players_admin_page() {
                         <button type="button" class="lgw-player-link" data-pid="<?php echo $pl->id; ?>"
                             title="View game history"><?php echo esc_html($pl->name); ?></button>
                     </td>
-                    <td><?php echo esc_html($pl->teams ?: '—'); ?></td>
                     <td style="text-align:center"><?php echo intval($pl->appearances); ?></td>
                     <td style="text-align:center;white-space:nowrap"><?php echo esc_html($wdl_all); ?></td>
                     <td style="text-align:center;white-space:nowrap"><?php echo esc_html($sfsa_all); ?></td>
-                    <td style="text-align:center;white-space:nowrap"><?php echo esc_html($wdl_lge); ?></td>
+                    <td class="lgw-pts-cell"><?php echo $lge_team_html; ?></td>
                     <td style="text-align:center;white-space:nowrap"><?php echo esc_html($wdl_cup); ?></td>
                     <td style="text-align:center">
                         <form method="post" style="display:inline">

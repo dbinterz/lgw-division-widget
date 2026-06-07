@@ -2991,7 +2991,7 @@
               var compSpan = g.competition
                 ? '<span class="lgw-ppg-comp">'+esc(g.competition)+'</span>'
                 : '';
-              ph += '<div class="lgw-ppg-row" data-game-team="'+esc(g.team||'')+'">'
+              ph += '<div class="lgw-ppg-row" data-game-team="'+esc(g.team||'')+'" data-game-result="'+esc(g.result||'')+'">'
                 + '<div class="lgw-ppg-left">'
                   + '<div class="lgw-ppg-match">'+esc(g.match)+'</div>'
                   + '<div class="lgw-ppg-meta">'
@@ -3051,6 +3051,27 @@
               row.style.display = (rowTeam === filterVal) ? '' : 'none';
             }
           });
+          // Recompute W/D/L stats from visible rows only
+          var statsEl = scope.querySelector('.lgw-player-popover-stats');
+          if (statsEl) {
+            var fw = 0, fd = 0, fl = 0;
+            scope.querySelectorAll('.lgw-ppg-row').forEach(function(row) {
+              if (row.style.display === 'none') return;
+              var res = row.getAttribute('data-game-result') || '';
+              if (res === 'W') fw++;
+              else if (res === 'D') fd++;
+              else if (res === 'L') fl++;
+            });
+            var fp = fw + fd + fl;
+            var wEl = statsEl.querySelector('.lgw-pps-w .lgw-pps-val');
+            var dEl = statsEl.querySelector('.lgw-pps-d .lgw-pps-val');
+            var lEl = statsEl.querySelector('.lgw-pps-l .lgw-pps-val');
+            var pEl = statsEl.querySelector('.lgw-pps-p .lgw-pps-val');
+            if (wEl) wEl.textContent = fw;
+            if (dEl) dEl.textContent = fd;
+            if (lEl) lEl.textContent = fl;
+            if (pEl) pEl.textContent = fp;
+          }
         });
       });
 
