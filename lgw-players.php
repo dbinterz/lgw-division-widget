@@ -917,6 +917,91 @@ function lgw_ajax_get_player_stats() {
 }
 
 // ── Admin menu ────────────────────────────────────────────────────────────────
+
+// ── Early POST handler — fires on admin_init before any output ────────────────
+// Handles rename_player, update_flags, and delete_player so wp_safe_redirect()
+// can run before headers are sent.
+add_action('admin_init', 'lgw_players_admin_init');
+function lgw_players_admin_init() {
+    if (!is_admin()) return;
+    if (empty($_POST['lgw_players_action'])) return;
+    if (empty($_GET['page']) || $_GET['page'] !== 'lgw-players') return;
+    if (!current_user_can('manage_options')) return;
+    if (!check_admin_referer('lgw_players_nonce', 'lgw_players_nonce_field')) return;
+
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    $action = sanitize_text_field($_POST['lgw_players_action']);
+
+    // Only handle redirect-based actions here
+    if (!in_array($action, array('rename_player', 'update_flags', 'delete_player'))) return;
+
+    // Build redirect base, preserving season context
+    $base = admin_url('admin.php?page=lgw-players');
+    $season_id = sanitize_text_field($_GET['season'] ?? '');
+    if ($season_id) {
+        $season_obj = lgw_get_season_by_id($season_id);
+        if ($season_obj && empty($season_obj['active'])) {
+            $base = add_query_arg('season', $season_id, $base);
+        }
+    }
+
+    // Restore filter params from POST into redirect URL
+    $fc = sanitize_text_field(wp_unslash($_POST['lgw_filter_club'] ?? ''));
+    $ft = sanitize_text_field(wp_unslash($_POST['lgw_filter_team'] ?? ''));
+    $fn = sanitize_text_field(wp_unslash($_POST['lgw_filter_name'] ?? ''));
+    if ($fc) $base = add_query_arg('lgw_fc', rawurlencode($fc), $base);
+    if ($ft) $base = add_query_arg('lgw_ft', rawurlencode($ft), $base);
+    if ($fn) $base = add_query_arg('lgw_fn', rawurlencode($fn), $base);
+
+    if ($action === 'rename_player') {
+        $pid  = intval($_POST['player_id'] ?? 0);
+        $name = sanitize_text_field(wp_unslash($_POST['new_name'] ?? ''));
+        if ($pid && $name) {
+            $old_name = $wpdb->get_var($wpdb->prepare("SELECT name FROM $pt WHERE id = %d", $pid));
+            $club     = $wpdb->get_var($wpdb->prepare("SELECT club FROM $pt WHERE id = %d", $pid));
+            if ($old_name && $old_name !== $name) {
+                $existing_id = $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM $pt WHERE club = %s AND name = %s AND id != %d LIMIT 1",
+                    $club, $name, $pid
+                ));
+                if ($existing_id) {
+                    $wpdb->update($at, array('player_id' => $existing_id), array('player_id' => $pid), array('%d'), array('%d'));
+                    $wpdb->delete($pt, array('id' => $pid), array('%d'));
+                } else {
+                    $wpdb->update($pt, array('name' => $name), array('id' => $pid), array('%s'), array('%d'));
+                }
+            }
+        }
+    }
+
+    if ($action === 'update_flags') {
+        $pid     = intval($_POST['player_id'] ?? 0);
+        $starred = intval($_POST['starred'] ?? 0) ? 1 : 0;
+        $female  = intval($_POST['female']  ?? 0) ? 1 : 0;
+        if ($pid) {
+            $wpdb->update($pt,
+                array('starred' => $starred, 'female' => $female),
+                array('id' => $pid),
+                array('%d', '%d'), array('%d')
+            );
+        }
+    }
+
+    if ($action === 'delete_player') {
+        $pid = intval($_POST['player_id'] ?? 0);
+        if ($pid) {
+            $wpdb->delete($at, array('player_id' => $pid), array('%d'));
+            $wpdb->delete($pt, array('id' => $pid),        array('%d'));
+        }
+    }
+
+    wp_safe_redirect($base);
+    exit;
+}
+
 // ── Admin page ────────────────────────────────────────────────────────────────
 function lgw_players_admin_page() {
     global $wpdb;
@@ -1008,60 +1093,11 @@ function lgw_players_admin_page() {
             }
         }
 
-        if ($action === 'delete_player') {
-            $pid = intval($_POST['player_id'] ?? 0);
-            if ($pid) {
-                $wpdb->delete($at, array('player_id' => $pid), array('%d'));
-                $wpdb->delete($pt, array('id' => $pid),        array('%d'));
-                echo '<div class="notice notice-success"><p>Player deleted.</p></div>';
-            }
-        }
+        // delete_player handled in lgw_players_admin_init
 
-        if ($action === 'rename_player') {
-            $pid  = intval($_POST['player_id']  ?? 0);
-            $name = sanitize_text_field(wp_unslash($_POST['new_name'] ?? ''));
-            if ($pid && $name) {
-                $old_name = $wpdb->get_var($wpdb->prepare("SELECT name FROM $pt WHERE id = %d", $pid));
-                $club     = $wpdb->get_var($wpdb->prepare("SELECT club FROM $pt WHERE id = %d", $pid));
-
-                if (!$old_name || $old_name === $name) {
-                    echo '<div class="notice notice-success"><p>No change.</p></div>';
-                } else {
-                    // Check if the target name already exists for this club (merge scenario)
-                    $existing_id = $wpdb->get_var($wpdb->prepare(
-                        "SELECT id FROM $pt WHERE club = %s AND name = %s AND id != %d LIMIT 1",
-                        $club, $name, $pid
-                    ));
-
-                    if ($existing_id) {
-                        // Merge: re-point all appearances from $pid to $existing_id, then delete $pid
-                        $apps_moved = $wpdb->update($at, array('player_id' => $existing_id), array('player_id' => $pid), array('%d'), array('%d'));
-                        $wpdb->delete($pt, array('id' => $pid), array('%d'));
-                        $rows = $apps_moved !== false ? $apps_moved : 0;
-                        echo '<div class="notice notice-success"><p>Player <strong>' . esc_html($old_name) . '</strong> merged into <strong>' . esc_html($name) . '</strong>. ' . $rows . ' appearance record' . ($rows !== 1 ? 's' : '') . ' reassigned.</p></div>';
-                    } else {
-                        // Simple rename — just update the name in lgw_players;
-                        // lgw_appearances stores player_id (not name) so no further update needed
-                        $wpdb->update($pt, array('name' => $name), array('id' => $pid), array('%s'), array('%d'));
-                        echo '<div class="notice notice-success"><p>Player renamed from <strong>' . esc_html($old_name) . '</strong> to <strong>' . esc_html($name) . '</strong>.</p></div>';
-                    }
-                }
-            }
-        }
-
-        if ($action === 'update_flags') {
-            $pid     = intval($_POST['player_id'] ?? 0);
-            $starred = intval($_POST['starred'] ?? 0) ? 1 : 0;
-            $female  = intval($_POST['female']  ?? 0) ? 1 : 0;
-            if ($pid) {
-                $wpdb->update($pt,
-                    array('starred' => $starred, 'female' => $female),
-                    array('id' => $pid),
-                    array('%d','%d'), array('%d')
-                );
-            }
-            // Silently return — called via inline form
-        }
+        // rename_player, update_flags, and delete_player are handled in
+        // lgw_players_admin_init (hooked to admin_init) so the redirect fires
+        // before any output — avoids headers-already-sent errors.
     }
 
     // Fetch all players with appearance counts and aggregated stats
@@ -1627,6 +1663,66 @@ function lgw_players_admin_page() {
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+
+        // ── Restore filter state from URL params (after rename/flags/delete redirect) ──
+        (function() {
+            var params = new URLSearchParams(window.location.search);
+            var fc = params.get('lgw_fc') || '';
+            var ft = params.get('lgw_ft') || '';
+            var fn = params.get('lgw_fn') || '';
+            var fcEl = document.getElementById('lgw-filter-club');
+            var ftEl = document.getElementById('lgw-filter-team');
+            var fnEl = document.getElementById('lgw-filter-name');
+            if (fc && fcEl) fcEl.value = fc;
+            if (ft && ftEl) ftEl.value = ft;
+            if (fn && fnEl) fnEl.value = fn;
+            if (fc || ft || fn) {
+                if (typeof lgwApplyFilters === 'function') lgwApplyFilters();
+                // Clean the URL so a manual reload doesn't re-apply stale filters
+                var clean = new URL(window.location.href);
+                clean.searchParams.delete('lgw_fc');
+                clean.searchParams.delete('lgw_ft');
+                clean.searchParams.delete('lgw_fn');
+                window.history.replaceState({}, '', clean.toString());
+            }
+        })();
+
+        // ── Inject current filter values into any form before it submits ─────
+        // Covers rename_player, update_flags, and delete_player forms so the
+        // PHP redirect can echo them back as URL params.
+        // NOTE: flag checkboxes use a change handler (below) because native
+        // form.submit() does not fire the submit event.
+        function lgwInjectFilters(form) {
+            var fcEl = document.getElementById('lgw-filter-club');
+            var ftEl = document.getElementById('lgw-filter-team');
+            var fnEl = document.getElementById('lgw-filter-name');
+            function injectHidden(name, value) {
+                if (form.querySelector('input[name="' + name + '"]')) return;
+                var inp = document.createElement('input');
+                inp.type = 'hidden'; inp.name = name; inp.value = value || '';
+                form.appendChild(inp);
+            }
+            injectHidden('lgw_filter_club', fcEl ? fcEl.value : '');
+            injectHidden('lgw_filter_team', ftEl ? ftEl.value : '');
+            injectHidden('lgw_filter_name', fnEl ? fnEl.value : '');
+        }
+        document.addEventListener('submit', function(e) {
+            var form = e.target;
+            if (!form.closest('#lgw-panel-players')) return;
+            lgwInjectFilters(form);
+        }, true); // capture phase so it runs before form.submit() calls
+
+        // Flag checkboxes (★/♀) call native form.submit() via onchange which does
+        // NOT fire the submit event — handle via change delegation instead.
+        document.addEventListener('change', function(e) {
+            var cb = e.target.closest('.lgw-flag-checkbox');
+            if (!cb) return;
+            var form = cb.closest('form');
+            if (!form) return;
+            lgwInjectFilters(form);
+            form.submit();
+        });
+
         document.getElementById('lgw-history-close').addEventListener('click', function(){
             document.getElementById('lgw-history-modal').classList.remove('open');
         });
@@ -2089,7 +2185,7 @@ function lgw_players_admin_page() {
                             <input type="hidden" name="female" value="<?php echo $pl->female ? '1' : '0'; ?>">
                             <input type="checkbox" name="starred" value="1"
                                 <?php checked($pl->starred, 1); ?>
-                                onchange="this.form.submit()"
+                                class="lgw-flag-checkbox"
                                 title="Mark as starred player">
                         </form>
                     </td>
@@ -2101,7 +2197,7 @@ function lgw_players_admin_page() {
                             <input type="hidden" name="starred" value="<?php echo $pl->starred ? '1' : '0'; ?>">
                             <input type="checkbox" name="female" value="1"
                                 <?php checked($pl->female, 1); ?>
-                                onchange="this.form.submit()"
+                                class="lgw-flag-checkbox"
                                 title="Mark as female player">
                         </form>
                     </td>
