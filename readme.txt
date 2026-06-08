@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.1.27
+Stable tag: 7.6.0
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,13 +71,702 @@ Parameters:
 
 == Changelog ==
 
+= 7.6.0 =
+* Test: Phase 4.3 — Playwright E2E test suite added (tests/ directory)
+* Test: PHPUnit unit tests for cache read/write, CSV parsing, and result merging
+* Test: GitHub Actions test.yml CI workflow (runs on push to main)
+* Test: lgw_seed_test_clubs() helper registered under WP_ENVIRONMENT_TYPE=local
+* Build: GitHub Actions release.yml already excludes tests/ from release ZIP
+
+
+= 7.5.5 =
+* Diagnostic: log played/unplayed row counts after binding to identify fixture click issue.
+
+
+= 7.5.4 =
+* Fix: Restore bindTeamLinks to original logic. Fix lgwCachedGroupsToRows to return empty array (safe for parseTableRows). Add console diagnostics to SSR path to identify fixture click issue.
+
+
+= 7.5.3 =
+* Fix: Fixture submission modal now reliably opens on click anywhere on an unplayed fixture row, including team name areas. Team link clicks on unplayed rows now bubble up to the row handler rather than being swallowed.
+
+
+= 7.5.2 =
+* Fix: Fixture submission modal now opens correctly when clicking an unplayed fixture row. Team name clicks inside unplayed rows stop propagation (preventing double modal) and defer to the row click handler.
+
+
+= 7.5.1 =
+* Fix: SSR filter bar now uses same .fix-filter/data-f markup as XHR path so existing CSS applies correctly.
+* Fix: Unplayed fixture row clicks now open the submission modal correctly — team name link clicks inside unplayed rows no longer stopPropagation, so the row click handler fires as expected.
+
+
+= 7.5.0 =
+* New: [lgw_division] shortcode now renders standings table and fixtures list server-side from the DB cache (Phase 4.2). No XHR or loading spinner when cache is warm — content appears instantly on page load.
+* New: data-prerendered and data-cached attributes allow lgw-widget.js to skip the initial CSV fetch and bind click handlers directly to pre-rendered HTML.
+* New: Filter bar (All / Results / Upcoming) works on server-rendered fixtures via DOM show/hide rather than re-rendering.
+* Graceful fallback: if cache is empty or stale beyond 24h the widget falls back to the existing XHR path transparently.
+
+
+= 7.4.1 =
+* Fix: Division cache sync and status panel now correctly unpack season division entries (array of {division, csv_url} objects) rather than expecting plain strings, resolving "Array to string conversion" warning on the Settings page.
+
+
+= 7.4.0 =
+* New: DB-primary division cache layer (lgw-div-cache.php). Division standings and fixtures are now stored in WP options and served instantly on page load — no outbound HTTP request required.
+* New: Background WP-Cron sync keeps the cache fresh automatically (configurable: 15 min / 30 min / 1 hour / 4 hours).
+* New: Confirmed scorecard results merge into the fixture cache immediately via lgw_scorecard_confirmed hook.
+* New: Division Cache health panel in Settings shows last-synced time, fixture count, and team count per division with per-division and bulk Sync buttons.
+* Updated: "Clear Cache Now" button in Settings also clears the new DB cache entries.
+
+= 7.3.62 =
+* Fix: ★/♀ flag checkboxes now restore filter state after update (native form.submit() bypasses submit event; fixed with change event delegation).
+
+
+= 7.3.62 =
+* Fix: Player admin POST actions (rename, flags, delete) moved to admin_init hook to prevent headers-already-sent warning on redirect.
+
+
+= 7.3.62 =
+* Enhancement: Player admin — rename, starred/female flag changes, and delete restore active filters after the page reloads, so you return to the same filtered view.
+
+
+= 7.3.62 =
+* Enhancement: Player admin — new per-team league stats breakdown with ▾ expand toggle for multi-team players.
+* Fix: Popover team filter chips now recompute W/D/L/Played to show stats for the selected team only.
+
+
+= 7.3.62 =
+* Fix: Saving an admin edit on a disputed scorecard now resolves the dispute — status updated to Confirmed, away version cleared, audit entry logged.
+* Enhancement: Disputed edit form shows a warning banner and relabels the save button to signal that saving will resolve the dispute.
+
+
+= 7.3.62 =
+* Enhancement: Pending scorecard pill now identifies the awaiting team — e.g. "Pending (Hilden)" indicates Ards submitted and Hilden's confirmation is outstanding.
+
+
+= 7.3.62 =
+* Enhancement: Championship bracket displays only the skip for triples/fours entries; a ▾ toggle expands to show all team members as clickable player-stats links (stats-eligible championships only).
+
+
+= 7.3.62 =
+* Fixed: rename handler was attempting to update non-existent player_name column in lgw_appearances (names are resolved via player_id join — no column update needed)
+* Fixed: renaming to an existing player name now correctly merges the two records — appearances are re-pointed to the existing player_id and the old record is deleted — rather than hitting a duplicate key DB error
+
+
+= 7.3.62 =
+* Player rename now cascades to lgw_appearances: all appearance records for the player are updated to the new name; success notice reports how many records were updated
+
+
+= 7.3.62 =
+* Player Tracking admin page now displays the LGW page header (logo + version number) consistent with other admin pages
+
+
+= 7.3.62 =
+* Fixed: rename button onclick was not firing; replaced inline onclick attributes on Rename and player-name buttons with data attributes + event delegation via addEventListener, eliminating any CSP or inline-handler blocking issues
+
+
+= 7.3.62 =
+* Fixed: Rename button on Players page was missing type="button" — without it the browser treats it as type="submit" and swallows the click before the onclick handler fires
+
+
+= 7.3.62 =
+* Added null guard on rename modal elements in DOMContentLoaded to surface any missing-element errors in browser console rather than silently breaking
+
+
+= 7.3.62 =
+* Fixed: Rename button on Players admin page did not work — browser prompt() is suppressed in WP admin context; replaced with a proper inline modal
+* Rename modal: duplicate name check via AJAX before submitting — if the new name matches an existing player for the same club, a warning is shown and a second click ("Yes, merge") is required to confirm the merge intent
+
+
+= 7.3.62 =
+* Fixed: fatal error in lgw_ajax_confirm_scorecard — replaced call to lgw_user_can_manage_scores() with inline capability check (manage_options or edit_others_posts) to avoid load-order dependency
+
+
+= 7.3.62 =
+* Admin confirm for pending scorecards: when viewing a pending scorecard as a logged-in admin, the club passphrase gate is replaced with a direct "Confirm on behalf of [club]" button; no passphrase required
+* PHP: lgw_ajax_confirm_scorecard now allows admin bypass — confirms as the other team with a distinct audit log entry
+
+
+= 7.3.62 =
+* Fixed: admin "confirm on behalf of other club" now also works when a scorecard has already been submitted by one team — admin can confirm the pending card without needing to log in as the other club
+
+
+= 7.3.62 =
+* Admin scorecard submission: new "Also confirm on behalf of the other club" checkbox available when submitting for home or away team; scorecard is immediately marked confirmed with a distinct audit log entry; checkbox is hidden when "Both teams" is selected
+
+
+= 7.3.62 =
+* Fix: Multi-champ widget font — removed fragile dependency on lgw_font_options() and lgw-font handle registration; now reads lgw_theme option directly, enqueues its own lgw-mc-font Google Fonts handle, and sets font-family directly on .lgw-mc-widget and all children
+
+= 7.3.43 =
+* Fix: Multi-discipline championship widget now correctly inherits the chosen font from the font picker — lgw-multichamp enqueue now depends on lgw-font and applies the same --lgw-font CSS variable; previously fell back to sans-serif instead of Saira
+
+= 7.3.42 =
+* Feature: Font picker in Settings > Theme — choose from 10 curated Google Fonts (Saira default, plus Inter, Roboto, Oswald, Barlow, Nunito Sans, Raleway, Exo 2, Titillium Web, DM Sans); live preview in admin; applied via CSS variable across all widgets
+* Fix: Start game button now posts to correct AJAX action lgw_mc_frontend_score
+
+= 7.3.41 =
+* Fix: Start game button was posting to non-existent action lgw_mc_frontend_save instead of lgw_mc_frontend_score
+
+= 7.3.40 =
+* Feature: Ends counter added to admin and frontend — +/- buttons with current/max display (e.g. End 7/21); only shown for ends-mode disciplines (not target-score)
+* Feature: End indicator shown in discipline label row when game is in progress (e.g. End 7/21); amber pill badge visible without unlocking
+* Feature: Start game button on not-started rows when score entry unlocked — enter player names and click Start to begin; replaced with full score entry form
+* Feature: ends_played stored per game and included in all AJAX responses
+* Fix: Frontend status select now includes Not started as first option; saving with Not started re-collapses the row
+
+= 7.3.38 =
+* Fix: Fixture-level status badge now correctly reads both saved status field AND presence of shots — games saved before status tracking existed (or with status still not_started) are no longer miscounted, resolving admin showing Not started while webpage showed In progress
+* Feature: Manual expand/collapse toggle button (▲/▼) added to each fixture card — collapses games grid independently of auto-expand logic
+* Feature: Not-started games collapse to compact label-only row; fixture card collapses entirely for not-started fixtures; expands automatically when any game is in progress or complete
+* Carries forward: bonus points on shots, symmetric score layout, drag-handle-as-bar, score entry for fresh fixtures
+
+= 7.3.33 =
+* Fix: Frontend tab switching not working — tab nav elements changed from <button> to <div role="button"> to avoid form-submit interference and WordPress button resets; JS wrapped in DOMContentLoaded guard; keyboard navigation (Enter/Space) added
+
+= 7.3.33 =
+* Feature: Clear scores buttons added to Multi-Discipline Championship scores tab — each game card has a "Clear" button (clears that game only); each fixture accordion has a "Clear all" button (clears all games in the pairing); scorecard links preserved on clear
+* Feature: Shortcode reference displayed on championship edit page once an ID exists — copy-ready code snippet with usage note
+
+= 7.3.33 =
+* Fix: Player name fields in the scores tab are now clearly visible — moved out of the shots column into a dedicated two-column Players row below each game's score grid, with explicit labelled inputs for each side
+
+= 7.3.33 =
+* Fix: Multi-Discipline Championship scores tab layout replaced — wide 9-column table swapped for a card-per-game layout with a two-column home/away grid; shots inputs, player name fields, pts display, save button, and scorecard link all sit cleanly within the admin panel width
+
+= 7.3.33 =
+* Fix: Multi-Discipline Championship admin JS (discipline builder, fixture builder, auto-draw, score save, scorecard create) was never loading on wp-admin pages — lgw-multichamp.js and lgw-multichamp.css were only enqueued on the frontend; admin_enqueue_scripts hook added, scoped to the lgw-multichamp page
+
+= 7.3.17 =
+* Feature: Multi-Discipline Championship scorecard integration — "+  Full scorecard" button in the Scores tab creates a scorecard CPT entry (context=multichamp, lgw_multichamp_game_id meta); edit screen shows a green info banner; scorecard list shows context badges
+* Feature: Scorecard list context badges (Cup / Multi-champ / Champ); division-unresolved warning suppressed for non-league scorecards
+
+= 7.3.16 =
+* Fix: Multi-Discipline Championship disciplines now support a Scoring mode field — "Ends" (play N ends) or "Target score" (first to N shots); Singles defaults to Target score; frontend fixture cards show the mode and value (e.g. "First to 21 shots") alongside results
+* Fix: Time limit field added per discipline — optional free text (e.g. "75 mins"), displayed in fixture card game rows; scoring mode label dynamically updates in admin when mode select changes
+
+= 7.3.33 =
+* Feature: Multi-Discipline Championship scorecard integration — "+ Full scorecard" button in the Scores tab creates a scorecard CPT entry (context=multichamp, lgw_multichamp_game_id meta) and opens the edit screen directly; edit screen shows a green info banner linking back to the championship scores tab
+* Feature: Scorecard list now shows context badges (Cup, Multi-champ, Champ) beside the scorecard title, plus a discipline/game ref for multichamp entries; division-unresolved warning suppressed for non-league scorecards
+
+= 7.3.33 =
+* Feature: Multi-Discipline Championship — new [lgw_multichamp] shortcode; admin pages for setup, fixtures, and score entry; overall and per-discipline standings tables; fixture result cards; integrates with existing scorecard CPT and appearances tracking
+
+= 7.3.14 =
+* Fix: Time pill (e.g. 5:30) now centres correctly over the fixture columns on widescreen — grid-column changed from 1/-1 to 1/6 to exclude the notes column
+
+= 7.3.13 =
+* Fix: Save Changes button on the scorecard post edit screen (post.php?post=X&action=edit) now correctly saves — the AJAX handler was missing from lgw-admin.js which is the only LGW script loaded on that screen; the inline handler in the scorecards admin page was not available there
+* Fix: Edit form styles (fields, grid, message feedback, audit log) now load correctly on the post edit screen via lgw-admin.css — previously they were only in an inline style block on the scorecards admin page
+* New: Quick Score Entry — date jump filter; select a specific fixture date to focus the table on that date's matches only
+* New: Submitted Scorecards — division filter dropdown to narrow the list by division; status filter dropdown (Pending / Confirmed / Disputed / Admin resolved) for quick triage
+* Feature: On widescreen, postponed pill splits into two stacked pills in the notes column — red Postponed pill and blue Rescheduled pill separately; mobile keeps the single combined pill
+
+= 7.3.10 =
+* Fix: Postponed pill moved into the notes column on widescreen (was awkwardly left-aligned as a full-width row); notes column header added to the date bar; Notes label hidden on mobile
+
+= 7.3.9 =
+* Fix: Postponed pill not appearing on widescreen after notes column change — was using the fx-pills class which is hidden on widescreen; now uses a dedicated fx-postponed-row class that is always visible
+
+= 7.3.8 =
+* Feature: On widescreen, fixture row pills (played date, scorecard status) move into a notes column to the right of each row instead of adding row height; postponed pill stays full-width spanning on all screen sizes; on mobile pills revert to the previous full-width behaviour
+
+= 7.3.7 =
+* Fix: Main widget tab (League Table / Fixtures & Results) now persists on page refresh via sessionStorage — page no longer reverts to the League Table tab
+
+= 7.3.6 =
+* Fix: Fixtures & Results filter tab (All / Upcoming / Results) now persists across page loads using sessionStorage, keyed per division — navigating away and back stays on the active tab
+
+= 7.3.5 =
+* Fix: Played date pill no longer appears when the scorecard date and fixture date are the same calendar day but in different formats (e.g. 25/4/2026 vs Sat 25-Apr-2026); date comparison now normalises both strings to a timestamp before comparing
+
+= 7.3.4 =
+* Feature: Postponed fixtures — admin can mark any unplayed fixture as postponed via the fixture modal, with an optional rescheduled date; a red pill appears on the fixture row; non-admins see a notice when clicking the fixture; no spreadsheet changes are made
+* Fix: Fixture date pill and scorecard status pill CSS re-applied (lost in working copy refresh)
+
+= 7.3.3 =
+* Feature: Postponed fixtures — admin can mark any unplayed fixture as postponed via the fixture modal, with an optional rescheduled date; a red pill appears on the fixture row; non-admins see a notice when clicking the fixture; no spreadsheet changes are made
+* Fix: Fixture date pill and scorecard status pill CSS re-applied (lost in working copy refresh)
+
+= 7.3.2 =
+* Feature: Fixture rows now show a blue pill with the date the game was played when it differs from the scheduled date (replaces the previous italic text annotation)
+* Feature: Fixture rows now show a scorecard submission status pill — 📋 Pending (amber), ✅ Confirmed (green), or ⚠️ Disputed (orange) — whenever a scorecard has been submitted for that fixture
+
+= 7.3.1 =
+* Feature: Clipboard paste support for photo scorecard submission — on mobile a "📋 Paste from clipboard" button appears in the photo upload area; on desktop Ctrl+V / paste works anywhere on the form. Allows WhatsApp photos to be submitted by copying in WhatsApp and pasting directly, without saving to the gallery first.
+
+= 7.3.0 =
+* Fix: Mobile scorecard photo submission — file picker now shows a camera / gallery choice popup on touch devices instead of silently failing; removed `capture="environment"` attribute from the modal photo input which was locking mobile browsers to camera-only with no way to switch to gallery or files.
+* Championships: Final Stage now carries section qualifiers through directly instead of re-shuffling into a new random draw. Qualifiers are cross-paired by section (4-section: A vs D, B vs C; 2-section: A winner vs B runner-up, B winner vs A runner-up; 1-section: semi-finalists in bracket order) so players from the same section cannot meet until the Final.
+* Championships: Added 'Rebuild Final Stage from Sections' admin button — visible when all qualifiers are known and a Final Stage draw already exists. Replaces the old draw with the carry-over layout without requiring a full reset.
+
+= 7.2.15 =
+* New: Finals Week tab in lgw_gchamp widget — appears as soon as any day's KO is complete.
+* New: Finals matches auto-built from ko_qualifiers (4 qualifiers → SF+Final; 2 → Final; other → auto-paired).
+* New: Finals match cards reuse lgw-finals.css/js rendering — date/time/rink setting, end-by-end live scoring, final score entry.
+* New: lgw_gchamp_finals_save_datetime/save_end/save_score AJAX handlers store finals data on lgw_gchamp_* options.
+* New: lgw-finals.js patched to route isGchamp matches to new AJAX actions.
+
+= 7.2.15 =
+* New: Tab underline colour picker in admin — preset swatches (Gold, Red, White, Bright Green, Sky Blue, Amber) plus custom. Defaults to gold to match PGL badge.
+* New: Group score saves on an already-complete day now reseed the KO bracket automatically (if no KO scores exist), so fixing a group result updates the draw.
+* New: Group score saves are blocked server-side if the day's KO bracket has any results entered, with a clear error message.
+* Fix: Reload now triggers correctly whenever KO bracket is newly seeded or reseeded after a group edit.
+
+= 7.2.15 =
+* Fix: Dark mode media query removed entirely — widget always renders in light theme. Added color-scheme:light to prevent browser dark mode override.
+* Fix: KO score entry "Missing parameters" error — context check now happens before group_id validation so KO saves (which send group_id=-1) are accepted.
+* Improved: Colour scheme admin now shows preset swatches (PGL Red, Navy, Green, Orange, Purple, Blue, Charcoal) plus a custom colour picker.
+* Style: Group card headers now use the accent colour (same as main header) rather than fixed navy, so colour scheme affects all headers consistently.
+
+= 7.2.15 =
+* Fix: KO bracket now appears for days that were already complete — page load auto-seeds via new lgw_gchamp_seed_day_ko AJAX endpoint (admin only).
+* New: Per-competition accent colour picker in admin edit page — overrides the header and interactive element colour on the front end.
+* New: Group lock/unlock button (admin only, shown on completed days) — locked groups disable score entry. Cannot unlock if KO bracket has scores.
+* Fix: Score entry now available on completed days for admin when group is unlocked.
+* Fix: All widget backgrounds are now white/near-white (#f4f5f9 for structural areas).
+
+= 7.2.15 =
+* Fix: Score auto-refresh was firing on every save (not just on state change). Now only reloads when the day first completes or KO bracket is newly seeded.
+* Fix: Group cards now use a CSS grid (repeat(2, 1fr)) enforcing a 2x2 layout on wider screens rather than allowing 3 side-by-side.
+* Fix: All internal backgrounds changed to white (#ffffff) or near-white (#f4f5f9). No more grey panels.
+
+= 7.2.15 =
+* Fix: Standings table now updates live after each score save (was ignored).
+* Fix: Page reload now also triggers when day_complete fires (not only on first KO seed).
+* Fix: Groups grid is now 2-column CSS grid — maintains 2x2 format on widescreen.
+* Fix: Background lightened — groups grid now uses white bg, bg-alt adjusted.
+
+= 7.2.15 =
+* Fix: KO bracket now seeds correctly for days that were already complete before v7.2.9 (removed was_complete guard).
+* Fix: Fixture team names now truncate with ellipsis instead of overflowing into the score column.
+* Fix: .lgw-gchamp-wrap now has display:block ensuring full-width layout in all themes.
+* Style: Primary colour changed to red (#c0202a) to match PGL association badge — header, accent elements, pts column.
+
+= 7.2.15 =
+* New: Per-day knockout bracket — each day now has its own KO bracket, seeded automatically when the day's group fixtures are complete.
+* New: Top-level day tabs (Day 1 | Day 2 | …) with sub-tabs (Groups | Knockout) per day.
+* New: KO bracket score entry — same inline save/clear as group scores, advances winner to next round on save.
+* New: Finals Week qualifier rule — 1 day: semi-finalists (4), 2 days: finalists (2 per day), 4 days: winner (1 per day). Always 4 total Finals Week qualifiers.
+* New: Finals Week qualifiers strip shown at bottom of each day's KO pane when ko_complete.
+* New: Lighter, cleaner CSS theme — off-white backgrounds, blue accent, gold Finals Week strip.
+* Fix: lgw-gchamp-wrap now has width:100% to stretch full screen width.
+
+= 7.2.15 =
+* Fix: Score entry "Missing parameters" error — day_id was not being sent in the JS AJAX request.
+* Fix: Group cards no longer capped at 420px — they now stretch to fill available screen width.
+* Fix: Entry names in standings tables no longer truncated at 160px on wider screens.
+* Fix: Fixture team names no longer truncated at 120px on wider screens.
+* New: Day section header and qualifiers strip CSS added (was missing from v7.2.7).
+
+= 7.2.15 =
+* Revised: Days-as-sections data model — each competition day is now an independent section with its own groups, qualification rules, and qualifier output.
+* New: Admin Days table with per-day: name, date, target group size, winners/group, best runners-up, auto-calculated group count and qualifier total.
+* New: Draw algorithm distributes entries across days (date preferences respected), then within each day calculates num_groups = ceil(entries/target_group_size) and distributes into groups.
+* New: Per-day qualification — each day computes its own qualifiers once all fixtures scored; group_stage_complete when all days done.
+* New: Qualifiers strip shown on front end per day when day_complete.
+* Removed: Flat groups_config / num_groups model replaced entirely.
+* Changed: has_ko_bracket is now optional (defaults off for clubs using external Finals Week).
+
+= 7.2.15 =
+* Fix: Literal newlines inside JS confirm() strings in the Run Draw admin script caused SyntaxError: Invalid or unexpected token, preventing the draw button from working.
+
+= 7.2.15 =
+* New: Qualification logic — top N per group (automatic) + best R runners-up selected by pts/diff/sf with random tie-break and admin notice.
+* New: lgw_gchamp_build_knockout() — builds KO bracket using lgw_draw_build_bracket() with same-club separation and bye auto-fill.
+* New: lgw_gchamp_seed_knockout AJAX endpoint — admin-triggered, requires group_stage_complete.
+* New: "Seed Knockout Bracket" admin button on edit page with qualifier summary and re-seed option.
+* New: Knockout pane now renders full bracket using lgw-champ-wrap / lgw-champ.js. Phase tab auto-switches to KO when bracket is seeded.
+* New: lgw-champ.js loaded as dependency of lgw-gchamp.js for bracket rendering.
+
+= 7.2.15 =
+* New: Front-end inline score entry on group fixture rows (editor/admin role). + Score / edit / clear controls per fixture. Enter key saves.
+* New: Admin Group Scores panel on edit page — full table of all fixtures per group with inline save/clear and Enter key support.
+* New: lgw_gchamp_save_score AJAX handler — validates scores, saves to WP option, returns updated standings.
+* New: lgw_gchamp_get_standings AJAX endpoint — returns all group standings + fixture scores (polling base for Step 8).
+* New: lgw_gchamp_all_fixtures_played() — sets group_stage_complete flag when last fixture is scored.
+
+= 7.2.15 =
+* New: [lgw_gchamp] shortcode now renders full front-end group stage view: all groups side by side with standings tables, fixtures lists, and qualification highlights.
+* New: lgw-gchamp.css — full CSS for group cards, standings, fixtures, phase tabs, qualification row highlights, dark-mode support, and responsive layout.
+* New: lgw-gchamp.js — phase tab switching, fixture collapse/expand, club badge injection from lgwData.clubBadges.
+* New: lgw_gchamp_compute_standings() — points/diff/h2h sort. lgw_gchamp_short_name() for compact display.
+* New: lgw_gchamp_enqueue() — correctly chains lgw-saira → lgw-widget → lgw-champ → lgw-gchamp assets.
+
+= 7.2.15 =
+* New: Group draw algorithm — allocates entries to groups respecting date preferences (3-pass), 50% club cap (soft constraint), and even distribution across groups.
+* New: Round-robin fixture generation using standard rotation algorithm. Odd-sized groups receive a silent BYE. Games-per-opponent setting reverses home/away on even repetitions.
+* New: Run Draw button on admin edit page — instant reveal with per-group entry list and fixture count. Re-draw requires confirmation if scores exist.
+* New: Draw warnings surfaced on admin page (oversubscription, club cap violations, missing dates).
+
+= 7.2.15 =
+* New: Entry date preference field on group championship admin page.
+* New: Bulk-set and clear-all controls for managing preferences across all entries.
+* Preferences stored as entry_preferences keyed by entry string; preserved across draw resets.
+
+
+= 7.2.15 =
+* New: Group Stage into Knockout championship type added (Step 1 — data model, admin config panel, group naming, qualification settings, bracket size suggestion).
+* New: [lgw_gchamp id="..."] shortcode registered (full front-end display coming in v7.2.15).
+* New: Group championships listed alongside knockout championships on the Championships admin page with "Group + KO" format badge.
+
+= 7.2.15 =
+* Admin scorecard edit: renamed "Date" label to "Date Played"; widened date input so full date is always visible.
+
+= 7.2.15 =
+* Fix: Scorecard post edit screen (post.php?post=X&action=edit) now shows the full scorecard editor and audit log as meta boxes — previously it showed a blank WordPress post form with no scorecard data visible
+
+= 7.2.15 =
+* Fix: Championship player stats — entering a score in a later round no longer overwrites/deletes the player's earlier round appearance records; the pre-insert delete in lgw_log_champ_appearance is now scoped to the specific match position (match_key) rather than wiping all champ rows for that player across the entire championship
+
+= 7.1.136 =
+* New: Club Summary table — sortable columns (click any header to sort asc/desc, with direction indicator)
+* New: Club Summary table — per-column filter inputs: text search on Club, numeric min/max range on all stat columns
+* New: Club Summary table — live totals bar above the table updates dynamically as filters are applied, showing visible-row sums for Players, Apps, Ladies, Paid, and Balance; tfoot row also updates to match filtered rows
+* Fix: Paid input changes in Club Summary now immediately update the Balance cell and totals without a page reload
+
+= 7.1.135 =
+* New: Player stats popover games list now shows competition (division name or championship title) instead of rink number
+* New: Team chips in the stats popover are now clickable — tap a team to filter the games list to that team; tap "All" to reset
+* New: lgw_get_player_stats AJAX response now includes competition field on each game record
+
+= 7.1.132 =
+* Fix: championship appearance delete now correctly wipes all rows for player+champ_id — resolves duplicate appearances on re-save and failed clears caused by match_key format inconsistencies across earlier versions
+* Removed all temporary debug logging
+
+= 7.1.126 =
+* Fix: championship appearance delete now clears both new (match_key) and legacy (match_key IS NULL) rows — prevents duplicates on re-save for existing data
+* lgw_clear_champ_appearances_by_key() now accepts optional match_title to wipe legacy rows in the same query
+* lgw_log_champ_appearance() delete condition covers both key and title in one query
+
+= 7.1.125 =
+* Fix: championship appearances now use a stable positional key (section:round:match) for delete — prevents duplicates on re-save and ensures clear actually removes the row
+* New match_key column added to appearances table (auto-migrated)
+* lgw_clear_champ_appearances_by_key() added; lgw_champ_cascade_clear_appearances() updated to use positional keys
+* lgw_log_champ_appearance() stores match_key and deletes by it when available
+
+= 7.1.124 =
+* Championship appearance dates normalised to dd/mm/yyyy regardless of admin input format
+* Added lgw_normalise_date_dmy() helper handling dd/mm/yyyy, d/m/yy, yyyy-mm-dd, and natural language dates
+
+= 7.1.123 =
+* Player Tracker: "Division" column renamed to "Competition" throughout
+* Championship appearances now show the championship title in the Competition column
+* History modal stats summary now includes a Championships row alongside League/Cup
+* CHAMP pill added to match title column for championship appearances
+
+= 7.1.122 =
+* Championship stats tracking: new `Stats Eligible` flag on championship admin enables W/L logging to Player Tracking
+* Player stats popover now has a tab switcher — League/Cup | Championships | Total — when data exists across multiple types
+* Championship bracket entries are now clickable player-name links that open the stats popover (when stats eligible)
+* `lgw-scorecard.js` popover now resolves nonce/ajaxUrl from `lgwChampData` so it works on champ-only pages
+* DB: `champ_id` column added to appearances table for championship appearance attribution
+* `lgw_log_champ_appearance()` and `lgw_clear_champ_appearances()` helpers added to lgw-players.php
+* `lgw_ajax_get_player_stats` returns `stats_by_type` breakdown (league/cup/champ/total)
+
+= 7.1.121 =
+* Fix: Copy as Text — away fixture scores now shown in display order (matched player score first) instead of always home–away order
+
+= 7.1.120 =
+* Fix: Section and Round columns now correctly hidden on Chromium mobile browsers — explicit th/td element selectors with !important override Chromium table layout defaults
+
+= 7.1.119 =
+* New: Admin search rows are clickable — clicking a result closes the modal, switches to the correct section tab, scrolls the bracket to the match, and flashes a gold highlight on the card
+* New: Admin sees a "Click a row to go to that match in the draw" hint beneath search results
+* Fix: section_idx now returned by search AJAX so JS can target the correct section pane
+* Fix: game_num stored on match card dataset during bracket render to support lookup
+
+= 7.1.118 =
+* Fix: Search modal in landscape orientation — entire modal is now a single scroll container; header and export bar remain visible via sticky positioning so screen space is not wasted
+
+= 7.1.117 =
+* Fix: Search result table now shows matches as "A vs B" inline; wraps vertically only when screen space requires it
+* Fix: Section and Round column headers are now also hidden on mobile (previously only the cells were hidden)
+
+= 7.1.116 =
+* Fix: Mobile search — input box resized and constrained to screen width; iOS zoom prevented
+* Fix: Mobile search — Section and Round columns hidden in results table to eliminate horizontal overflow
+* Fix: Mobile search action buttons wrap neatly at small widths
+
+= 7.1.115 =
+* Improved: Championship search results now split into Home Fixtures and Away Fixtures groups, each sorted by date
+* Improved: Matched entry is highlighted in yellow; date acts as a row divider within each group
+* New: Copy as Text button — copies fixtures/results to clipboard in plain text format suitable for pasting into social media or messaging
+* New: Export PDF button — opens a print-ready popup with sponsor banner included; save as PDF from browser print dialog
+* Changed: Export CSV now includes a H/A column indicating whether the matched entry is home or away
+
+= 7.1.114 =
+* New: Championship search modal — search fixtures or results by player name or club across all sections and the Final Stage
+* New: Search results highlight the matched entry, group by section, and sort by date
+* New: Fixtures mode shows upcoming/undated matches; Results mode shows scored matches; future-dated matches with results appear in both
+* New: Print and CSV export for search results
+* New: 🔍 Search tab button in championship section header
+
+= 7.1.113 =
+* Fix: Scorecard modal stuck on "Loading scorecard..." — lgwFetchScorecard referenced opts.context which is undefined in that function scope, throwing a ReferenceError and preventing the AJAX request from firing; removed the stray reference
+
+= 7.1.112 =
+* Fix: Player stats popup now correctly finds players with apostrophes in their names (e.g. K O Neill) — WordPress magic-quotes were stripping apostrophes before the DB lookup; fixed by applying wp_unslash() before sanitize_text_field() in all relevant POST handlers
+* Fix: Player name passed to stats lookup now stripped of trailing asterisk (female marker) via lgw_clean_player_name(), preventing lookup failures for female-flagged players
+
+= 7.1.111 =
+* New: Players admin screen — Club filter dropdown (defaults to All Clubs), Team filter dropdown (cascading — options narrow based on other active filters), and Name search field with live client-side filtering; player count and Clear filters button included
+
+= 7.1.109 =
+* New: Player stats popover now includes full games list for the current season — match title, date, rink, score, and W/D/L badge per game, ordered newest first
+* Fix: Popover uses fixed positioning with viewport-aware placement (flips above button if insufficient space below); scrollable inner body with dynamic max-height prevents overflow off-screen
+
+= 7.1.108 =
+* New: Player name links in scorecard modal — clicking any player name opens a stats popover showing their current-season W/D/L record, games played, and which teams they have appeared for
+* New: Public AJAX endpoint lgw_get_player_stats returns current-season stats keyed by player name and club (no auth required, nonce-protected)
+* CSS: Player stats popover with club badge, W/D/L colour tiles, teams-this-season chips; dark mode support
+
+= 7.1.107 =
+* Fix: Division name no longer blank in scorecard modal after shortcode title change — widget now reads divisionTitle from data-division attribute instead of previousElementSibling (which was broken by the ticker element being inserted between the title and the widget)
+
+= 7.1.106 =
+* New: CSV reference row detection — parser now reads 'homepts','home','home shots','away shots','away','awaypts','time' labels to map columns directly; 'time' column read at explicit index with no scanning
+* Fix: Legacy fallback scan (no reference row) breaks on first match found and uses 0.333–0.938 serial range guard
+
+= 7.1.103 =
+* Fix: Results ticker now shows only scores for the current division (filtered by division name) and only for the current season — ticker hidden if no matching results
+* Fix: Results ticker positioned inside the widget wrap, below the sponsor banner, full-width and inline with the rest of the widget
+* Fix: Removed redundant division label from ticker items (already division-scoped)
+* New: Added data-division attribute to lgw-w element so JS can match results to the correct division
+
+
+= 7.1.101 =
+* Fix: Scorecards admin season backfill now correctly reassigns cards that are tagged to the wrong season (not just untagged ones) — banner shows on all seasons with date ranges, counts scorecards whose match date falls in the season but are tagged differently, and "Reassign to this season" button retags all of them via the existing date-range strategy
+
+
+= 7.1.100 =
+* Fix: Scorecards admin season filter no longer shows previous-season cards in the active season view — removed NOT EXISTS fallback from the main query (untagged cards from any season were bleeding in); untagged count now comes from a separate dedicated query; warning banner still appears prompting backfill
+
+
+= 7.1.99 =
+* New: Scorecards admin page now splits by season — season switcher bar defaults to the active season; archived seasons accessible via buttons; list filtered by lgw_sc_season meta (active season also shows untagged cards); untagged card warning banner with one-click "Tag all to this season" backfill button; new lgw_backfill_sc_seasons AJAX handler uses dual-strategy (tag + date-range fallback)
+
+
+= 7.1.98 =
+* New: Player tracking auto-merges dotted-initial name variants (e.g. "D. Bintley" == "D Bintley") — lgw_normalise_player_name() strips dots from single-letter initials before DB lookup so new scorecards never create duplicates; Merge Duplicates tab now shows a preview table of detected pairs with a one-click "Auto-merge" button; keep rule: most appearances wins, ties prefer the non-dotted (normalised) form
+
+
+= 7.1.97 =
+* Fix: "Skip Google writeback" checkbox now also suppresses Google Drive PDF upload (not just Sheets); uses a short-lived post meta flag so Drive's anonymous action hooks are correctly bypassed; checkbox label updated to "Skip Google Drive & Sheets writeback"
+
+
+= 7.1.96 =
+* Improvement: Excel/xlsx parse errors now return actionable diagnostic messages instead of generic "Could not read" — ZipArchive error codes, missing worksheet entries, empty grid details (sheet name, KB size, shared string count), and rink-mapping failures now include row samples and field detection summary
+
+= 7.1.95 =
+* New: Skip Google Sheets writeback option — admin scorecard form now includes a "Skip Google Sheets writeback" checkbox (visible to admins only); use when backfilling historical scorecards to avoid overwriting the live sheet
+
+
+= 7.1.95 =
+* New: Skip Google Sheets writeback option — admin scorecard form now includes a "Skip Google Sheets writeback" checkbox (visible to admins only); use when backfilling historical scorecards to avoid overwriting the live sheet
+
+
+= 7.1.94 =
+* Feature: Player history modal — each appearance row now shows the scorecard ID as a direct link to the WP admin edit screen (opens in new tab), making it easy to inspect, edit or trash test/duplicate scorecards
+
+= 7.1.93 =
+* Fix: Backfill missed scorecards tagged to a different/wrong season ID — Strategy 2 now scans ALL scorecards by match date against the season date range, not just untagged ones; tagged-to-wrong-season records now correctly included
+
+= 7.1.92 =
+* Fix: Backfill not picking up scorecards for previous seasons — query relied solely on lgw_sc_season meta which was never stamped on older records; backfill now also matches untagged scorecards by date range against the season's start/end dates
+
+= 7.1.91 =
+* Fix: Player stats not recorded when re-saving a scorecard — rink scores were stored as 0.0 (not null) when empty, causing false 0–0 draws; now stored as null when the field is blank
+* Fix: lgw_log_appearances() zero-guard added — legacy scorecards where all rink scores are 0 (floatval artifact) treated as score-absent; real 0-scores honoured when match totals are non-zero
+* Fix: lgw_sc_context (league/cup) now preserved on admin edits; missing context explicitly defaulted to league
+
+= 7.1.90 =
+* Feature: Player statistics — Wins, Draws, Losses, Shots For and Shots Against now tracked per appearance (rink level) for both League and Cup games
+* Feature: Player stats shown in admin player list table (total W/D/L, SF–SA, League W/D/L, Cup W/D/L columns per player)
+* Feature: Player history modal upgraded — stats summary table at top with Total/League/Cup breakdown; per-game rink score, W/D/L result badge, and Cup label badge on each row
+* Feature: Excel export gains a new Stats sheet with full per-player stats breakdown; per-club matrix sheets gain W/D/L/SF/SA columns
+* Improvement: DB migration auto-adds shots_for, shots_against, result, game_type columns to existing installations; game_type back-filled from scorecard context meta
+* Improvement: lgw_log_appearances() now reads rink-level scores and sc_context meta to store stats atomically with each appearance
+
+= 7.1.87 =
+* Fix: Fixture time note (e.g. 5:30) now correctly displayed for all divisions; scan range extended past APts column and HH:MM:SS format normalised to HH:MM
+
+= 7.1.86 =
+* Fix: Player tracking — female status from confirmed scorecards (asterisk-marked players) now correctly saved to player record; lgw_ensure_female_flag() upgrades false→true only, never resets manual edits
+* Fix: Player tracking — toggling the female checkbox no longer incorrectly sets the starred flag; update_flags handler now reads actual field values instead of using isset()
+* Feature: Player tracking — new Club Summary tab showing per-club player count, appearances, ladies count, and admin-editable Players Paid field with balance column; exportable as spreadsheet (XLS) or print-ready PDF
+
+= 7.1.84 =
+* Feature: Championship — Rename Entry tool on the edit page lets you correct spelling mistakes in entries after a draw has been done, without resetting the draw or any scores
+
+= 7.1.82 =
+* Fix: Live points hint in scorecard modal used parseInt — half-point values (e.g. 2.5+4.5) showed total as 6 instead of 7; fixed to parseFloat with tolerance comparison
+
+= 7.1.81 =
+* Fix: Rink score inputs (modal and standalone form) now have step="0.5" so browsers accept half-scores without rounding
+* Fix: Auto-sum of rink scores rounds to 1 decimal to prevent float accumulation noise
+* Fix: Scorecard admin page stripped half-points — all scores, totals and points now use floatval; admin number inputs gain step="0.5"
+* Fix: Points validation uses parseFloat and tolerance comparison throughout
+
+= 7.1.80 =
+* Fix: Drive upload now respects submitted_for — PDF saved to that team's folder only when submitting for one team
+* Fix: Resubmitting a scorecard replaces existing PDF in Drive rather than creating a duplicate; admin edits still produce versioned copies
+
+= 7.1.78 =
+* Feature: Cup and Championship bracket draws on mobile now support horizontal swipe scrolling — all rounds are visible side-by-side with scroll-snap for clean swiping between them
+* Feature: Tapping a round header in the bracket scrolls forward to the next round (wraps to first), and the tab bar stays in sync as you swipe via IntersectionObserver
+
+= 7.1.77 =
+* Feature: Championship bracket draws now show potential opponents in TBD slots — displays the last player's surname and abbreviated club name (e.g. "Hinds, Sha/Maxwell, Nor") matching the cup bracket style
+
+= 7.1.76 =
+* Feature: Championship draws now enforce strict same-club separation using a multi-pass algorithm — players from the same club are guaranteed not to be drawn against each other in the first round wherever mathematically possible (graceful fallback only when all entries are from a single club)
+* Feature: Admin draw editor — after a championship section is drawn, an "✏️ Edit Draw" button appears on the admin edit page; clicking it reveals a bracket table where any first-round match participant can be swapped via dropdown; saving an edit clears that match's score and cascades resets through all downstream rounds, and unseeds the Final Stage if applicable so it can be redrawn once corrected results are entered
+
+= 7.1.75 =
+* Fix: scorecard photo camera option on Chromium browsers (Chrome, Brave etc) now uses the browser's native camera API (getUserMedia) instead of a capture="environment" file input — which Chromium locks to camera-only with no way to switch to gallery/files; both options now work correctly across all browsers
+
+= 7.1.73 =
+* Scorecard photo upload on mobile now prompts the user to choose between "📷 Take a photo" (camera) or "🖼️ Choose from gallery / files" instead of immediately launching the camera — desktop behaviour (file picker) unchanged
+
+= 7.1.72 =
+* Settings: Merged "Clubs & Passphrases" and "Club Badges" into a single "Clubs & Badges" table — passphrase and badge fields now on one row per club
+
+= 7.1.70 =
+* Feature: Archived seasons now support start/end date fields — set via the Seasons admin edit form or when adding a historical season
+* Feature: Each archived season row in Seasons admin now has a "👥 Players" link (opens Player Tracking filtered to that season) and a "🔄 Backfill Players" button (re-runs appearance logging for all confirmed scorecards tagged to that season)
+* Feature: Player Tracking admin now accepts a ?season=ID URL param — loads that season's date range for all appearance counts, the export, and the Season Settings tab summary
+* Feature: Season switcher bar added above the tabs in Player Tracking — pill buttons for every season; active season marked with ●
+* Feature: Page title reflects the archived season being viewed (e.g. "Player Tracking — 2025 Season")
+* Feature: Export to Excel respects the currently viewed season and passes the season ID through so the downloaded file matches what is on screen
+
+= 7.1.69 =
+* Feature: Season start/end dates moved from Player Tracking admin to Seasons admin — one place to manage season label, dates, and divisions
+* Change: lgw_get_season() in lgw-players.php now reads label/start/end from the active season in lgw_seasons; falls back to legacy lgw_season option for existing installs
+* Change: Player Tracking "Season Settings" tab replaced with a read-only summary and a link to Seasons admin
+
+= 7.1.68 =
+* Fix: Sheets writeback now finds the fixture row even when the match was played on a different date to scheduled — tries the fixture date first, then falls back to team-name-only search
+* Fix: Same date-fallback applied to the override sync so both the spreadsheet write and the widget override use the correct row
+
+= 7.1.68 =
+* Fix: Override key now uses the fixture date read directly from the published CSV (by finding the home/away team pair row), not the played date stored on the scorecard — fixes cases where a match was played on a different date to scheduled (e.g. 12/05 played instead of 09/05 fixture)
+* Fix: lgw_sync_get_fixture_date_from_csv() helper added — fetches the division CSV and returns the exact date string the widget will use as a key for that fixture row
+* Fix: Confirmed scorecards now update the widget immediately — lgw_sync_override_from_scorecard() was silently bailing when the division had no csv_url in sheets_tabs; now falls back to the active season division config
+* Fix: Override key now uses the fixture date (lgw_fixture_date post meta) rather than the played date, so it correctly matches the CSV fixture row even when a match was played on a different date to scheduled
+* Fix: lgw_sync_override_from_scorecard() now logs success and failure to the per-scorecard sheets log, visible in the History panel
+* Feature: "Force sync widget override" button added to the Sheets Writeback Log on every scorecard's History panel — allows admin to manually re-push any confirmed scorecard's score to the override table without re-saving
+* Fix: Deleting or trashing a scorecard now removes all associated player appearance records and prunes orphaned player entries
+* Fix: Player re-save (same club resubmitting a previously confirmed scorecard) now fires the sheets writeback action so Google Sheets is updated correctly
+* Feature: Player names on the Player Tracking page are now clickable — opens a modal showing every game the player appeared in, with date, match, division, rink, team, score, and scorecard status
+* Fix: lgw_sheets_find_row now normalises dates (strips leading zeros, lowercases) and trims/lowercases team names before comparing — fixes "row not found" caused by "05-Apr" vs "5-Apr" day padding or whitespace differences
+* Fix: lgw_sheets_format_date now omits the leading zero from the day number to match the typical sheet format ("Sat 5-Apr-2025" not "Sat 05-Apr-2025")
+* Fix: OAuth redirect URI was hardcoded to lgw-league-setup; introduced LGW_SETUP_PAGE constant so the redirect URI is always self-consistent and matches what Google Cloud Console expects
+* Fix: Google auth token scope now includes spreadsheets — OAuth and service account JWTs were only requesting drive scope, causing auth_failed on all Sheets writeback and score override writes
+
+
+= 7.1.52 =
+* Fix: season switcher now matches archived divisions to the shortcode title even when the title includes a trailing year (e.g. "Division 1 2026" matches archived "Division 1" or "Division 1 2025") — year suffix is stripped from both sides before comparison
+* Fix: Seasons admin — editing an existing archived season no longer triggers "season already exists" error; Edit form now correctly updates in place
+
+= 7.1.50 =
+* Cup admin: added "Download Draw (.xlsx)" export button on cup edit page — downloads the full bracket as an Excel spreadsheet matching the reference cup draw format (draw number, round columns, dates)
+* Championship admin: added "Download Draw (.xlsx)" export button on championship edit page — downloads all drawn sections as separate sheets, plus a Final Stage sheet if drawn, matching the reference championship draw format
+* New module: lgw-export.php handles all xlsx generation in pure PHP (ZipArchive), no server-side dependencies required
+
+= 7.1.48 =
+* Scorecard modal: Date Played field now displays in the same format as the fixture date (e.g. "Sat 9-May-2026") after blur, making it easier to confirm the correct day was entered
+* Date is normalised back to dd/mm/yyyy internally on save so storage format remains consistent
+* Code cleanup: consolidated duplicate lgwClubMatchesTeamStr into lgwClubMatchesTeam (null guard added); removed redundant typeof normaliseDate defensive check in populateModalForm
+
+= 7.1.46 =
+* Fix: points auto-suggest now updates correctly after every rink score change, not just the first — programmatic input events no longer incorrectly cleared the auto-fill flag
+* Fix: same isTrusted guard applied to totals auto-sum to prevent similar edge cases
+* Scorecard modal: Date Played field now normalises to dd/mm/yyyy format on blur, matching the fixture date display
+
+= 7.1.45 =
+* Scorecard submission: rink scores now auto-suggest home/away points as you type, based on configurable points-per-rink-win and overall-match-win values
+* Points calculation: 1 per rink win, 3 overall win by default (0.5/1.5 for draws); totals to 7 for 4-rink, 6 for 3-rink matches
+* League Setup: new Points System section to configure points-per-rink and overall-match points (live preview of max points per match)
+* If user manually overrides auto-suggested points, a mismatch warning is shown but submission is not blocked
+* Points auto-suggest also fires after photo AI parse and Excel import
+
+= 7.1.44 =
+* Scorecard submission: rink scores now auto-sum into the Home/Away Total Shots fields as you type
+* Totals are updated silently when auto-filled; if the user manually enters a total that doesn't match the rink sum, an inline warning is shown (submission is not blocked)
+* Auto-sum also fires after photo AI parse and Excel import so totals are always in sync with populated rink scores
+
+= 7.1.43 =
+* Fix: Cup scorecard modal now shows the round date (e.g. 01/05/2025) as the fixture date — passed from the bracket's dates[] array at card-click time
+* Fix: Cup name (Senior Cup / Junior Cup / Midweek Cup etc.) now shown as the division label in the scorecard form instead of the generic "Cup"
+* Fix: Cup scorecard modal header changed from red to navy to match the league scorecard style; modal body always renders in light mode regardless of device dark-mode setting
+
+= 7.1.43 =
+* Fix: Cup scorecard submission now fully works — login gate, submission form, and confirm/amend flow all appear correctly when clicking a cup bracket match
+* Fix: Root cause was that lgw_get_scorecard matched on team names only, so a league scorecard for the same two clubs was found instead of returning "no scorecard yet"; fixed by adding a context field (league/cup) stored as lgw_sc_context post meta, passed through the full fetch/submit/amend chain
+* Fix: Admin clicking a cup match now sees the submission form directly (no login gate) matching league behaviour
+* Fix: Amend flow in cup now correctly skips points validation (maxPts: 0 preserved through amend path)
+
+= 7.1.43 =
+* Fix: maxPts: 0 (cup mode) was being overridden to 7 by a JS falsy fallback (0 || 7) in both lgwFetchScorecardOrSubmit and lgwOpenSubmitInModal — fixed with an explicit undefined/null check; cup scorecard login gate and submission form now appear correctly
+* Fix: Admin on cup page now sees the submission form directly without a login gate, same as the league widget
+
+= 7.1.43 =
+* Fix: Cup page now loads lgw-scorecard.js (and its CSS) as a dependency — previously lgw-cup.js had no dependency on it, so lgwFetchScorecardOrSubmit and lgwOpenSubmitInModal were undefined on cup-only pages, causing the scorecard modal to always fall through to the quick-view fallback with no login gate and no submission form
+* Fix: lgwSubmit (clubs list, nonce, authClub) now localised on cup pages so the login gate can populate the club dropdown and authenticate correctly
+* Fix: Admin on a cup-only page now goes directly to the scorecard form without a login gate (isAdmin from lgwCupData flows correctly into lgwOpenSubmitInModal)
+
+= 7.1.43 =
+* New: Cup scorecards now fully submittable via the bracket — clicking a match with both teams opens the same modal as the league (login gate, rink scores, player names, submission and confirmation flow); points fields are hidden for cup matches (not applicable) and points validation is skipped
+* Fix: Totals row in scorecard form switches to a 2-column layout when points fields are hidden
+
+= 7.1.43 =
+* Fix: Cup bracket card routing rebuilt — clicking any match with both teams known now opens the full scorecard modal (with login gate and submission) rather than the score-entry popover; the popover is now accessible via an ✏️ Score button in the modal header (admin only)
+* Fix: Matches with only one team set (TBD slot) continue to open the quick score popover directly as before
+
+= 7.1.43 =
+* Fix: Club users logged in via passphrase no longer see the scorecard submission form for fixtures that don't involve their club — those fixtures now show "No scorecard submitted yet" as a read-only visitor would see
+* Fix: Cup bracket full scorecard now accessible via a "Full Scorecard" button inside the score-entry popover — previously the scorecard viewer was unreachable when a draw passphrase was set (the editable card path always won the routing decision)
+
+= 7.1.43 =
+* Fix: lgw-sheets.php syntax error — invalid PHP template block inside echo-mode function (lgw_render_sheets_log) replaced with echo statements
+* Fix: Scorecard submission modal — JSON.parse now guarded with try/catch so PHP notices/warnings prepended to AJAX response no longer silently kill the flow
+* Fix: Login gate condition broadened from `mode === open` to exclude disabled/admin_only — future-proof and handles edge cases
+* Fix: Sub-container ID collision in lgwFetchScorecardOrSubmit replaced with class selector
+* Fix: Orphaned player records (misspelled names after admin corrections) now pruned after each admin scorecard save
+* New: Cup bracket scorecard viewer now uses full lgwFetchScorecardOrSubmit modal (with submission + login gate) when lgw-scorecard.js is loaded; falls back to cup quick-view
+* New: submissionMode and authClub added to lgwCupData so cup page has correct submission context
+* New: Admin/visitor view toggle button in widget tab bar — admins can preview the widget as a regular visitor without logging out
+
 = 7.1.27 =
 * New: Season management — new 📅 Seasons admin page to manage the active season, archive past seasons, and backload historical seasons (CSV URLs per division)
 * New: Season switcher on the front-end widget — add seasons="2025,2024" or seasons="all" to any [lgw_division] shortcode to show a pill bar above the tabs; clicking a past season loads that season's data read-only
 * New: Scorecard season tagging — new scorecards stamped with lgw_sc_season post meta; archiving a season back-fills all untagged scorecards
 * New file: lgw-seasons.php
 
-= 7.1.26 =
+= 7.1.31 =
+* Photo and Excel parse handlers now allow WP admins without a passphrase session — previously only passphrase-authenticated club users could trigger the parse; admins using the modal form were getting a silent "Not authorised" error
+* Improved auth error message: "Not authorised — please log in with your club passphrase first." shown instead of bare "Not authorised" when a non-admin, non-authenticated user attempts to parse
+
+= 7.1.30 =
+* Modal submission form now includes Photo, Excel and Manual entry tabs — same three input methods as the standalone [lgw_submit] form; photo and Excel parse results populate the pre-filled modal form
+* "Submitting on behalf of" radio text made smaller (12px, no bold team names) to reduce visual weight
+* Season tagging confirmed working: both normal and admin-both submission paths call lgw_get_active_season_id() and stamp lgw_sc_season on every new scorecard post; backfill fires when a season is archived
+
+= 7.1.29 =
+* Played fixtures with no scorecard now also show the submission form — clicking any played fixture checks for an existing scorecard first; if none, the submit form is offered inline (respects submission mode setting)
+* New shortcode attribute max_points="7" (default) on [lgw_division] — set to 6 for the 12-player division; points validation enforces home + away = max_points
+* Submission form: Date Played field added (optional, with hint text "enter only if different to fixture date"); when blank, the fixture date is used as the match date
+* Submission form: Submitted by field added (submitter's name, stored on the scorecard and displayed in the public scorecard view)
+* Points validation: live running total shown as you type (green when correct, red when off); save blocked if points do not sum to the division max
+
+= 7.1.28 =
+* Scorecard submission mode toggle in Settings: Disabled / Admin only / Open — lets admin test the workflow before releasing it to clubs
+* Fixture modal now opens for unplayed fixtures when submission is enabled — click any upcoming fixture to submit a scorecard; form is pre-filled with division, date, home team and away team
+* Admin submission now includes a "Submitting on behalf of" radio: Home team, Away team, or Both teams — selecting "Both" skips the two-party flow and immediately confirms the scorecard
+* Club list exposed in modal login gate — clubs with passphrases are shown in a select dropdown when logging in from the fixture modal
+
+= 7.1.27 =
 * Finals Week: fix home end scores left-aligning in ends table — stray CSS class was overriding right-align; home scores and running totals now correctly right-align toward the centre End column
 
 = 7.1.25 =
@@ -545,3 +1234,34 @@ Parameters:
 
 = 1.0 =
 * Initial release
+
+= 7.1.32 =
+* Preview confirmation popup before saving: clicking Save now shows a full scorecard preview; users can click "← Edit" to return to the form or "✅ Confirm & Save" to proceed
+* New player highlighting in preview: players not yet in the database, or with no appearances this season, are shown in green with a NEW badge
+* Ladies player highlighting: names entered with an asterisk (*) are shown in purple with a ♀ badge in the preview; the * is stripped before saving as before
+* Player name boxes changed to auto-expanding textareas — they grow horizontally and vertically to show all names without clipping
+* New AJAX endpoint lgw_check_new_players: checks a list of player names against the DB and season appearances before showing the preview
+
+= 7.1.33 =
+* Login dropdown in fixture modal now shows only the two clubs involved in that fixture — filters the full club list using the same prefix-matching logic as passphrase auth; falls back to showing all clubs if no match is found
+* Team mismatch validation on save: if the submitted home/away team names don't match the fixture (in either order), save is blocked with a clear message — "This fixture is X v Y — the scorecard appears to be for a different game"
+* Mismatch check tolerates case differences and club prefix variations (e.g. "U. Transport A" vs "Ulster Transport A") before rejecting
+
+= 7.1.34 =
+* Drive and Sheets writeback now skip silently for scorecards from archived seasons — logs a clear ℹ️ "Skipped — scorecard belongs to archived season X" info entry instead of OAuth/tab errors
+* Sheets Retry button hidden when all log entries are informational (e.g. archived season skip); still shown for genuine warn/error entries that may be actionable
+* Drive log renderer now correctly styles info (grey), warn (amber) and success (green) entries; previously only error/success were styled
+* lgw_scorecard_is_active_season() helper added to lgw-seasons.php — returns true when the scorecard's lgw_sc_season tag matches the active season, or when no season system is in use
+
+= 7.1.35 =
+* Fixture modal now shows confirm/amend actions inline when a pending scorecard exists and the logged-in club is the second club (i.e. not the submitter)
+* Confirm: marks the scorecard as confirmed immediately, updates the badge in place
+* Amend: replaces the scorecard view with the submission form pre-filled with the existing scores — submitting different scores marks the result as disputed for admin review
+* lgw_get_scorecard AJAX response now includes _id (post ID) so the confirm action can reference the correct record without a second lookup
+* lgwClubMatchesTeamStr helper added (module-level) — mirrors PHP lgw_club_matches_team for submitted_by comparisons in JS
+
+= 7.1.36 =
+* Duplicate player name detection: if the same name appears more than once on the same team across any rinks, save is blocked with a message asking the user to use Sr/Jr suffix or enter the full name to distinguish the two individuals
+* Live duplicate warning shown as names are typed — amber notice appears below the rink table without blocking input, so the user can see the issue as it develops
+* Preview popup shows a DUP badge (amber) on any duplicated name and includes it in the legend
+* Duplicate check is case-insensitive and strips asterisks before comparing, so "J Smith*" and "J Smith" are treated as the same name

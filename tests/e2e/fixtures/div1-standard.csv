@@ -1,0 +1,36 @@
+,,,,,,,,,,,,,,,,
+LEAGUE TABLE,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,
+POS,TEAM,,,,,PL,PTS,+/-,W,L,D,FOR,,,AGAINST
+1,Test Club A,,,,,6,10,,5,1,0,42,,,28
+2,Test Club B,,,,,6,9,,4,1,1,38,,,30
+3,Ballymena BC,,,,,6,8,,3,1,2,35,,,28
+4,Larne BC,,,,,6,7,,3,2,1,31,,,30
+5,Antrim BC,,,,,6,6,,2,2,2,28,,,29
+6,Carrickfergus BC,,,,,6,5,,2,3,1,27,,,33
+7,Whitehead BC,,,,,6,3,,1,4,1,24,,,36
+8,Greenisland BC,,,,,6,0,,0,6,0,18,,,49
+,,,,,,,,,,,,,,,,
+FIXTURES,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,
+,HomePts,Home,,,,,Home Shots,,Away Shots,Away,,,,,AwayPts
+Sat 14-Mar-2026,2,Test Club A,,,,,21,,14,Test Club B,,,,,0
+Sat 14-Mar-2026,1,Ballymena BC,,,,,18,,18,Larne BC,,,,,1
+Sat 21-Mar-2026,0,Antrim BC,,,,,12,,21,Test Club A,,,,,2
+Sat 21-Mar-2026,2,Carrickfergus BC,,,,,16,,14,Whitehead BC,,,,,0
+Sat 28-Mar-2026,2,Test Club B,,,,,19,,17,Ballymena BC,,,,,0
+Sat 28-Mar-2026,0,Greenisland BC,,,,,10,,24,Larne BC,,,,,2
+Sat 4-Apr-2026,2,Test Club A,,,,,21,,12,Antrim BC,,,,,0
+Sat 4-Apr-2026,0,Whitehead BC,,,,,12,,22,Test Club B,,,,,2
+Sat 11-Apr-2026,0,Larne BC,,,,,16,,20,Test Club A,,,,,2
+Sat 11-Apr-2026,2,Ballymena BC,,,,,20,,14,Carrickfergus BC,,,,,0
+Sat 18-Apr-2026,2,Test Club A,,,,,21,,10,Greenisland BC,,,,,0
+Sat 18-Apr-2026,2,Test Club B,,,,,20,,15,Antrim BC,,,,,0
+Sat 25-Apr-2026,,Test Club A,,,,,,,,,Carrickfergus BC,,,,,
+Sat 25-Apr-2026,,Ballymena BC,,,,,,,,,Whitehead BC,,,,,
+Sat 2-May-2026,,Test Club B,,,,,,,,,Larne BC,,,,,
+Sat 2-May-2026,,Antrim BC,,,,,,,,,Greenisland BC,,,,,
+Sat 9-May-2026,,Test Club A,,,,,,,,,Ballymena BC,,,,,
+Sat 9-May-2026,,Carrickfergus BC,,,,,,,,,Greenisland BC,,,,,
+Sat 16-May-2026,,Test Club B,,,,,,,,,Test Club A,,,,,
+Sat 16-May-2026,,Larne BC,,,,,,,,,Whitehead BC,,,,,

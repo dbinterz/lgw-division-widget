@@ -1,0 +1,16 @@
+{
+  "name": "lgw-tests",
+  "version": "1.0.0",
+  "description": "Playwright E2E tests for LGW Division Widget",
+  "private": true,
+  "scripts": {
+    "test":        "playwright test",
+    "test:e2e":    "playwright test --project=chromium",
+    "test:mobile": "playwright test --project=mobile",
+    "test:p1":     "playwright test --grep @P1",
+    "test:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0"
+  }
+}

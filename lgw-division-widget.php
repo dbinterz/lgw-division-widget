@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.1.27
+ * Version: 7.6.0
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,8 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.1.27');
+define('LGW_VERSION', '7.6.0');
+define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
 // ── Admin page logo header helper ────────────────────────────────────────────
@@ -54,12 +55,24 @@ function lgw_migrate_options() {
 }
 add_action('init', 'lgw_migrate_options');
 
+// ── Custom cron intervals for division cache sync ─────────────────────────────
+add_filter('cron_schedules', 'lgw_add_cron_intervals');
+function lgw_add_cron_intervals($schedules) {
+    $schedules['lgw_15min'] = array('interval' => 15 * MINUTE_IN_SECONDS, 'display' => 'Every 15 minutes');
+    $schedules['lgw_30min'] = array('interval' => 30 * MINUTE_IN_SECONDS, 'display' => 'Every 30 minutes');
+    $schedules['lgw_4hour'] = array('interval' =>  4 * HOUR_IN_SECONDS,   'display' => 'Every 4 hours');
+    return $schedules;
+}
+
 // Include plugin modules — guarded so a missing/broken file cannot bring the whole site down
 $lgw_modules = array(
     'lgw-draw.php',
     'lgw-scorecards.php',
     'lgw-cup.php',
     'lgw-champ.php',
+    'lgw-gchamp.php',
+    'lgw-multichamp.php',
+    'lgw-export.php',
     'lgw-players.php',
     'lgw-sc-admin.php',
     'lgw-drive.php',
@@ -67,6 +80,7 @@ $lgw_modules = array(
     'lgw-calendar.php',
     'lgw-finals.php',
     'lgw-seasons.php',
+    'lgw-div-cache.php',
 );
 $lgw_missing = array();
 foreach ($lgw_modules as $lgw_module) {
@@ -405,14 +419,261 @@ function lgw_csv_proxy() {
     exit;
 }
 
+// ── Played-dates map: fixture date → actual played date (where different) ────
+/**
+ * Returns an array keyed by "home||away||fixtureDate" (lowercased home/away)
+ * whose value is the actual played date — only when it differs from fixture date.
+ * Used by widget JS to annotate fixture rows where the game was rescheduled.
+ */
+/**
+ * Parse a date string in any of the formats used by the plugin and return
+ * a Unix timestamp at midnight, or null on failure.
+ *
+ * Handles:
+ *   dd/mm/yyyy          — scorecard submission form
+ *   Sat dd-Mon-yyyy     — CSV fixture date (e.g. 'Sat 25-Apr-2026')
+ *   dd-Mon-yyyy         — same without day-of-week prefix
+ */
+function lgw_parse_any_date($str) {
+    $str = trim($str);
+    if (!$str) return null;
+
+    // dd/mm/yyyy
+    if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $str, $m)) {
+        $ts = mktime(0,0,0,(int)$m[2],(int)$m[1],(int)$m[3]);
+        return $ts ?: null;
+    }
+
+    // Sat 25-Apr-2026  or  25-Apr-2026
+    if (preg_match('#(?:^|\s)(\d{1,2})-([A-Za-z]{3})-(\d{4})$#', $str, $m)) {
+        $ts = strtotime($m[1] . ' ' . $m[2] . ' ' . $m[3]);
+        return ($ts !== false) ? $ts : null;
+    }
+
+    // Fallback — let PHP try
+    $ts = strtotime($str);
+    return ($ts !== false) ? $ts : null;
+}
+
+function lgw_build_played_dates_map() {
+    try {
+        $active_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+        $meta_query = array(
+            'relation' => 'AND',
+            array('key' => 'lgw_sc_context', 'value' => 'league', 'compare' => '='),
+        );
+        if ($active_id) {
+            $meta_query[] = array('key' => 'lgw_sc_season', 'value' => $active_id, 'compare' => '=');
+        }
+        $posts = get_posts(array(
+            'post_type'      => 'lgw_scorecard',
+            'posts_per_page' => 500,
+            'post_status'    => 'publish',
+            'meta_query'     => $meta_query,
+        ));
+        $map = array();
+        foreach ($posts as $p) {
+            $sc           = get_post_meta($p->ID, 'lgw_scorecard_data', true);
+            $fixture_date = get_post_meta($p->ID, 'lgw_fixture_date',   true);
+            if (!$sc || empty($sc['date'])) continue;
+            $played_date = $sc['date'];
+            $fix_date    = $fixture_date ?: $played_date; // fall back if not stored
+            // Normalise both to a timestamp for comparison — handles mixed formats
+            // e.g. '25/4/2026' (scorecard) vs 'Sat 25-Apr-2026' (CSV fixture date)
+            $played_ts  = lgw_parse_any_date($played_date);
+            $fix_ts     = lgw_parse_any_date($fix_date);
+            if ($played_ts && $fix_ts && $played_ts === $fix_ts) continue; // same calendar day
+            $key = strtolower($sc['home_team'] ?? '') . '||' . strtolower($sc['away_team'] ?? '') . '||' . strtolower($fix_date);
+            $map[$key] = $played_date;
+        }
+        return $map;
+    } catch (Exception $e) {
+        return array();
+    }
+}
+
+// ── Postponements ────────────────────────────────────────────────────────────
+/**
+ * Returns the postponements map: fixture_key → { rescheduled_for: 'dd/mm/yyyy'|'' }
+ * Key format: home||away||fixture_date (lowercase).
+ */
+function lgw_get_postponements() {
+    return get_option('lgw_postponements', array());
+}
+
+function lgw_build_postponements_map() {
+    return lgw_get_postponements();
+}
+
+// Save or clear a postponement via AJAX
+add_action('wp_ajax_lgw_save_postponement', 'lgw_ajax_save_postponement');
+function lgw_ajax_save_postponement() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Not authorised');
+    }
+    $home   = strtolower(sanitize_text_field($_POST['home'] ?? ''));
+    $away   = strtolower(sanitize_text_field($_POST['away'] ?? ''));
+    $date   = strtolower(sanitize_text_field($_POST['date'] ?? ''));
+    $action = sanitize_text_field($_POST['postpone_action'] ?? 'set');
+    $reschedule = sanitize_text_field($_POST['rescheduled_for'] ?? '');
+
+    if (!$home || !$away || !$date) {
+        wp_send_json_error('Missing fixture details');
+    }
+
+    $key  = $home . '||' . $away . '||' . $date;
+    $map  = lgw_get_postponements();
+
+    if ($action === 'clear') {
+        unset($map[$key]);
+    } else {
+        $map[$key] = array('rescheduled_for' => $reschedule);
+    }
+
+    update_option('lgw_postponements', $map);
+    wp_send_json_success(array('key' => $key, 'action' => $action));
+}
+
+// ── Scorecard submission status map ──────────────────────────────────────────
+/**
+ * Returns a map of fixture keys → submission status ('pending'|'confirmed'|'disputed')
+ * for all league scorecards in the active season.
+ * Key format: home||away||fixture_date (lowercase).
+ */
+function lgw_build_scorecard_status_map() {
+    try {
+        $active_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+        $meta_query = array(
+            'relation' => 'AND',
+            array('key' => 'lgw_sc_context', 'value' => 'league', 'compare' => '='),
+        );
+        if ($active_id) {
+            $meta_query[] = array('key' => 'lgw_sc_season', 'value' => $active_id, 'compare' => '=');
+        }
+        $posts = get_posts(array(
+            'post_type'      => 'lgw_scorecard',
+            'posts_per_page' => 500,
+            'post_status'    => array('publish', 'draft'),
+            'meta_query'     => $meta_query,
+        ));
+        $map = array();
+        foreach ($posts as $p) {
+            $sc             = get_post_meta($p->ID, 'lgw_scorecard_data',  true);
+            $fixture_date   = get_post_meta($p->ID, 'lgw_fixture_date',    true);
+            $status         = get_post_meta($p->ID, 'lgw_sc_status',       true) ?: 'pending';
+            $submitted_by   = get_post_meta($p->ID, 'lgw_submitted_by',    true) ?: '';
+            if (!$sc) continue;
+            $home_team = $sc['home_team'] ?? '';
+            $away_team = $sc['away_team'] ?? '';
+            $home = strtolower($home_team);
+            $away = strtolower($away_team);
+            $date = $fixture_date ?: ($sc['date'] ?? '');
+            if (!$home || !$away || !$date) continue;
+            $key = $home . '||' . $away . '||' . strtolower($date);
+            // Upgrade status: disputed > confirmed > pending
+            $existing = $map[$key] ?? '';
+            if ($status === 'disputed' || $existing === 'disputed') {
+                $map[$key] = 'disputed';
+            } elseif ($status === 'confirmed' || $existing === 'confirmed') {
+                $map[$key] = 'confirmed';
+            } else {
+                // Determine which side submitted using lgw_submitted_by (the actual club name).
+                // Encode as "pending:home" or "pending:away" so the widget can show
+                // the NON-submitting team, e.g. "Pending (Hilden)" means Hilden hasn't submitted.
+                $submitted_side = 'home'; // fallback
+                if ($submitted_by) {
+                    if (function_exists('lgw_club_matches_team') && lgw_club_matches_team($away_team, $submitted_by)) {
+                        $submitted_side = 'away';
+                    } elseif (stripos($away_team, $submitted_by) !== false || stripos($submitted_by, $away_team) !== false) {
+                        $submitted_side = 'away';
+                    }
+                }
+                $new_val = 'pending:' . $submitted_side;
+                // If already pending from the other side, both have submitted
+                if (strpos($existing, 'pending:') === 0) {
+                    $existing_side = substr($existing, 8);
+                    if ($existing_side !== $submitted_side) {
+                        $new_val = 'pending:both';
+                    }
+                }
+                $map[$key] = $new_val;
+            }
+        }
+        return $map;
+    } catch (Exception $e) {
+        return array();
+    }
+}
+
+// ── Recent results: confirmed scorecards sorted by date played ────────────────
+/**
+ * Returns up to $limit confirmed league scorecards for the active season,
+ * sorted by actual played date descending. Provides data for the results ticker.
+ */
+function lgw_get_recent_results($limit = 30) {
+    try {
+        $active_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+        $meta_query = array(
+            'relation' => 'AND',
+            array('key' => 'lgw_sc_context', 'value' => 'league',    'compare' => '='),
+            array('key' => 'lgw_sc_status',  'value' => 'confirmed', 'compare' => '='),
+        );
+        if ($active_id) {
+            $meta_query[] = array('key' => 'lgw_sc_season', 'value' => $active_id, 'compare' => '=');
+        }
+        $posts = get_posts(array(
+            'post_type'      => 'lgw_scorecard',
+            'posts_per_page' => $limit * 3,
+            'post_status'    => 'publish',
+            'meta_query'     => $meta_query,
+        ));
+        $results = array();
+        foreach ($posts as $p) {
+            $sc = get_post_meta($p->ID, 'lgw_scorecard_data', true);
+            if (!$sc || empty($sc['home_team']) || empty($sc['away_team'])) continue;
+            $results[] = array(
+                'home_team'   => $sc['home_team'],
+                'away_team'   => $sc['away_team'],
+                'home_total'  => isset($sc['home_total'])  ? $sc['home_total']  : null,
+                'away_total'  => isset($sc['away_total'])  ? $sc['away_total']  : null,
+                'home_points' => isset($sc['home_points']) ? $sc['home_points'] : null,
+                'away_points' => isset($sc['away_points']) ? $sc['away_points'] : null,
+                'date'        => $sc['date']     ?? '',
+                'division'    => $sc['division'] ?? '',
+            );
+        }
+        // Sort by parsed date descending (dd/mm/yyyy)
+        usort($results, function($a, $b) {
+            $da = $a['date'] ? DateTime::createFromFormat('d/m/Y', $a['date']) : false;
+            $db = $b['date'] ? DateTime::createFromFormat('d/m/Y', $b['date']) : false;
+            if (!$da && !$db) return 0;
+            if (!$da) return  1;
+            if (!$db) return -1;
+            return $db <=> $da;
+        });
+        return array_slice($results, 0, $limit);
+    } catch (Exception $e) {
+        return array();
+    }
+}
+
 // ── 2. Enqueue CSS + JS ───────────────────────────────────────────────────────
 add_action('wp_enqueue_scripts', 'lgw_enqueue');
 function lgw_enqueue() {
     global $post;
     if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'lgw_division')) return;
 
-    wp_enqueue_style('lgw-saira', 'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
-    wp_enqueue_style('lgw-widget', plugin_dir_url(__FILE__) . 'lgw-widget.css', array('lgw-saira'), LGW_VERSION);
+    $lgw_theme_opt = get_option('lgw_theme', array());
+    $lgw_font_key  = ! empty( $lgw_theme_opt['font_family'] ) ? $lgw_theme_opt['font_family'] : 'Saira';
+    $lgw_fonts     = lgw_font_options();
+    $lgw_weights   = $lgw_fonts[ $lgw_font_key ]['weights'] ?? '400;600;700';
+    $lgw_font_url  = 'https://fonts.googleapis.com/css2?family=' . urlencode( str_replace('+', ' ', $lgw_font_key) ) . ':wght@' . $lgw_weights . '&display=swap';
+    wp_enqueue_style( 'lgw-font', $lgw_font_url, array(), null );
+    wp_enqueue_style( 'lgw-widget', plugin_dir_url(__FILE__) . 'lgw-widget.css', array('lgw-font'), LGW_VERSION );
+    // Inline CSS var so .lgw-w picks up the chosen font
+    $lgw_font_css_name = str_replace('+', ' ', $lgw_font_key);
+    wp_add_inline_style( 'lgw-widget', ".lgw-w { --lgw-font: '{$lgw_font_css_name}', Arial, sans-serif; font-family: var(--lgw-font); }" );
 
     // Register scorecard script here so lgw-widget can declare it as a dependency.
     // This guarantees lgw-scorecard.js loads before lgw-widget.js on any page
@@ -428,9 +689,12 @@ function lgw_enqueue() {
     // Always localise — safe to call multiple times, ensures lgwSubmit is defined
     // even if script was registered (not enqueued) by a prior call.
     wp_localize_script('lgw-scorecard', 'lgwSubmit', array(
-        'ajaxUrl'  => admin_url('admin-ajax.php'),
-        'nonce'    => wp_create_nonce('lgw_submit_nonce'),
-        'authClub' => lgw_get_auth_club(),
+        'ajaxUrl'        => admin_url('admin-ajax.php'),
+        'nonce'          => wp_create_nonce('lgw_submit_nonce'),
+        'authClub'       => lgw_get_auth_club(),
+        'clubs'          => array_map(function($c){ return $c['name']; }, get_option('lgw_clubs', array())),
+        'pointsPerRink'  => floatval(get_option('lgw_points_per_rink',  1)),
+        'pointsOverall'  => floatval(get_option('lgw_points_overall',   3)),
     ));
 
     wp_enqueue_script('lgw-widget', plugin_dir_url(__FILE__) . 'lgw-widget.js', array('lgw-scorecard'), LGW_VERSION, true);
@@ -447,6 +711,13 @@ function lgw_enqueue() {
         'scoreOverrides' => get_option('lgw_score_overrides', array()),
         'seasons'        => function_exists('lgw_seasons_for_js') ? lgw_seasons_for_js() : array(),
         'activeSeasonId' => function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '',
+        'submissionMode' => get_option('lgw_submission_mode', 'open'),
+        'isAdmin'        => current_user_can('manage_options') ? '1' : '0',
+        'authClub'       => lgw_get_auth_club(),
+        'playedDates'    => lgw_build_played_dates_map(),
+        'scorecardStatus'  => lgw_build_scorecard_status_map(),
+        'postponements'    => lgw_build_postponements_map(),
+        'recentResults'  => lgw_get_recent_results(30),
     ));
 }
 
@@ -465,6 +736,7 @@ function lgw_division_shortcode($atts) {
         'color_secondary' => '',
         'color_bg'        => '',
         'seasons'      => '',  // comma-separated season IDs, or "all"
+        'max_points'   => '7', // max points per match (6 for 12-player division)
     ), $atts);
 
     if (!$atts['csv']) return '<p>No CSV URL provided.</p>';
@@ -509,9 +781,14 @@ function lgw_division_shortcode($atts) {
             if (!in_array($s['id'], $wanted_ids)) continue;
             // Find CSV URL for this division in the archived season
             $csv_url = '';
+            // Normalise both sides by stripping a trailing 4-digit year so that
+            // "Division 1 2026" matches archived entries stored as "Division 1"
+            // or "Division 1 2025".
+            $norm_title = $division_title ? trim(preg_replace('/\s+\d{4}$/', '', $division_title)) : '';
             foreach (($s['divisions'] ?? array()) as $d) {
                 // Match by division title if set, else take first division
-                if ($division_title && strcasecmp($d['division'], $division_title) === 0) {
+                $norm_div = trim(preg_replace('/\s+\d{4}$/', '', $d['division']));
+                if ($division_title && strcasecmp($norm_div, $norm_title) === 0) {
                     $csv_url = $d['csv_url']; break;
                 } elseif (!$division_title && !empty($d['csv_url'])) {
                     $csv_url = $d['csv_url']; break;
@@ -588,23 +865,50 @@ function lgw_division_shortcode($atts) {
     // Extra sponsors JSON for JS random rotation below table
     $extra_json = esc_attr(json_encode($extra_sponsors));
 
+    // ── Attempt server-side render from DB cache ───────────────────────────────
+    $ssr = (function_exists('lgw_cache_render_division'))
+        ? lgw_cache_render_division(
+            $atts['csv'],
+            trim($atts['title']),
+            intval($atts['promote']),
+            intval($atts['relegate'])
+          )
+        : ['hit' => false];
+
+    // Build panel contents — pre-rendered from cache or Loading... shell for XHR fallback
+    if ($ssr['hit']) {
+        $table_panel    = $ssr['table_html'];
+        $fixtures_panel = $ssr['fixtures_html'];
+        $prerendered_attr = ' data-prerendered="1"';
+        $cached_attr      = ' data-cached="' . esc_attr($ssr['cached_json']) . '"';
+    } else {
+        $table_panel      = '<div class="lgw-status">Loading&hellip;</div>';
+        $fixtures_panel   = '<div class="lgw-status">Loading&hellip;</div>';
+        $prerendered_attr = '';
+        $cached_attr      = '';
+    }
+
     return $theme_style
         . '<div class="lgw-widget-wrap" id="' . $id . '-wrap">'
         . $primary_html
         . $title_html
         . '<div class="lgw-w" id="' . $id . '"'
         . ' data-csv="' . $csv_escaped . '"'
+        . ' data-division="' . esc_attr(trim($atts['title'])) . '"'
         . ' data-promote="' . intval($atts['promote']) . '"'
         . ' data-relegate="' . intval($atts['relegate']) . '"'
         . ' data-sponsors="' . $extra_json . '"'
+        . ' data-maxpts="' . max(6, min(7, intval($atts['max_points']))) . '"'
         . (!empty($seasons_data) ? ' data-seasons="' . $seasons_json . '"' : '')
+        . $prerendered_attr
+        . $cached_attr
         . '>'
         . '<div class="lgw-tabs">'
         . '<div class="lgw-tab active" data-tab="table">League Table</div>'
         . '<div class="lgw-tab" data-tab="fixtures">Fixtures &amp; Results</div>'
         . '</div>'
-        . '<div class="lgw-panel active" data-panel="table"><div class="lgw-status">Loading&hellip;</div></div>'
-        . '<div class="lgw-panel" data-panel="fixtures"><div class="lgw-status">Loading&hellip;</div></div>'
+        . '<div class="lgw-panel active" data-panel="table">' . $table_panel . '</div>'
+        . '<div class="lgw-panel" data-panel="fixtures">' . $fixtures_panel . '</div>'
         . '</div>'
         . '</div>';
 }
@@ -648,6 +952,10 @@ function lgw_admin_menu() {
     if (function_exists('lgw_champs_register_submenu')) {
         lgw_champs_register_submenu();
     }
+    // Multi-Discipline Championships — function defined in lgw-multichamp.php
+    if (function_exists('lgw_multichamp_register_submenu')) {
+        lgw_multichamp_register_submenu();
+    }
     // Seasons — function defined in lgw-seasons.php
     if (function_exists('lgw_seasons_register_submenu')) {
         lgw_seasons_register_submenu();
@@ -658,7 +966,7 @@ function lgw_admin_menu() {
         'League Setup',
         '⚙️ League Setup',
         'manage_options',
-        'lgw-league-setup',
+        LGW_SETUP_PAGE,
         'lgw_league_setup_page'
     );
     // Settings — theme, sponsors, club badges, clubs/passphrases
@@ -695,8 +1003,59 @@ function lgw_scorecards_admin_page() {
     }
 
     // ── Data for Submitted Scorecards section ─────────────────────────────────
-    $posts = get_posts(array('post_type'=>'lgw_scorecard','posts_per_page'=>100,'post_status'=>'publish','orderby'=>'date','order'=>'DESC'));
+    $all_seasons_list   = function_exists('lgw_get_seasons') ? lgw_get_seasons() : array();
+    $active_season_id   = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+    $viewing_season_id  = sanitize_text_field($_GET['sc_season'] ?? $active_season_id);
+    // Validate: must be a known season ID or empty
+    $known_season_ids   = array_map(function($s){ return $s['id']; }, $all_seasons_list);
+    if ($viewing_season_id && !in_array($viewing_season_id, $known_season_ids, true)) {
+        $viewing_season_id = $active_season_id;
+    }
+    // Fetch scorecards tagged to the viewed season only — no NOT EXISTS fallback,
+    // because untagged cards may belong to any season and would bleed in incorrectly.
+    // Untagged cards are surfaced separately via the backfill warning banner.
+    $posts_query_args = array(
+        'post_type'      => 'lgw_scorecard',
+        'posts_per_page' => 200,
+        'post_status'    => array('publish', 'draft'),
+        'orderby'        => 'date',
+        'order'          => 'DESC',
+    );
+    if ($viewing_season_id) {
+        $posts_query_args['meta_query'] = array(
+            array('key' => 'lgw_sc_season', 'value' => $viewing_season_id, 'compare' => '='),
+        );
+    }
+    $posts    = get_posts($posts_query_args);
     $sc_nonce = wp_create_nonce('lgw_admin_nonce');
+
+    // Count scorecards whose match date falls in this season but are tagged differently (or untagged).
+    // Used to show the backfill warning banner on any season view, not just the active one.
+    $mismatched_count = 0;
+    if ($viewing_season_id && function_exists('lgw_get_season_by_id')) {
+        $viewing_season_obj = lgw_get_season_by_id($viewing_season_id);
+        if ($viewing_season_obj && !empty($viewing_season_obj['start']) && !empty($viewing_season_obj['end'])) {
+            $vs_start = $viewing_season_obj['start']; // Y-m-d
+            $vs_end   = $viewing_season_obj['end'];
+            $all_sc_ids = get_posts(array(
+                'post_type'      => 'lgw_scorecard',
+                'posts_per_page' => -1,
+                'post_status'    => array('publish', 'draft'),
+                'fields'         => 'ids',
+            ));
+            foreach ($all_sc_ids as $pid) {
+                if (get_post_meta($pid, 'lgw_sc_season', true) === $viewing_season_id) continue;
+                $sc_data  = get_post_meta($pid, 'lgw_scorecard_data', true);
+                $raw_date = $sc_data['date'] ?? '';
+                if (!$raw_date) continue;
+                $parts = explode('/', $raw_date);
+                if (count($parts) === 3) {
+                    $ymd = $parts[2] . '-' . $parts[1] . '-' . $parts[0];
+                    if ($ymd >= $vs_start && $ymd <= $vs_end) $mismatched_count++;
+                }
+            }
+        }
+    }
     ?>
     <div class="wrap">
     <?php lgw_page_header('Scorecards'); ?>
@@ -753,6 +1112,11 @@ function lgw_scorecards_admin_page() {
     .lgw-audit-changes li{margin-bottom:2px}
     .lgw-sc-amended{font-size:10px;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle}
     .lgw-sc-div-warn{font-size:10px;background:#f8d7da;color:#842029;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;font-weight:600}
+    .lgw-sc-ctx-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;margin-left:4px;vertical-align:middle}
+    .lgw-sc-ctx-cup{background:#e8f0fe;color:#1a56a0}
+    .lgw-sc-ctx-multichamp{background:#eaf3de;color:#276221}
+    .lgw-sc-ctx-champ{background:#fff3cd;color:#7a5c00}
+    .lgw-sc-mc-ref{font-size:10px;color:#666;margin-left:4px;font-style:italic}
     /* ── Score entry styles ── */
     .lgw-overridden td{background:#fff8f8 !important}
     .lgw-overridden input{color:#8f1520 !important;font-weight:700}
@@ -816,6 +1180,7 @@ function lgw_scorecards_admin_page() {
         document.querySelectorAll('.lgw-save-edit').forEach(function(btn){
             btn.addEventListener('click', function(){
                 var postId=btn.dataset.postid, nonce=btn.dataset.nonce;
+                var isDisputed=btn.dataset.disputed==='1';
                 var wrap=document.getElementById('sc-'+postId);
                 var form=wrap?wrap.querySelector('.lgw-edit-form'):null;
                 var msgEl=form?form.querySelector('.lgw-edit-msg'):null;
@@ -836,12 +1201,32 @@ function lgw_scorecards_admin_page() {
                 fetch(ajaxurl,{method:'POST',body:data,credentials:'same-origin'})
                     .then(function(r){ return r.text().then(function(t){ try{return JSON.parse(t);}catch(e){throw new Error('Bad JSON: '+t.slice(0,200));} }); })
                     .then(function(res){
-                        btn.disabled=false; btn.textContent='💾 Save Changes';
+                        var defaultLabel=isDisputed?'⚖️ Save & Resolve Dispute':'💾 Save Changes';
+                        btn.disabled=false; btn.textContent=defaultLabel;
                         if(msgEl){ msgEl.style.display=''; msgEl.className='lgw-edit-msg '+(res.success?'success':'error');
                             msgEl.textContent=res.success?(res.data.message||'Saved.'):('Error: '+(res.data||'unknown'));
-                            if(res.success) setTimeout(function(){location.reload();},1800); }
+                            if(res.success){
+                                // If this was a disputed card, update the status badge immediately
+                                if(isDisputed && wrap){
+                                    var row=wrap.closest('tr') ? wrap.closest('tr').previousElementSibling : null;
+                                    if(row){
+                                        var badge=row.querySelector('.lgw-sc-status');
+                                        if(badge){ badge.className='lgw-sc-status confirmed'; badge.textContent='Confirmed'; }
+                                        row.dataset.status='confirmed';
+                                    }
+                                    // Remove the disputed banner from the form
+                                    var notice=form.querySelector('.lgw-disputed-edit-notice');
+                                    if(notice) notice.remove();
+                                    // Remove data-disputed so button label resets on next open
+                                    btn.removeAttribute('data-disputed');
+                                    btn.textContent='💾 Save Changes';
+                                }
+                                setTimeout(function(){location.reload();},1800);
+                            }
+                        }
                     }).catch(function(err){
-                        btn.disabled=false; btn.textContent='💾 Save Changes';
+                        var defaultLabel=isDisputed?'⚖️ Save & Resolve Dispute':'💾 Save Changes';
+                        btn.disabled=false; btn.textContent=defaultLabel;
                         if(msgEl){ msgEl.style.display=''; msgEl.className='lgw-edit-msg error'; msgEl.textContent='Request failed: '+err.message; }
                     });
             });
@@ -867,7 +1252,8 @@ function lgw_scorecards_admin_page() {
                         var sheet=r.data&&r.data.sheet?r.data.sheet:'';
                         var sheetLabel={'sheet_ok':' + sheet ✓','sheet_error':' (sheet error)',
                             'row_not_found':' (row not found)','auth_failed':' (auth failed)',
-                            'fetch_failed':' (sheet fetch failed)','no_tab':' (no tab mapped)'}[sheet]||'';
+                            'fetch_failed':' (sheet fetch failed)','no_tab':' (no tab mapped)',
+                            'no_spreadsheet_id':' (no spreadsheet ID)'}[sheet]||'';
                         status.textContent=clearing?'Cleared':('✓ Saved'+sheetLabel);
                         status.style.color=clearing?'#888':(sheet==='sheet_ok'||sheet==='sheets_disabled')?'#2a7a2a':'#c07000';
                         row.classList.toggle('lgw-overridden',!clearing);
@@ -886,7 +1272,10 @@ function lgw_scorecards_admin_page() {
         }
         function bindClear(row,btn){
             btn.addEventListener('click',function(){
-                row.querySelectorAll('input').forEach(function(i){i.value='';});
+                row.querySelector('.lgw-sh').value='';
+                row.querySelector('.lgw-sa').value='';
+                row.querySelector('.lgw-ph').value='';
+                row.querySelector('.lgw-pa').value='';
                 saveRow(row,'','','','');
             });
         }
@@ -913,6 +1302,120 @@ function lgw_scorecards_admin_page() {
                     .then(function(r){if(r.success) location.reload();});
             });
         }
+        // ── Backfill untagged scorecard seasons ──────────────────────────────
+        var backfillBtn = document.getElementById('lgw-backfill-sc-seasons-btn');
+        if (backfillBtn) {
+            backfillBtn.addEventListener('click', function() {
+                if (!confirm('Tag all untagged scorecards to the current season? This cannot be undone.')) return;
+                backfillBtn.disabled = true;
+                backfillBtn.textContent = '⏳ Tagging\u2026';
+                var msg = document.getElementById('lgw-backfill-sc-msg');
+                var fd = new FormData();
+                fd.append('action',    'lgw_backfill_sc_seasons');
+                fd.append('nonce',     backfillBtn.dataset.nonce);
+                fd.append('season_id', backfillBtn.dataset.season);
+                fetch(scoresAjax, {method:'POST', body:fd})
+                    .then(function(r){ return r.json(); })
+                    .then(function(r){
+                        if (r.success) {
+                            if (msg) msg.textContent = '✅ Tagged ' + (r.data.count || 0) + ' scorecard(s).';
+                            setTimeout(function(){ location.reload(); }, 1200);
+                        } else {
+                            backfillBtn.disabled = false;
+                            backfillBtn.textContent = '🏷️ Tag all to this season';
+                            if (msg) msg.textContent = '❌ ' + (r.data || 'Failed');
+                        }
+                    })
+                    .catch(function(){
+                        backfillBtn.disabled = false;
+                        backfillBtn.textContent = '🏷️ Tag all to this season';
+                        if (msg) msg.textContent = '❌ Network error';
+                    });
+            });
+        }
+        // ── Season tag dropdown ──────────────────────────────────────────────────
+        document.querySelectorAll('.lgw-sc-season-select').forEach(function(sel) {
+            sel.addEventListener('change', function() {
+                var postId  = sel.dataset.id;
+                var nonce   = sel.dataset.nonce;
+                var season  = sel.value;
+                var statusEl = sel.parentNode.querySelector('.lgw-retag-status');
+                sel.disabled = true;
+                if (statusEl) statusEl.textContent = '⏳';
+                var fd = new FormData();
+                fd.append('action',    'lgw_retag_scorecard');
+                fd.append('nonce',     nonce);
+                fd.append('post_id',   postId);
+                fd.append('season_id', season);
+                fetch(scoresAjax, {method:'POST', body:fd})
+                    .then(function(r){ return r.json(); })
+                    .then(function(r){
+                        sel.disabled = false;
+                        if (r.success) {
+                            if (statusEl) { statusEl.textContent = '✅'; setTimeout(function(){ statusEl.textContent=''; }, 2000); }
+                        } else {
+                            if (statusEl) statusEl.textContent = '❌ ' + (r.data || 'Failed');
+                        }
+                    })
+                    .catch(function(){
+                        sel.disabled = false;
+                        if (statusEl) statusEl.textContent = '❌ Network error';
+                    });
+            });
+        });
+
+        // ── Quick Score Entry — date filter ─────────────────────────────────
+        var dateFilter = document.getElementById('lgw-date-filter');
+        var dateCount  = document.getElementById('lgw-date-filter-count');
+        if (dateFilter) {
+            function applyDateFilter() {
+                var val = dateFilter.value;
+                var rows = document.querySelectorAll('.lgw-score-row');
+                var shown = 0;
+                rows.forEach(function(r) {
+                    var match = !val || r.dataset.date === val;
+                    r.style.display = match ? '' : 'none';
+                    if (match) shown++;
+                });
+                if (dateCount) {
+                    dateCount.textContent = val ? shown + ' fixture' + (shown !== 1 ? 's' : '') + ' on this date' : '';
+                }
+                // Scroll first matching row into view
+                if (val) {
+                    var first = document.querySelector('.lgw-score-row[data-date="' + val + '"]');
+                    if (first) first.scrollIntoView({behavior:'smooth', block:'nearest'});
+                }
+            }
+            dateFilter.addEventListener('change', applyDateFilter);
+        }
+
+        // ── Submitted Scorecards — division + status filters ─────────────────
+        var scDivFilter    = document.getElementById('lgw-sc-div-filter');
+        var scStatusFilter = document.getElementById('lgw-sc-status-filter');
+        var scFilterCount  = document.getElementById('lgw-sc-filter-count');
+        function applyScFilters() {
+            var divVal    = scDivFilter    ? scDivFilter.value    : '';
+            var statusVal = scStatusFilter ? scStatusFilter.value : '';
+            var rows = document.querySelectorAll('#lgw-sc-table .lgw-sc-row');
+            var shown = 0;
+            rows.forEach(function(row) {
+                // Each data row is followed by a detail row (td colspan=7)
+                var detailRow = row.nextElementSibling;
+                var matchDiv    = !divVal    || row.dataset.division === divVal;
+                var matchStatus = !statusVal || row.dataset.status   === statusVal;
+                var visible = matchDiv && matchStatus;
+                row.style.display = visible ? '' : 'none';
+                if (detailRow) detailRow.style.display = visible ? '' : 'none';
+                if (visible) shown++;
+            });
+            if (scFilterCount) {
+                var hasFilter = divVal || statusVal;
+                scFilterCount.textContent = hasFilter ? shown + ' scorecard' + (shown !== 1 ? 's' : '') + ' shown' : '';
+            }
+        }
+        if (scDivFilter)    scDivFilter.addEventListener('change',    applyScFilters);
+        if (scStatusFilter) scStatusFilter.addEventListener('change', applyScFilters);
+
     });
     </script>
 
@@ -942,7 +1445,7 @@ function lgw_scorecards_admin_page() {
         </div>
         <div class="lgw-section-body">
         <?php if (empty($divisions)): ?>
-            <div class="notice notice-warning inline"><p>No divisions with CSV URLs configured. Go to <a href="<?php echo admin_url('admin.php?page=lgw-league-setup'); ?>">League Setup</a> and scroll down to <strong>Google Sheets Writeback</strong>.</p></div>
+            <div class="notice notice-warning inline"><p>No divisions with CSV URLs configured. Go to <a href="<?php echo admin_url('admin.php?page=' . LGW_SETUP_PAGE); ?>">League Setup</a> and scroll down to <strong>Google Sheets Writeback</strong>.</p></div>
         <?php else: ?>
             <p style="color:#666;font-size:13px;margin-top:0">Enter or correct scores before full scorecards are submitted. Saves directly to Google Sheets. Leave all fields blank to remove an override.</p>
             <div style="margin-bottom:12px">
@@ -958,6 +1461,22 @@ function lgw_scorecards_admin_page() {
             <?php elseif ($sel && empty($fixtures)): ?>
                 <div class="notice notice-warning inline"><p>No fixtures found in CSV for this division.</p></div>
             <?php elseif ($sel): ?>
+            <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <label for="lgw-date-filter" style="font-weight:600;font-size:13px">Jump to date:</label>
+                <select id="lgw-date-filter" style="font-size:13px;max-width:240px">
+                    <option value="">— All dates —</option>
+                    <?php
+                    $seen_dates = array();
+                    foreach ($fixtures as $fx) {
+                        if (!in_array($fx['date'], $seen_dates, true)) {
+                            $seen_dates[] = $fx['date'];
+                            echo '<option value="' . esc_attr($fx['date']) . '">' . esc_html($fx['date']) . '</option>';
+                        }
+                    }
+                    ?>
+                </select>
+                <span id="lgw-date-filter-count" style="font-size:12px;color:#666"></span>
+            </div>
             <table class="widefat striped" id="lgw-scores-table" style="font-size:13px;max-width:900px">
                 <thead><tr>
                     <th style="width:130px">Date</th>
@@ -1031,12 +1550,86 @@ function lgw_scorecards_admin_page() {
             <?php endif; ?>
         </div>
         <div class="lgw-section-body">
+
+        <?php if (!empty($all_seasons_list)): ?>
+        <!-- ── Season switcher ── -->
+        <div class="lgw-season-switcher" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;align-items:center">
+            <span style="font-size:12px;font-weight:600;color:#555;margin-right:4px">Season:</span>
+            <?php
+            // Active season first, then archived newest-first
+            $sw_seasons = array();
+            foreach ($all_seasons_list as $s) { if (!empty($s['active'])) { $sw_seasons[] = $s; break; } }
+            $archived_sw = array_values(array_filter($all_seasons_list, function($s){ return empty($s['active']); }));
+            usort($archived_sw, function($a,$b){ return strcmp($b['id'],$a['id']); });
+            $sw_seasons = array_merge($sw_seasons, $archived_sw);
+            foreach ($sw_seasons as $sw_s):
+                $sw_active = ($sw_s['id'] === $viewing_season_id);
+                $sw_url    = admin_url('admin.php?page=lgw-scorecards&sc_season=' . urlencode($sw_s['id']) . '#lgw-sec-scorecards');
+            ?>
+            <a href="<?php echo esc_url($sw_url); ?>"
+               class="button button-small<?php echo $sw_active ? ' button-primary' : ''; ?>"
+               style="<?php echo $sw_active ? 'font-weight:700' : ''; ?>">
+                <?php echo esc_html($sw_s['label'] ?: $sw_s['id']); ?>
+                <?php if (!empty($sw_s['active'])): ?><span style="font-size:10px;opacity:.8"> ★</span><?php endif; ?>
+            </a>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
         <?php if (empty($posts)): ?>
-            <p>No scorecards submitted yet.</p>
+            <p>No scorecards found for this season.</p>
         <?php else: ?>
-        <table class="widefat striped">
+
+        <?php if ($mismatched_count > 0): ?>
+        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:4px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span>⚠️ <strong><?php echo $mismatched_count; ?> scorecard<?php echo $mismatched_count > 1 ? 's have' : ' has'; ?> a match date in this season but <?php echo $mismatched_count > 1 ? 'are' : 'is'; ?> tagged to a different season.</strong> Run backfill to reassign.</span>
+            <button type="button" class="button button-small" id="lgw-backfill-sc-seasons-btn"
+                    data-season="<?php echo esc_attr($viewing_season_id); ?>"
+                    data-nonce="<?php echo wp_create_nonce('lgw_backfill_sc_seasons_' . $viewing_season_id); ?>">
+                🏷️ Reassign to this season
+            </button>
+            <span id="lgw-backfill-sc-msg" style="font-size:12px"></span>
+        </div>
+        <?php endif; ?>
+
+        <?php
+        // Collect unique divisions for the filter dropdown
+        $sc_divisions = array();
+        foreach ($posts as $_sp) {
+            $_sc_d = get_post_meta($_sp->ID, 'lgw_scorecard_data', true);
+            $_div  = trim($_sc_d['division'] ?? '');
+            if ($_div && !in_array($_div, $sc_divisions, true)) $sc_divisions[] = $_div;
+        }
+        sort($sc_divisions);
+        ?>
+        <div style="margin-bottom:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <?php if (!empty($sc_divisions)): ?>
+            <div style="display:flex;align-items:center;gap:6px">
+                <label for="lgw-sc-div-filter" style="font-weight:600;font-size:13px">Division:</label>
+                <select id="lgw-sc-div-filter" style="font-size:13px;max-width:200px">
+                    <option value="">— All —</option>
+                    <?php foreach ($sc_divisions as $_d): ?>
+                    <option value="<?php echo esc_attr($_d); ?>"><?php echo esc_html($_d); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
+            <div style="display:flex;align-items:center;gap:6px">
+                <label for="lgw-sc-status-filter" style="font-weight:600;font-size:13px">Status:</label>
+                <select id="lgw-sc-status-filter" style="font-size:13px">
+                    <option value="">— All —</option>
+                    <option value="pending">Pending</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="disputed">Disputed</option>
+                    <option value="admin_resolved">Admin resolved</option>
+                </select>
+            </div>
+            <span id="lgw-sc-filter-count" style="font-size:12px;color:#666"></span>
+        </div>
+        <table class="widefat striped" id="lgw-sc-table">
         <thead><tr>
             <th>Match</th><th>Division</th>
+            <th>Season</th>
             <th>Result (home v away)</th>
             <th>Status</th>
             <th>Submitted</th>
@@ -1049,24 +1642,55 @@ function lgw_scorecards_admin_page() {
             $sub_by   = get_post_meta($p->ID, 'lgw_submitted_by',    true);
             $con_by   = get_post_meta($p->ID, 'lgw_confirmed_by',    true);
             $away_sc  = get_post_meta($p->ID, 'lgw_away_scorecard',  true);
-            $div_unresolved = get_post_meta($p->ID, 'lgw_division_unresolved', true);
+            $sc_ctx   = get_post_meta($p->ID, 'lgw_sc_context',      true) ?: 'league';
+            $mc_game  = get_post_meta($p->ID, 'lgw_multichamp_game_id', true);
+            // Re-evaluate live so stale flags don't persist after division is corrected
+            $drive_opts_list  = get_option('lgw_drive', array());
+            $resolved_tab_list = lgw_sheets_tab_for_division($sc['division'] ?? '', $drive_opts_list);
+            $div_unresolved   = ($sc_ctx === 'league') && (empty($sc['division']) || !$resolved_tab_list);
+            if (!$div_unresolved) delete_post_meta($p->ID, 'lgw_division_unresolved');
             $result   = ($sc && isset($sc['home_total']))
                 ? $sc['home_total'].' ('.$sc['home_points'].'pts) – '.$sc['away_total'].' ('.$sc['away_points'].'pts)'
                 : '—';
             $status_labels = array('pending'=>'Pending','confirmed'=>'Confirmed','disputed'=>'Disputed');
+            $sc_tag    = get_post_meta($p->ID, 'lgw_sc_season', true) ?: '';
         ?>
-        <tr>
+        <tr class="lgw-sc-row" data-division="<?php echo esc_attr($sc['division'] ?? ''); ?>" data-status="<?php echo esc_attr($status); ?>">
             <td>
                 <strong><?php echo esc_html($p->post_title); ?></strong>
                 <?php if (get_post_meta($p->ID, 'lgw_admin_edited', true)): ?>
                     <span class="lgw-sc-amended" title="Amended by admin">Amended</span>
                 <?php endif; ?>
+                <?php
+                $ctx_labels = [ 'league' => '', 'cup' => '🏆 Cup', 'multichamp' => '🏅 Multi-champ', 'champ' => '🎯 Champ' ];
+                $ctx_label  = $ctx_labels[ $sc_ctx ] ?? esc_html( $sc_ctx );
+                if ( $ctx_label ) echo ' <span class="lgw-sc-ctx-badge lgw-sc-ctx-' . esc_attr($sc_ctx) . '">' . $ctx_label . '</span>';
+                if ( $mc_game ) echo ' <span class="lgw-sc-mc-ref" title="' . esc_attr($mc_game) . '">ref: ' . esc_html( implode( ' · ', array_slice( explode(':', $mc_game), 2 ) ) ) . '</span>';
+                ?>
             </td>
             <td>
                 <?php echo esc_html($sc['division'] ?? '—'); ?>
                 <?php if ($div_unresolved): ?>
                     <span class="lgw-sc-div-warn" title="Division not matched to a sheet tab — sheet writeback will be skipped until corrected">⚠️ Unresolved</span>
                 <?php endif; ?>
+            </td>
+            <td>
+                <?php
+                $sc_nonce_tag = wp_create_nonce('lgw_retag_sc_' . $p->ID);
+                ?>
+                <select class="lgw-sc-season-select" style="max-width:110px;font-size:12px"
+                        data-id="<?php echo $p->ID; ?>"
+                        data-nonce="<?php echo esc_attr($sc_nonce_tag); ?>">
+                    <option value="" <?php selected($sc_tag, ''); ?>>— untagged —</option>
+                    <?php foreach ($all_seasons_list as $sw_opt): ?>
+                    <option value="<?php echo esc_attr($sw_opt['id']); ?>"
+                            <?php selected($sc_tag, $sw_opt['id']); ?>>
+                        <?php echo esc_html($sw_opt['label'] ?: $sw_opt['id']); ?>
+                        <?php if (!empty($sw_opt['active'])) echo ' ★'; ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+                <span class="lgw-retag-status" style="font-size:11px;display:block;margin-top:2px"></span>
             </td>
             <td><?php echo esc_html($result); ?></td>
             <td><span class="lgw-sc-status <?php echo esc_attr($status); ?>"><?php echo $status_labels[$status] ?? $status; ?></span></td>
@@ -1079,7 +1703,7 @@ function lgw_scorecards_admin_page() {
             </td>
         </tr>
         <tr>
-            <td colspan="6" style="padding:0">
+            <td colspan="7" style="padding:0">
             <div class="lgw-admin-sc-wrap" id="sc-<?php echo $p->ID; ?>">
                 <div class="lgw-sc-subpanel" data-panel="view">
                 <?php if ($status === 'disputed' && $away_sc): ?>
@@ -1164,21 +1788,21 @@ function lgw_save_settings() {
     if (!current_user_can('manage_options')) wp_die('Unauthorized');
     check_admin_referer('lgw_settings_nonce');
 
-    // Club badges
-    $teams  = isset($_POST['lgw_team'])       ? array_map('sanitize_text_field', $_POST['lgw_team'])       : array();
-    $images = isset($_POST['lgw_image'])      ? array_map('esc_url_raw',         $_POST['lgw_image'])      : array();
-    $types  = isset($_POST['lgw_badge_type']) ? array_map('sanitize_text_field', $_POST['lgw_badge_type']) : array();
+    // Club badges — now derived from the merged club rows (lgw_club_name + lgw_image + lgw_badge_type)
+    $club_names_for_badges = isset($_POST['lgw_club_name']) ? array_map('sanitize_text_field', $_POST['lgw_club_name']) : array();
+    $images                = isset($_POST['lgw_image'])      ? array_map('esc_url_raw',         $_POST['lgw_image'])      : array();
+    $types                 = isset($_POST['lgw_badge_type']) ? array_map('sanitize_text_field', $_POST['lgw_badge_type']) : array();
 
     $badges      = array();
     $club_badges = array();
-    foreach ($teams as $i => $team) {
+    foreach ($club_names_for_badges as $i => $team) {
         $team = trim($team);
         if ($team !== '' && !empty($images[$i])) {
-            $type = isset($types[$i]) ? $types[$i] : 'exact';
-            if ($type === 'club') {
-                $club_badges[$team] = $images[$i];
-            } else {
+            $type = isset($types[$i]) ? $types[$i] : 'club';
+            if ($type === 'exact') {
                 $badges[$team] = $images[$i];
+            } else {
+                $club_badges[$team] = $images[$i];
             }
         }
     }
@@ -1201,11 +1825,14 @@ function lgw_save_settings() {
     }
     update_option('lgw_sponsors', $sponsors);
 
-    // Theme colours
+    // Theme colours + font
+    $allowed_fonts = array_keys( lgw_font_options() );
+    $font_raw      = sanitize_text_field( $_POST['lgw_font_family'] ?? '' );
     $theme = array(
         'color_primary'   => sanitize_hex_color($_POST['lgw_color_primary']   ?? '') ?: '',
         'color_secondary' => sanitize_hex_color($_POST['lgw_color_secondary'] ?? '') ?: '',
         'color_bg'        => sanitize_hex_color($_POST['lgw_color_bg']        ?? '') ?: '',
+        'font_family'     => in_array( $font_raw, $allowed_fonts ) ? $font_raw : '',
     );
     update_option('lgw_theme', $theme);
 
@@ -1235,6 +1862,12 @@ function lgw_save_settings() {
         update_option('lgw_github_token', sanitize_text_field($_POST['lgw_github_token']));
     }
 
+    // Scorecard submission mode
+    $allowed_modes = array('disabled', 'admin_only', 'open');
+    $submission_mode = isset($_POST['lgw_submission_mode']) && in_array($_POST['lgw_submission_mode'], $allowed_modes)
+        ? $_POST['lgw_submission_mode'] : 'open';
+    update_option('lgw_submission_mode', $submission_mode);
+
     wp_redirect(admin_url('admin.php?page=lgw-settings&saved=1'));
     exit;
 }
@@ -1254,6 +1887,12 @@ function lgw_save_league_setup() {
     $cache_mins = isset($_POST['lgw_cache_mins']) ? max(1, intval($_POST['lgw_cache_mins'])) : 5;
     update_option('lgw_cache_mins', $cache_mins);
 
+    // Division cache cron sync interval
+    $allowed_intervals = array('lgw_15min', 'lgw_30min', 'hourly', 'lgw_4hour');
+    $cron_interval = isset($_POST['lgw_cache_cron_interval']) && in_array($_POST['lgw_cache_cron_interval'], $allowed_intervals)
+        ? $_POST['lgw_cache_cron_interval'] : 'hourly';
+    update_option('lgw_cache_cron_interval', $cron_interval);
+
     // Photo analysis provider
     $allowed_providers = array('disabled', 'anthropic', 'openai', 'gemini');
     $vision_provider = isset($_POST['lgw_vision_provider']) && in_array($_POST['lgw_vision_provider'], $allowed_providers)
@@ -1267,10 +1906,89 @@ function lgw_save_league_setup() {
 
     // Drive + Sheets (only save if Google Sheets is the data source)
     lgw_drive_save_settings();
-    lgw_sheets_save_settings();
 
-    wp_redirect(admin_url('admin.php?page=lgw-league-setup&saved=1'));
+    // Merged divisions table — save to active season AND sheets_tabs simultaneously
+    $div_names          = isset($_POST['lgw_div_name'])           ? array_map('sanitize_text_field', $_POST['lgw_div_name'])           : array();
+    $div_urls           = isset($_POST['lgw_div_csv_url'])        ? array_map('esc_url_raw',         $_POST['lgw_div_csv_url'])        : array();
+    $div_tabs           = isset($_POST['lgw_div_tab'])            ? array_map('sanitize_text_field', $_POST['lgw_div_tab'])            : array();
+    $div_spreadsheet_ids = isset($_POST['lgw_div_spreadsheet_id']) ? array_map('sanitize_text_field', $_POST['lgw_div_spreadsheet_id']) : array();
+
+    $divisions  = array();
+    $sheets_tabs = array();
+    foreach ($div_names as $i => $name) {
+        $name           = trim($name);
+        $url            = trim($div_urls[$i]            ?? '');
+        $tab            = trim($div_tabs[$i]            ?? '');
+        $spreadsheet_id = trim($div_spreadsheet_ids[$i] ?? '');
+        if ($name !== '' && $url !== '') {
+            $divisions[]   = array('division' => $name, 'csv_url' => $url);
+            $sheets_tabs[] = array(
+                'division'       => $name,
+                'csv_url'        => $url,
+                'tab'            => $tab,
+                'spreadsheet_id' => $spreadsheet_id,
+            );
+        }
+    }
+
+    // Update active season divisions
+    $seasons = lgw_get_seasons();
+    $found   = false;
+    foreach ($seasons as &$s) {
+        if (!empty($s['active'])) {
+            $s['divisions'] = $divisions;
+            $found = true;
+            break;
+        }
+    }
+    unset($s);
+    if (!$found && !empty($divisions)) {
+        $year     = date('Y');
+        $seasons[] = array(
+            'id'        => $year,
+            'label'     => $year . ' Season',
+            'active'    => true,
+            'divisions' => $divisions,
+        );
+    }
+    update_option('lgw_seasons', $seasons);
+
+    // Update drive/sheets tabs
+    $opts_drive = get_option('lgw_drive', array());
+    $opts_drive['sheets_enabled'] = !empty($_POST['lgw_sheets_enabled']) ? 1 : 0;
+    $opts_drive['sheets_id']      = sanitize_text_field($_POST['lgw_sheets_id'] ?? '');
+    $opts_drive['sheets_tabs']    = $sheets_tabs;
+    update_option('lgw_drive', $opts_drive);
+
+    // Points system
+    $pts_rink    = isset($_POST['lgw_points_per_rink']) ? max(0, floatval($_POST['lgw_points_per_rink'])) : 1;
+    $pts_overall = isset($_POST['lgw_points_overall'])  ? max(0, floatval($_POST['lgw_points_overall']))  : 3;
+    update_option('lgw_points_per_rink',  $pts_rink);
+    update_option('lgw_points_overall',   $pts_overall);
+
+    wp_redirect(admin_url('admin.php?page=' . LGW_SETUP_PAGE . '&saved=1'));
     exit;
+}
+
+// ── Font options ──────────────────────────────────────────────────────────────
+
+function lgw_font_options() {
+    return [
+        'Saira'          => [ 'label' => 'Saira (default)',       'weights' => '400;600;700' ],
+        'Inter'          => [ 'label' => 'Inter',                 'weights' => '400;600;700' ],
+        'Roboto'         => [ 'label' => 'Roboto',                'weights' => '400;700' ],
+        'Oswald'         => [ 'label' => 'Oswald',                'weights' => '400;600;700' ],
+        'Barlow'         => [ 'label' => 'Barlow',                'weights' => '400;600;700' ],
+        'Nunito+Sans'    => [ 'label' => 'Nunito Sans',           'weights' => '400;600;700' ],
+        'Raleway'        => [ 'label' => 'Raleway',               'weights' => '400;600;700' ],
+        'Exo+2'          => [ 'label' => 'Exo 2',                 'weights' => '400;600;700' ],
+        'Titillium+Web'  => [ 'label' => 'Titillium Web',        'weights' => '400;600;700' ],
+        'DM+Sans'        => [ 'label' => 'DM Sans',               'weights' => '400;600;700' ],
+    ];
+}
+
+function lgw_font_display_name( $key ) {
+    return lgw_font_options()[ $key ]['label'] ?? $key;
 }
 
 // ── Theme colour helpers ───────────────────────────────────────────────────────
@@ -1378,8 +2096,13 @@ function lgw_clear_cache() {
     if (!current_user_can('manage_options')) wp_die('Unauthorized');
     check_admin_referer('lgw_clear_cache_nonce');
     global $wpdb;
+    // Clear transient CSV cache
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_lgw_csv_%' OR option_name LIKE '_transient_timeout_lgw_csv_%'");
-    wp_redirect(admin_url('admin.php?page=lgw-settings&saved=1&cleared=1'));
+    // Clear DB-primary division cache
+    if (function_exists('lgw_cache_invalidate_all')) {
+        lgw_cache_invalidate_all();
+    }
+    wp_redirect(admin_url('admin.php?page=' . LGW_SETUP_PAGE . '&cleared=1'));
     exit;
 }
 
@@ -1412,20 +2135,56 @@ function lgw_settings_page() {
             <?php wp_nonce_field('lgw_settings_nonce'); ?>
             <input type="hidden" name="action" value="lgw_save_settings">
 
-            <h2>Clubs &amp; Passphrases</h2>
+            <h2>Clubs &amp; Badges</h2>
             <p>Add clubs and set a passphrase for each one. Used across all features — scorecards, cups, and championships.<br>
-            <em>Tip: the <a href="https://what3words.com" target="_blank">what3words</a> address for your clubhouse makes a good passphrase (e.g. <code>filled.count.ripen</code>).</em><br>
-            Leave the passphrase blank when editing to keep the existing one.</p>
+            <em>Tip: the <a href="https://what3words.com" target="_blank">what3words</a> address for your clubhouse makes a good passphrase (e.g. <code>filled.count.ripen</code>).</em>
+            Leave the passphrase blank when editing to keep the existing one.<br>
+            Optionally assign a badge image per club. Set <strong>Type</strong> to <strong>Club prefix</strong> to match multiple teams (e.g. <code>MALONE</code> matches <code>MALONE A</code>, <code>MALONE B</code>); use <strong>Exact</strong> for a team-specific badge.</p>
+            <?php
+            $clubs       = get_option('lgw_clubs',       array());
+            $badges      = get_option('lgw_badges',      array());
+            $club_badges = get_option('lgw_club_badges', array());
+            if (empty($clubs)) $clubs = array(array('name'=>'','pin'=>''));
+            // Build a badge lookup keyed by club name (case-insensitive)
+            $badge_lookup = array(); // name_lc => ['image'=>'', 'type'=>'']
+            foreach ($badges as $team => $img) {
+                $badge_lookup[strtolower($team)] = array('image' => $img, 'type' => 'exact');
+            }
+            foreach ($club_badges as $team => $img) {
+                $badge_lookup[strtolower($team)] = array('image' => $img, 'type' => 'club');
+            }
+            ?>
             <table class="widefat lgw-badge-table" id="lgw-club-table">
-                <thead><tr><th>Club Name</th><th>Passphrase (leave blank to keep existing)</th><th></th></tr></thead>
+                <thead>
+                    <tr>
+                        <th>Club Name</th>
+                        <th>Passphrase <span style="font-weight:400;color:#666">(leave blank to keep existing)</span></th>
+                        <th>Badge Type</th>
+                        <th>Badge Image</th>
+                        <th>Preview</th>
+                        <th></th>
+                    </tr>
+                </thead>
                 <tbody>
-                <?php
-                $clubs = get_option('lgw_clubs', array());
-                if (empty($clubs)) $clubs = array(array('name'=>'','pin'=>''));
-                foreach ($clubs as $club): ?>
+                <?php foreach ($clubs as $club):
+                    $b     = $badge_lookup[strtolower($club['name'])] ?? array('image'=>'','type'=>'club');
+                    $bimg  = $b['image'];
+                    $btype = $b['type'];
+                ?>
                 <tr class="lgw-club-row">
-                    <td><input type="text" name="lgw_club_name[]" value="<?php echo esc_attr($club['name']); ?>" placeholder="e.g. Ards" class="regular-text"></td>
-                    <td><input type="text" name="lgw_club_pin[]" value="" placeholder="<?php echo $club['pin'] ? '(passphrase set — enter new to change)' : 'Set passphrase (word.word.word)'; ?>" autocomplete="off" autocapitalize="none" spellcheck="false" class="regular-text" style="width:240px"></td>
+                    <td><input type="text" name="lgw_club_name[]" value="<?php echo esc_attr($club['name']); ?>" placeholder="e.g. Ards" class="regular-text" style="width:120px"></td>
+                    <td><input type="text" name="lgw_club_pin[]" value="" placeholder="<?php echo $club['pin'] ? '(set — enter new to change)' : 'word.word.word'; ?>" autocomplete="off" autocapitalize="none" spellcheck="false" class="regular-text" style="width:180px"></td>
+                    <td>
+                        <select name="lgw_badge_type[]" class="lgw-badge-type">
+                            <option value="club"  <?php selected($btype,'club');  ?>>Club prefix</option>
+                            <option value="exact" <?php selected($btype,'exact'); ?>>Exact</option>
+                        </select>
+                    </td>
+                    <td>
+                        <input type="text" name="lgw_image[]" value="<?php echo esc_url($bimg); ?>" placeholder="Image URL" class="regular-text lgw-image-url" readonly style="width:140px">
+                        <button type="button" class="button lgw-pick-image">Choose</button>
+                    </td>
+                    <td><img class="lgw-badge-preview" src="<?php echo esc_url($bimg); ?>" style="width:40px;height:40px;object-fit:contain;<?php echo $bimg ? '' : 'display:none;'; ?>"></td>
                     <td><button type="button" class="button-link-delete lgw-remove-row">Remove</button></td>
                 </tr>
                 <?php endforeach; ?>
@@ -1434,10 +2193,54 @@ function lgw_settings_page() {
             <p><button type="button" class="button" id="lgw-add-club">+ Add Club</button></p>
 
             <hr>
-            <h2>Theme Colours</h2>
-            <p>Default colours for all widgets on this site. Can be overridden per-widget using shortcode attributes: <code>color_primary</code>, <code>color_secondary</code>, <code>color_bg</code>.</p>
+            <h2>Theme &amp; Font</h2>
+            <p>Default appearance for all widgets on this site. Colours can be overridden per-widget using shortcode attributes: <code>color_primary</code>, <code>color_secondary</code>, <code>color_bg</code>.</p>
             <?php $theme = get_option('lgw_theme', array()); ?>
             <table class="form-table">
+                <tr>
+                    <th>Widget Font</th>
+                    <td>
+                        <?php
+                        $cur_font  = $theme['font_family'] ?? 'Saira';
+                        $font_opts = lgw_font_options();
+                        ?>
+                        <select name="lgw_font_family" id="lgw-font-picker" style="min-width:200px">
+                            <?php foreach ( $font_opts as $key => $meta ) : ?>
+                            <option value="<?php echo esc_attr($key); ?>" <?php selected($cur_font, $key); ?>>
+                                <?php echo esc_html($meta['label']); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <span id="lgw-font-preview" style="margin-left:14px;font-size:16px;font-weight:700;transition:font-family .3s">
+                            The quick brown fox
+                        </span>
+                        <p class="description">Applies to all league, cup, and championship widgets.</p>
+                        <style id="lgw-font-preview-style"></style>
+                        <script>
+                        (function(){
+                            var sel = document.getElementById('lgw-font-picker');
+                            var prev = document.getElementById('lgw-font-preview');
+                            var styleEl = document.getElementById('lgw-font-preview-style');
+                            var loaded = {};
+                            function loadAndPreview(key) {
+                                var fontName = key.replace(/\+/g, ' ');
+                                prev.style.fontFamily = "'" + fontName + "', Arial, sans-serif";
+                                if (!loaded[key]) {
+                                    loaded[key] = true;
+                                    var link = document.createElement('link');
+                                    link.rel = 'stylesheet';
+                                    link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(fontName) + ':wght@400;700&display=swap';
+                                    document.head.appendChild(link);
+                                }
+                            }
+                            if (sel) {
+                                loadAndPreview(sel.value);
+                                sel.addEventListener('change', function(){ loadAndPreview(this.value); });
+                            }
+                        })();
+                        </script>
+                    </td>
+                </tr>
                 <tr>
                     <th>Primary Colour <span style="font-weight:400;color:#666">(tabs, headers, accents)</span></th>
                     <td>
@@ -1466,48 +2269,6 @@ function lgw_settings_page() {
             <p style="margin-top:0"><a href="<?php echo wp_nonce_url(admin_url('admin.php?page=lgw-settings&lgw_reset_theme=1'), 'lgw_reset_theme_nonce'); ?>" class="button" onclick="return confirm('Reset theme colours to defaults?')">Reset to defaults</a></p>
 
             <hr>
-            <h2>Club Badges</h2>
-            <p>Assign badge images to clubs. Used across league tables, cup brackets, and championship draws.<br>
-            Set <strong>Type</strong> to <strong>Club prefix</strong> for clubs with multiple teams — e.g. enter <code>MALONE</code> to match <code>MALONE A</code>, <code>MALONE B</code>, etc. Use <strong>Exact</strong> for a team-specific badge. Exact matches take priority.</p>
-            <table class="widefat lgw-badge-table" id="lgw-badge-table">
-                <thead>
-                    <tr><th>Club / Team Name</th><th>Type</th><th>Badge Image</th><th>Preview</th><th></th></tr>
-                </thead>
-                <tbody>
-                    <?php
-                    $club_badges    = get_option('lgw_club_badges', array());
-                    $all_badge_rows = array();
-                    foreach ($badges as $team => $img) {
-                        $all_badge_rows[] = array('name' => $team, 'image' => $img, 'type' => 'exact');
-                    }
-                    foreach ($club_badges as $team => $img) {
-                        $all_badge_rows[] = array('name' => $team, 'image' => $img, 'type' => 'club');
-                    }
-                    if (empty($all_badge_rows)) {
-                        $all_badge_rows = array(array('name' => '', 'image' => '', 'type' => 'club'));
-                    }
-                    foreach ($all_badge_rows as $row): ?>
-                    <tr class="lgw-badge-row">
-                        <td><input type="text" name="lgw_team[]" value="<?php echo esc_attr($row['name']); ?>" placeholder="e.g. MALONE" class="regular-text"></td>
-                        <td>
-                            <select name="lgw_badge_type[]" class="lgw-badge-type">
-                                <option value="club"  <?php selected($row['type'], 'club');  ?>>Club prefix</option>
-                                <option value="exact" <?php selected($row['type'], 'exact'); ?>>Exact</option>
-                            </select>
-                        </td>
-                        <td>
-                            <input type="text" name="lgw_image[]" value="<?php echo esc_url($row['image']); ?>" placeholder="Image URL" class="regular-text lgw-image-url" readonly>
-                            <button type="button" class="button lgw-pick-image">Choose Image</button>
-                        </td>
-                        <td><img class="lgw-badge-preview" src="<?php echo esc_url($row['image']); ?>" style="width:48px;height:48px;object-fit:contain;<?php echo $row['image'] ? '' : 'display:none;'; ?>"></td>
-                        <td><button type="button" class="button-link-delete lgw-remove-row">Remove</button></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-            <p><button type="button" class="button" id="lgw-add-row">+ Add Badge</button></p>
-
-            <hr>
             <h2>Sponsors</h2>
             <p>The <strong>first sponsor</strong> appears above the division title. Additional sponsors rotate randomly below the league table. Add a per-division override via the shortcode if needed.</p>
             <table class="widefat lgw-badge-table" id="lgw-sponsor-table">
@@ -1533,6 +2294,30 @@ function lgw_settings_page() {
                 </tbody>
             </table>
             <p><button type="button" class="button" id="lgw-add-sponsor">+ Add Sponsor</button></p>
+
+            <hr>
+            <h2>📋 Scorecard Submission</h2>
+            <p>Control who can submit scorecards. Use <strong>Admin only</strong> to test the workflow before releasing it to clubs.</p>
+            <?php $submission_mode = get_option('lgw_submission_mode', 'open'); ?>
+            <table class="form-table">
+                <tr>
+                    <th scope="row">Submission Mode</th>
+                    <td>
+                        <label style="display:block;margin-bottom:8px">
+                            <input type="radio" name="lgw_submission_mode" value="disabled" <?php checked($submission_mode, 'disabled'); ?>>
+                            <strong>Disabled</strong> — scorecard submission is off; fixture modal shows no submit option
+                        </label>
+                        <label style="display:block;margin-bottom:8px">
+                            <input type="radio" name="lgw_submission_mode" value="admin_only" <?php checked($submission_mode, 'admin_only'); ?>>
+                            <strong>Admin only</strong> — only logged-in WP admins can submit scorecards via the fixture modal
+                        </label>
+                        <label style="display:block">
+                            <input type="radio" name="lgw_submission_mode" value="open" <?php checked($submission_mode, 'open'); ?>>
+                            <strong>Open</strong> — clubs can submit after passphrase login (full public flow)
+                        </label>
+                    </td>
+                </tr>
+            </table>
 
             <hr>
             <h2>🔧 Plugin Updates</h2>
@@ -1643,6 +2428,188 @@ function lgw_settings_page() {
 }
 
 // ── League Setup page ─────────────────────────────────────────────────────────
+
+/**
+ * Renders the unified Active Season Divisions table used in the League Setup form.
+ * Columns: Division name | Published CSV URL | Sheet tab name
+ * Replaces the separate Seasons active-divisions and Sheets tab-mapping tables.
+ */
+function lgw_league_setup_divisions_html() {
+    $opts         = get_option('lgw_drive', []);
+    $enabled      = !empty($opts['sheets_enabled']);
+    $nonce_test   = wp_create_nonce('lgw_sheets_test');
+
+    // Seed rows: merge active season divisions with existing tab/spreadsheet settings.
+    $active        = lgw_get_active_season();
+    $season_divs   = $active['divisions'] ?? [];
+    $existing_tabs = $opts['sheets_tabs'] ?? [];
+
+    // Build lookup by csv_url for existing tab config
+    $entry_by_url = [];
+    foreach ($existing_tabs as $t) {
+        $url = $t['csv_url'] ?? '';
+        if ($url) $entry_by_url[$url] = $t;
+    }
+    $entry_by_div = [];
+    foreach ($existing_tabs as $t) {
+        $div = strtolower(trim($t['division'] ?? ''));
+        if ($div) $entry_by_div[$div] = $t;
+    }
+
+    $rows = [];
+    foreach ($season_divs as $d) {
+        $url   = $d['csv_url']  ?? '';
+        $div   = $d['division'] ?? '';
+        $entry = $entry_by_url[$url] ?? $entry_by_div[strtolower(trim($div))] ?? [];
+        $rows[] = [
+            'division'       => $div,
+            'csv_url'        => $url,
+            'tab'            => $entry['tab']            ?? '',
+            'spreadsheet_id' => $entry['spreadsheet_id'] ?? '',
+        ];
+    }
+    if (empty($rows)) {
+        foreach ($existing_tabs as $t) {
+            $rows[] = [
+                'division'       => $t['division']       ?? '',
+                'csv_url'        => $t['csv_url']        ?? '',
+                'tab'            => $t['tab']             ?? '',
+                'spreadsheet_id' => $t['spreadsheet_id'] ?? '',
+            ];
+        }
+    }
+    if (empty($rows)) {
+        $rows = [['division' => '', 'csv_url' => '', 'tab' => '', 'spreadsheet_id' => '']];
+    }
+    ?>
+    <hr>
+    <h2>🏟 Active Season Divisions</h2>
+    <p>Each row defines one division for the current active season. The <strong>Spreadsheet ID</strong> is the editable sheet ID (from the URL between <code>/d/</code> and <code>/edit</code>) — used for writeback. The <strong>CSV URL</strong> is the published read-only URL — used by the front-end widget.</p>
+
+    <table id="lgw-divisions-table" style="border-collapse:collapse;margin-bottom:8px;width:100%">
+        <thead><tr>
+            <th style="padding:4px 8px;text-align:left;font-weight:600;font-size:12px;color:#666;width:130px">Division name</th>
+            <th style="padding:4px 8px;text-align:left;font-weight:600;font-size:12px;color:#666;width:200px">Spreadsheet ID <span style="font-weight:400">(for writeback)</span></th>
+            <th style="padding:4px 8px;text-align:left;font-weight:600;font-size:12px;color:#666;width:110px">Sheet tab</th>
+            <th style="padding:4px 8px;text-align:left;font-weight:600;font-size:12px;color:#666">Published CSV URL <span style="font-weight:400">(for widget)</span></th>
+            <th style="width:60px"></th>
+        </tr></thead>
+        <tbody>
+        <?php foreach ($rows as $row): ?>
+        <tr class="lgw-division-row">
+            <td style="padding:4px 8px">
+                <input type="text" name="lgw_div_name[]"
+                    value="<?php echo esc_attr($row['division']); ?>"
+                    placeholder="e.g. Division 1" style="width:120px">
+            </td>
+            <td style="padding:4px 8px">
+                <input type="text" name="lgw_div_spreadsheet_id[]"
+                    value="<?php echo esc_attr($row['spreadsheet_id']); ?>"
+                    placeholder="1aBcDeFgHiJkLmNo…" style="width:190px">
+            </td>
+            <td style="padding:4px 8px">
+                <input type="text" name="lgw_div_tab[]"
+                    value="<?php echo esc_attr($row['tab']); ?>"
+                    placeholder="e.g. Div 1" style="width:100px">
+            </td>
+            <td style="padding:4px 8px">
+                <input type="url" name="lgw_div_csv_url[]"
+                    value="<?php echo esc_attr($row['csv_url']); ?>"
+                    placeholder="https://docs.google.com/spreadsheets/…&output=csv"
+                    style="width:100%;min-width:180px">
+            </td>
+            <td style="padding:4px 8px">
+                <button type="button" class="button button-small lgw-remove-division-row"
+                    <?php echo count($rows) <= 1 ? 'style="display:none"' : ''; ?>>Remove</button>
+            </td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+    <p><button type="button" class="button button-small" id="lgw-add-division-row">+ Add division</button></p>
+
+    <hr>
+    <h2>📋 Google Sheets Writeback</h2>
+    <p>When a scorecard is confirmed, the result is automatically written to the spreadsheet configured for that division above. Each division can point to a different spreadsheet — useful when seasons use separate files.</p>
+    <table class="form-table">
+    <tr>
+        <th>Enable writeback</th>
+        <td><label>
+            <input type="checkbox" name="lgw_sheets_enabled" value="1" <?php checked($enabled); ?>>
+            Write confirmed results to Google Sheets automatically
+        </label></td>
+    </tr>
+    <tr>
+        <th>Test connection</th>
+        <td>
+            <button type="button" class="button" id="lgw-sheets-test" data-nonce="<?php echo $nonce_test; ?>">
+                Test Sheets Access
+            </button>
+            <span id="lgw-sheets-test-result" style="margin-left:10px;font-size:13px"></span>
+            <p class="description">Tests auth against the first configured division's spreadsheet.</p>
+        </td>
+    </tr>
+    </table>
+    </table>
+
+    <script>
+    (function(){
+        // Add division row
+        document.getElementById('lgw-add-division-row').addEventListener('click', function() {
+            var tbody = document.querySelector('#lgw-divisions-table tbody');
+            var row = document.createElement('tr');
+            row.className = 'lgw-division-row';
+            row.innerHTML =
+                '<td style="padding:4px 8px"><input type="text" name="lgw_div_name[]" placeholder="e.g. Division 2" style="width:120px"></td>'
+                + '<td style="padding:4px 8px"><input type="text" name="lgw_div_spreadsheet_id[]" placeholder="1aBcDeFgHiJkLmNo…" style="width:190px"></td>'
+                + '<td style="padding:4px 8px"><input type="text" name="lgw_div_tab[]" placeholder="e.g. Div 2" style="width:100px"></td>'
+                + '<td style="padding:4px 8px"><input type="url" name="lgw_div_csv_url[]" placeholder="https://docs.google.com/spreadsheets/…&output=csv" style="width:100%;min-width:180px"></td>'
+                + '<td style="padding:4px 8px"><button type="button" class="button button-small lgw-remove-division-row">Remove</button></td>';
+            tbody.appendChild(row);
+            document.querySelectorAll('.lgw-remove-division-row').forEach(function(b){ b.style.display=''; });
+        });
+        // Remove division row
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('lgw-remove-division-row')) {
+                var tbody = document.querySelector('#lgw-divisions-table tbody');
+                if (tbody.querySelectorAll('.lgw-division-row').length > 1) {
+                    e.target.closest('.lgw-division-row').remove();
+                }
+            }
+        });
+        // Test Sheets connection — use first row's spreadsheet ID
+        var testBtn = document.getElementById('lgw-sheets-test');
+        if (testBtn) {
+            testBtn.addEventListener('click', function() {
+                var res = document.getElementById('lgw-sheets-test-result');
+                var sidInput = document.querySelector('[name="lgw_div_spreadsheet_id[]"]');
+                var sid = sidInput ? sidInput.value.trim() : '';
+                if (!sid) { res.textContent = '⚠️ Enter a Spreadsheet ID first'; res.style.color='#c07000'; return; }
+                testBtn.disabled = true;
+                res.textContent = 'Testing…'; res.style.color = '#333';
+                var fd = new FormData();
+                fd.append('action', 'lgw_sheets_test');
+                fd.append('nonce', testBtn.dataset.nonce);
+                fd.append('sheets_id', sid);
+                fetch(ajaxurl, {method:'POST', body:fd, credentials:'same-origin'})
+                    .then(function(r){ return r.json(); })
+                    .then(function(r){
+                        testBtn.disabled = false;
+                        res.textContent = r.success ? '✅ ' + r.data : '❌ ' + (r.data || 'Failed');
+                        res.style.color = r.success ? 'green' : 'red';
+                    })
+                    .catch(function(e){
+                        testBtn.disabled = false;
+                        res.textContent = '❌ Request failed: ' + e;
+                        res.style.color = 'red';
+                    });
+            });
+        }
+    })();
+    </script>
+    <?php
+}
+
 function lgw_league_setup_page() {
     $saved   = isset($_GET['saved']);
     $cleared = isset($_GET['cleared']);
@@ -1677,7 +2644,7 @@ function lgw_league_setup_page() {
                         <select id="lgw_data_source" name="lgw_data_source" onchange="lgwToggleDataSource(this.value)">
                             <option value="google_sheets" <?php selected($data_source, 'google_sheets'); ?>>Google Sheets CSV</option>
                             <option value="upload" <?php selected($data_source, 'upload'); ?> disabled>Spreadsheet upload — coming soon</option>
-                            <option value="wordpress" <?php selected($data_source, 'wordpress'); ?> disabled>WordPress DB — coming soon</option>
+                        <option value="wordpress" <?php selected($data_source, 'wordpress'); ?> disabled>WordPress DB — coming soon</option>
                         </select>
                     </td>
                 </tr>
@@ -1694,17 +2661,74 @@ function lgw_league_setup_page() {
                     </tr>
                 </table>
                 <p>
-                    <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" style="display:inline">
-                        <?php wp_nonce_field('lgw_clear_cache_nonce'); ?>
-                        <input type="hidden" name="action" value="lgw_clear_cache">
-                        <input type="submit" class="button button-secondary" value="🗑 Clear Cache Now">
-                    </form>
+                    <?php $clear_cache_url = wp_nonce_url(admin_url('admin-post.php?action=lgw_clear_cache'), 'lgw_clear_cache_nonce'); ?>
+                    <a href="<?php echo esc_url($clear_cache_url); ?>" class="button button-secondary">🗑 Clear Cache Now</a>
                     <span style="margin-left:8px;color:#666;font-size:13px">Force all divisions to fetch fresh data on next page load.</span>
                 </p>
             </div>
 
+            <?php if (function_exists('lgw_cache_settings_html')) lgw_cache_settings_html(); ?>
+
             <hr>
-            <!-- ── 2. Photo Analysis ── -->
+            <!-- ── 2. Points System ── -->
+            <h2>🏅 Points System</h2>
+            <p>Configure how points are calculated per match. Points are auto-suggested in the scorecard form based on rink scores.</p>
+            <?php
+                $pts_rink    = floatval(get_option('lgw_points_per_rink', 1));
+                $pts_overall = floatval(get_option('lgw_points_overall',  3));
+                $pts_total_4 = ($pts_rink * 4) + $pts_overall;
+                $pts_total_3 = ($pts_rink * 3) + $pts_overall;
+            ?>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="lgw_points_per_rink">Points per rink win</label></th>
+                    <td>
+                        <input type="number" id="lgw_points_per_rink" name="lgw_points_per_rink"
+                            value="<?php echo esc_attr($pts_rink); ?>" min="0" step="0.5" style="width:80px">
+                        <p class="description">Points awarded for winning a single rink. Half this value is awarded for a rink draw. Default: 1.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="lgw_points_overall">Points for overall match win</label></th>
+                    <td>
+                        <input type="number" id="lgw_points_overall" name="lgw_points_overall"
+                            value="<?php echo esc_attr($pts_overall); ?>" min="0" step="0.5" style="width:80px">
+                        <p class="description">Bonus points for winning the overall match (more total shots). Half this value for an overall draw. Default: 3.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Maximum points per match</th>
+                    <td>
+                        <p id="lgw-pts-preview" style="margin:0;font-size:13px;color:#444">
+                            <?php printf(
+                                '<strong>%s</strong> for a 4-rink match &nbsp;|&nbsp; <strong>%s</strong> for a 3-rink match',
+                                esc_html(rtrim(rtrim(number_format($pts_total_4, 1), '0'), '.')),
+                                esc_html(rtrim(rtrim(number_format($pts_total_3, 1), '0'), '.'))
+                            ); ?>
+                        </p>
+                        <p class="description">Auto-calculated from the values above. This is what the scorecard form will use as its <code>max_points</code> target.</p>
+                    </td>
+                </tr>
+            </table>
+            <script>
+            (function(){
+                function updatePtsPreview(){
+                    var r = parseFloat(document.getElementById('lgw_points_per_rink').value) || 0;
+                    var o = parseFloat(document.getElementById('lgw_points_overall').value) || 0;
+                    var t4 = (r*4)+o, t3 = (r*3)+o;
+                    function fmt(n){ return parseFloat(n.toFixed(1)).toString(); }
+                    var el = document.getElementById('lgw-pts-preview');
+                    if(el) el.innerHTML = '<strong>'+fmt(t4)+'</strong> for a 4-rink match &nbsp;|&nbsp; <strong>'+fmt(t3)+'</strong> for a 3-rink match';
+                }
+                ['lgw_points_per_rink','lgw_points_overall'].forEach(function(id){
+                    var el = document.getElementById(id);
+                    if(el) el.addEventListener('input', updatePtsPreview);
+                });
+            })();
+            </script>
+
+            <hr>
+            <!-- ── 3. Photo Analysis ── -->
             <h2>📷 Photo Analysis</h2>
             <p>AI-powered reading of scorecard photos uploaded by clubs. Parses the scorecard image and pre-fills scores automatically.</p>
             <table class="form-table">
@@ -1828,7 +2852,7 @@ function lgw_league_setup_page() {
                     <span id="lgw-drive-test-result" style="font-size:13px"></span>
                 </p>
 
-                <?php lgw_sheets_settings_html(); ?>
+                <?php lgw_league_setup_divisions_html(); ?>
 
                 <h3 style="margin-top:24px;margin-bottom:4px">Service Account (Legacy)</h3>
                 <p class="description" style="margin-bottom:12px">
@@ -2149,7 +3173,142 @@ function lgw_import_passphrases_page() {
     <?php
 }
 
+// ── Sync score override from a confirmed/edited scorecard ────────────────────
+/**
+ * After a scorecard is confirmed or admin-edited, write the result into the
+ * lgw_score_overrides WP option so the front-end widget shows the updated
+ * score immediately — before the Google Sheets published CSV regenerates.
+ *
+ * Requires the division to be mapped to a csv_url in lgw_drive.sheets_tabs.
+ * The override key format mirrors lgw_scores_parse_fixtures:
+ *   {csv_url}||{sheet_date}||{home_team}||{away_team}
+ */
+function lgw_sync_override_from_scorecard($post_id, $sc = null) {
+    if (!$sc) $sc = get_post_meta($post_id, 'lgw_scorecard_data', true);
+    if (!$sc) return;
+
+    $home     = trim($sc['home_team']  ?? '');
+    $away     = trim($sc['away_team']  ?? '');
+    $date_raw = trim($sc['date']       ?? ''); // played date, dd/mm/yyyy
+    $division = trim($sc['division']   ?? '');
+
+    if (!$home || !$away || !$date_raw) {
+        lgw_sheets_log($post_id, 'warn', 'Override sync skipped — missing home, away, or date');
+        return;
+    }
+
+    // Find the csv_url for this division — try sheets_tabs first, then active season
+    $opts    = get_option('lgw_drive', []);
+    $entry   = $division ? lgw_sheets_entry_for_division($division, $opts) : null;
+    $csv_url = trim($entry['csv_url'] ?? '');
+
+    // Fallback: look up csv_url from the active season divisions
+    if (!$csv_url && $division && function_exists('lgw_get_active_season_id')) {
+        $active_id = lgw_get_active_season_id();
+        if ($active_id && function_exists('lgw_season_csv_for_division')) {
+            $csv_url = lgw_season_csv_for_division($active_id, $division);
+        }
+    }
+
+    if (!$csv_url) {
+        lgw_sheets_log($post_id, 'warn', 'Override sync skipped — no CSV URL found for division: ' . ($division ?: '(empty)'));
+        return;
+    }
+
+    // Determine the fixture date as it appears in the CSV.
+    // The override key MUST use the CSV's own date string for the fixture row —
+    // not the played date — because the widget builds keys from the CSV dates.
+    // Strategy: fetch the CSV and find the row for this home/away pair; use
+    // whatever date the CSV has for that row. Fall back to lgw_fixture_date meta,
+    // then finally to the scorecard played date.
+    $sheet_date = lgw_sync_get_fixture_date_from_csv($csv_url, $home, $away);
+
+    if (!$sheet_date) {
+        // Fallback 1: lgw_fixture_date meta (set by front-end fixture-click submissions)
+        $fixture_date_raw = trim(get_post_meta($post_id, 'lgw_fixture_date', true));
+        // Fallback 2: played date from scorecard
+        if (!$fixture_date_raw) $fixture_date_raw = $date_raw;
+        $sheet_date = lgw_sheets_format_date($fixture_date_raw);
+    }
+
+    if (!$sheet_date) {
+        lgw_sheets_log($post_id, 'warn', 'Override sync skipped — could not determine fixture date for: ' . $home . ' v ' . $away);
+        return;
+    }
+
+    $key = $csv_url . '||' . $sheet_date . '||' . $home . '||' . $away;
+
+    $overrides       = get_option('lgw_score_overrides', array());
+    $overrides[$key] = array(
+        'csv_url' => $csv_url,
+        'date'    => $sheet_date,
+        'home'    => $home,
+        'away'    => $away,
+        'sh'      => (string)($sc['home_total']  ?? 0),
+        'sa'      => (string)($sc['away_total']  ?? 0),
+        'ph'      => (string)($sc['home_points'] ?? 0),
+        'pa'      => (string)($sc['away_points'] ?? 0),
+    );
+    update_option('lgw_score_overrides', $overrides);
+
+    lgw_sheets_log($post_id, 'info', 'Override synced — key: ' . $sheet_date . ' | ' . $home . ' v ' . $away
+        . ' | ' . ($sc['home_total'] ?? 0) . '-' . ($sc['away_total'] ?? 0)
+        . ' (' . ($sc['home_points'] ?? 0) . 'pts-' . ($sc['away_points'] ?? 0) . 'pts)');
+}
+
+/**
+ * Fetch the CSV for a division and find the scheduled fixture date for a
+ * given home/away team pair.  Returns the date string as it appears in the
+ * CSV (e.g. "Sat 9-May-2026"), or empty string if not found.
+ */
+function lgw_sync_get_fixture_date_from_csv($csv_url, $home, $away) {
+    $cache_key = 'lgw_csv_' . md5($csv_url);
+    $body = get_transient($cache_key);
+    if ($body === false) {
+        $response = wp_remote_get($csv_url, ['timeout' => 10, 'user-agent' => 'Mozilla/5.0']);
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) return '';
+        $body = wp_remote_retrieve_body($response);
+        $cache_mins = intval(get_option('lgw_cache_mins', 5));
+        set_transient($cache_key, $body, $cache_mins * MINUTE_IN_SECONDS);
+    }
+
+    $rows     = array_map('str_getcsv', explode("\n", str_replace("\r", '', $body)));
+    $date_re  = '/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}-[A-Za-z]+-\d{4}$/';
+    $home_lc  = strtolower(trim($home));
+    $away_lc  = strtolower(trim($away));
+
+    // Detect team name column indices from the header row
+    $col_hteam = 2; $col_ateam = 10;
+    $in_fixtures = false;
+    $cur_date = '';
+
+    foreach ($rows as $row) {
+        $joined = implode('', $row);
+        if (!$in_fixtures) {
+            if (stripos($joined, 'FIXTURES') !== false) { $in_fixtures = true; }
+            continue;
+        }
+        // Header row
+        if (stripos($joined, 'HTeam') !== false || stripos($joined, 'HPts') !== false) {
+            foreach ($row as $c => $v) {
+                $v = trim($v);
+                if ($v === 'HTeam') $col_hteam = $c;
+                if ($v === 'ATeam') $col_ateam = $c;
+            }
+            continue;
+        }
+        $first = trim($row[0] ?? $row[1] ?? '');
+        if (preg_match($date_re, $first)) { $cur_date = $first; continue; }
+        $ht = strtolower(trim($row[$col_hteam] ?? ''));
+        $at = strtolower(trim($row[$col_ateam] ?? ''));
+        if ($ht === $home_lc && $at === $away_lc) return $cur_date;
+    }
+    return '';
+}
+
 // ── Quick Score Entry — AJAX: save a single fixture override ─────────────────
+add_action('lgw_scorecard_confirmed',    'lgw_sync_override_from_scorecard');
+add_action('lgw_scorecard_admin_edited', 'lgw_sync_override_from_scorecard');
 add_action('wp_ajax_lgw_save_score_override', 'lgw_ajax_save_score_override');
 function lgw_ajax_save_score_override() {
     if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
@@ -2181,16 +3340,19 @@ function lgw_ajax_save_score_override() {
     // 2. Write through to Google Sheet if Sheets writeback is configured
     $sheet_msg = 'sheets_disabled';
     $opts = get_option('lgw_drive', []);
-    if (!empty($opts['sheets_enabled']) && !empty($opts['sheets_id'])) {
-        $spreadsheet = trim($opts['sheets_id']);
-        $tab = '';
+    if (!empty($opts['sheets_enabled'])) {
+        // Find matching division entry by csv_url
+        $div_entry = null;
         foreach (($opts['sheets_tabs'] ?? []) as $entry) {
             if (esc_url_raw($entry['csv_url'] ?? '') === $csv_url) {
-                $tab = trim($entry['tab'] ?? '');
+                $div_entry = $entry;
                 break;
             }
         }
-        if ($tab) {
+        $tab         = trim($div_entry['tab']            ?? '');
+        $spreadsheet = trim($div_entry['spreadsheet_id'] ?? $opts['sheets_id'] ?? '');
+
+        if ($tab && $spreadsheet) {
             $token = lgw_drive_get_access_token();
             if ($token) {
                 $sheet_data = lgw_sheets_fetch($token, $spreadsheet, $tab);
@@ -2211,7 +3373,24 @@ function lgw_ajax_save_score_override() {
                             $sheet_msg = 'sheet_error';
                         }
                     } else {
+                        // Diagnostic: collect candidate team pairs from the sheet so the mismatch is visible
+                        $diag_teams = [];
+                        foreach ($sheet_data as $row) {
+                            $ht = trim($row[$cols['hteam']] ?? '');
+                            $at = trim($row[$cols['ateam']] ?? '');
+                            if ($ht && $at) $diag_teams[] = $ht . ' v ' . $at;
+                        }
                         $sheet_msg = 'row_not_found';
+                        wp_send_json_success([
+                            'sheet'       => $sheet_msg,
+                            'debug'       => [
+                                'looking_for' => $home . ' v ' . $away . ' on ' . $date,
+                                'tab'         => $tab,
+                                'col_hteam'   => $cols['hteam'],
+                                'col_ateam'   => $cols['ateam'],
+                                'sheet_teams' => array_slice(array_unique($diag_teams), 0, 20),
+                            ],
+                        ]);
                     }
                 } else {
                     $sheet_msg = 'fetch_failed';
@@ -2220,7 +3399,7 @@ function lgw_ajax_save_score_override() {
                 $sheet_msg = 'auth_failed';
             }
         } else {
-            $sheet_msg = 'no_tab';
+            $sheet_msg = !$tab ? 'no_tab' : 'no_spreadsheet_id';
         }
     }
 
@@ -2243,6 +3422,88 @@ function lgw_ajax_clear_score_overrides() {
         update_option('lgw_score_overrides', $overrides);
     }
     wp_send_json_success('Cleared');
+}
+
+// ── Retag a single scorecard to a specific season ────────────────────────────
+add_action('wp_ajax_lgw_retag_scorecard', 'lgw_ajax_retag_scorecard');
+function lgw_ajax_retag_scorecard() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    $post_id   = intval($_POST['post_id'] ?? 0);
+    $season_id = sanitize_text_field($_POST['season_id'] ?? '');
+    if (!$post_id) wp_send_json_error('Missing post ID');
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'lgw_retag_sc_' . $post_id)) {
+        wp_send_json_error('Nonce invalid');
+    }
+    if (!get_post($post_id) || get_post_type($post_id) !== 'lgw_scorecard') {
+        wp_send_json_error('Invalid scorecard');
+    }
+    if ($season_id === '') {
+        delete_post_meta($post_id, 'lgw_sc_season');
+    } else {
+        // Validate season ID exists
+        $known = array_map(function($s){ return $s['id']; }, lgw_get_seasons());
+        if (!in_array($season_id, $known, true)) wp_send_json_error('Unknown season');
+        update_post_meta($post_id, 'lgw_sc_season', $season_id);
+    }
+    wp_send_json_success(array('post_id' => $post_id, 'season_id' => $season_id));
+}
+
+
+// ── Backfill scorecard season tags ───────────────────────────────────────────
+add_action('wp_ajax_lgw_backfill_sc_seasons', 'lgw_ajax_backfill_sc_seasons');
+function lgw_ajax_backfill_sc_seasons() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    $season_id = sanitize_text_field($_POST['season_id'] ?? '');
+    if (!$season_id) wp_send_json_error('Missing season ID');
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'lgw_backfill_sc_seasons_' . $season_id)) {
+        wp_send_json_error('Nonce invalid');
+    }
+
+    // Strategy 1: scorecards with no season tag at all
+    $untagged = get_posts(array(
+        'post_type'      => 'lgw_scorecard',
+        'posts_per_page' => -1,
+        'post_status'    => array('publish', 'draft'),
+        'fields'         => 'ids',
+        'meta_query'     => array(
+            array('key' => 'lgw_sc_season', 'compare' => 'NOT EXISTS'),
+        ),
+    ));
+
+    // Strategy 2: scorecards within the season's date range (catches wrong-season tags)
+    $by_date = array();
+    if (function_exists('lgw_get_season_by_id')) {
+        $season_obj = lgw_get_season_by_id($season_id);
+        if ($season_obj && !empty($season_obj['start']) && !empty($season_obj['end'])) {
+            $start = $season_obj['start'];
+            $end   = $season_obj['end'];
+            $all_sc = get_posts(array(
+                'post_type'      => 'lgw_scorecard',
+                'posts_per_page' => -1,
+                'post_status'    => array('publish', 'draft'),
+                'fields'         => 'ids',
+            ));
+            foreach ($all_sc as $pid) {
+                if (in_array($pid, $untagged)) continue;
+                $sc_data  = get_post_meta($pid, 'lgw_scorecard_data', true);
+                $raw_date = $sc_data['date'] ?? '';
+                if (!$raw_date) continue;
+                $parts = explode('/', $raw_date);
+                if (count($parts) === 3) {
+                    $ymd = $parts[2] . '-' . $parts[1] . '-' . $parts[0];
+                    if ($ymd >= $start && $ymd <= $end) $by_date[] = $pid;
+                }
+            }
+        }
+    }
+
+    $all_ids = array_unique(array_merge($untagged, $by_date));
+    $count   = 0;
+    foreach ($all_ids as $pid) {
+        update_post_meta($pid, 'lgw_sc_season', $season_id);
+        $count++;
+    }
+    wp_send_json_success(array('count' => $count, 'season_id' => $season_id));
 }
 
 // ── Quick Score Entry — parse fixtures from CSV ──────────────────────────────
@@ -2292,4 +3553,47 @@ function lgw_scores_parse_fixtures($csv_body, $csv_url, $overrides) {
         );
     }
     return $fixtures;
+}
+
+// ── Test data seeding (local environments only) ───────────────────────────────
+// lgw_seed_test_clubs() is registered only when WP_ENVIRONMENT_TYPE === 'local'.
+// It must never run in production — the environment guard is intentional.
+if ( defined( 'WP_ENVIRONMENT_TYPE' ) && WP_ENVIRONMENT_TYPE === 'local' ) {
+    /**
+     * Seed two deterministic test clubs for Playwright E2E tests.
+     *
+     * Club names:       "Test Club A"  /  "Test Club B"
+     * Passphrases:      "test-pass-a"  /  "test-pass-b"
+     * Pin storage:      SHA-256 of passphrase, matching the production auth flow.
+     *
+     * Idempotent — safe to call multiple times; existing clubs with the same
+     * name are updated rather than duplicated.
+     */
+    function lgw_seed_test_clubs() {
+        $seed = array(
+            array( 'name' => 'Test Club A', 'passphrase' => 'test-pass-a' ),
+            array( 'name' => 'Test Club B', 'passphrase' => 'test-pass-b' ),
+        );
+
+        $clubs = get_option( 'lgw_clubs', array() );
+
+        foreach ( $seed as $entry ) {
+            $name = $entry['name'];
+            $pin  = hash( 'sha256', $entry['passphrase'] );
+            $found = false;
+            foreach ( $clubs as &$club ) {
+                if ( strtolower( $club['name'] ) === strtolower( $name ) ) {
+                    $club['pin'] = $pin;
+                    $found = true;
+                    break;
+                }
+            }
+            unset( $club );
+            if ( ! $found ) {
+                $clubs[] = array( 'name' => $name, 'pin' => $pin );
+            }
+        }
+
+        update_option( 'lgw_clubs', $clubs );
+    }
 }
