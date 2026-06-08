@@ -80,12 +80,12 @@ function lgw_drive_oauth_callback() {
     delete_transient('lgw_drive_oauth_token');
 
     // Redirect back to settings without the OAuth params in the URL
-    wp_redirect(admin_url('admin.php?page=lgw-league-setup&lgw_oauth_connected=1'));
+    wp_redirect(admin_url('admin.php?page=' . LGW_SETUP_PAGE . '&lgw_oauth_connected=1'));
     exit;
 }
 
 function lgw_drive_oauth_redirect_uri() {
-    return admin_url('admin.php?page=lgw-league-setup&lgw_oauth_callback=1');
+    return admin_url('admin.php?page=' . LGW_SETUP_PAGE . '&lgw_oauth_callback=1');
 }
 
 function lgw_drive_oauth_auth_url($client_id) {
@@ -93,7 +93,7 @@ function lgw_drive_oauth_auth_url($client_id) {
         'client_id'     => $client_id,
         'redirect_uri'  => lgw_drive_oauth_redirect_uri(),
         'response_type' => 'code',
-        'scope'         => 'https://www.googleapis.com/auth/drive',
+        'scope'         => 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets',
         'access_type'   => 'offline',
         'prompt'        => 'consent',  // force refresh_token to be issued every time
     ));
@@ -116,6 +116,19 @@ function lgw_safe_filename($str) {
 
 function lgw_drive_save_scorecard($post_id, $is_edit = false) {
     if (!lgw_drive_enabled()) return;
+
+    // Skip if admin explicitly requested no Google writeback (e.g. backfilling historical scorecards)
+    if (get_post_meta($post_id, 'lgw_skip_google', true)) {
+        lgw_drive_log($post_id, 'info', 'Skipped — Google Drive upload suppressed by admin (skip_google flag set).');
+        return;
+    }
+
+    // Skip writeback for scorecards from archived seasons
+    if (function_exists('lgw_scorecard_is_active_season') && !lgw_scorecard_is_active_season($post_id)) {
+        $sc_season = get_post_meta($post_id, 'lgw_sc_season', true);
+        lgw_drive_log($post_id, 'info', 'Skipped — scorecard belongs to archived season ' . ($sc_season ?: 'unknown') . '; Drive upload only runs for the active season.');
+        return;
+    }
 
     require_once plugin_dir_path(__FILE__) . 'lgw-pdf.php';
 
@@ -159,28 +172,39 @@ function lgw_drive_save_scorecard($post_id, $is_edit = false) {
     $photo_mime  = $photo_bytes ? lgw_drive_mime_from_ext($photo_ext) : '';
     $photo_name  = $photo_bytes ? ($base_name . '-original.' . $photo_ext) : '';
 
-    // Upload to home team folder and away team folder
-    foreach (array($home_team_folder, $away_team_folder) as $team_folder) {
+    // Determine which team folders to upload to based on submitted_for
+    $submitted_for = get_post_meta($post_id, 'lgw_submitted_for', true) ?: 'home';
+    if ($submitted_for === 'away') {
+        $team_folders = array($away_team_folder);
+    } elseif ($submitted_for === 'both') {
+        $team_folders = array($home_team_folder, $away_team_folder);
+    } else {
+        $team_folders = array($home_team_folder);
+    }
+
+    foreach ($team_folders as $team_folder) {
         $folder_id = lgw_drive_ensure_path($token, $root_id, array($year, $division, $team_folder));
         if (!$folder_id) {
             lgw_drive_log($post_id, 'error', 'Could not create folder path for ' . $team_folder);
             continue;
         }
 
-        // PDF — versioned filename on admin edits
-        $pdf_name = lgw_drive_versioned_name($token, $folder_id, $base_name . '.pdf', $is_edit);
-        $pdf_id   = lgw_drive_upload_file($token, $folder_id, $pdf_name, $pdf_bytes, 'application/pdf', $pdf_error);
+        if ($is_edit) {
+            $pdf_name = lgw_drive_versioned_name($token, $folder_id, $base_name . '.pdf', true);
+            $pdf_id   = lgw_drive_upload_file($token, $folder_id, $pdf_name, $pdf_bytes, 'application/pdf', $pdf_error);
+        } else {
+            $pdf_id = lgw_drive_replace_or_upload($token, $folder_id, $base_name . '.pdf', $pdf_bytes, 'application/pdf', $pdf_error);
+        }
         if ($pdf_id) {
-            lgw_drive_log($post_id, 'success', 'PDF uploaded to ' . $team_folder . ': ' . $pdf_name);
+            lgw_drive_log($post_id, 'success', 'PDF saved to ' . $team_folder . ': ' . $base_name . '.pdf');
         } else {
             lgw_drive_log($post_id, 'error', 'PDF upload failed for ' . $team_folder . ($pdf_error ? ': ' . $pdf_error : ''));
         }
 
-        // Photo
         if ($photo_bytes) {
-            $pid = lgw_drive_upload_file($token, $folder_id, $photo_name, $photo_bytes, $photo_mime);
+            $pid = lgw_drive_replace_or_upload($token, $folder_id, $photo_name, $photo_bytes, $photo_mime);
             if ($pid) {
-                lgw_drive_log($post_id, 'success', 'Photo uploaded to ' . $team_folder . ': ' . $photo_name);
+                lgw_drive_log($post_id, 'success', 'Photo saved to ' . $team_folder . ': ' . $photo_name);
             }
         }
     }
@@ -255,6 +279,23 @@ function lgw_drive_upload_file($token, $parent_id, $filename, $content, $mime, &
         $error
     );
     return $res['id'] ?? false;
+}
+
+/**
+ * Upload a file, replacing any existing file with the same name in the folder.
+ */
+function lgw_drive_replace_or_upload($token, $parent_id, $filename, $content, $mime, &$error = null) {
+    $q   = "name='" . addslashes($filename) . "' and '" . $parent_id . "' in parents and trashed=false";
+    $url = 'https://www.googleapis.com/drive/v3/files?q=' . urlencode($q) . '&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true';
+    $res = lgw_drive_request($token, 'GET', $url);
+    if (!empty($res['files'][0]['id'])) {
+        $file_id = $res['files'][0]['id'];
+        $patch = lgw_drive_request($token, 'PATCH',
+            'https://www.googleapis.com/upload/drive/v3/files/' . $file_id . '?uploadType=media&supportsAllDrives=true',
+            array('Content-Type' => $mime), $content, $error);
+        return $patch ? $file_id : false;
+    }
+    return lgw_drive_upload_file($token, $parent_id, $filename, $content, $mime, $error);
 }
 
 /**
@@ -406,7 +447,7 @@ function lgw_drive_build_jwt($client_email, $private_key) {
     $header  = lgw_drive_b64url(json_encode(array('alg' => 'RS256', 'typ' => 'JWT')));
     $payload = lgw_drive_b64url(json_encode(array(
         'iss'   => $client_email,
-        'scope' => 'https://www.googleapis.com/auth/drive',
+        'scope' => 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets',
         'aud'   => 'https://oauth2.googleapis.com/token',
         'iat'   => $now,
         'exp'   => $now + 3600,
@@ -456,17 +497,23 @@ function lgw_drive_log($post_id, $level, $message) {
 function lgw_render_drive_log($post_id) {
     $log = get_post_meta($post_id, 'lgw_drive_log', true) ?: array();
     if (!lgw_drive_enabled()) {
-        echo '<p style="color:#888;font-size:12px">Google Drive integration is not enabled.</p>';
-        return;
+        if (empty($log)) {
+            echo '<p style="color:#888;font-size:12px">Google Drive integration is not enabled.</p>';
+            return;
+        }
+        // Drive was previously enabled — still show any existing log entries
     }
     if (empty($log)) {
         echo '<p style="color:#888;font-size:12px">No Drive activity yet for this scorecard.</p>';
         return;
     }
+    $icons  = array('error' => '❌', 'warn' => '⚠️', 'info' => 'ℹ️', 'success' => '✅');
+    $colors = array('error' => '#842029', 'warn' => '#856404', 'info' => '#555', 'success' => '#0a3622');
     echo '<div style="font-size:12px">';
     foreach (array_reverse($log) as $entry) {
-        $icon  = $entry['level'] === 'error' ? '❌' : '✅';
-        $color = $entry['level'] === 'error' ? '#842029' : '#0a3622';
+        $lvl   = $entry['level'] ?? 'info';
+        $icon  = $icons[$lvl]  ?? 'ℹ️';
+        $color = $colors[$lvl] ?? '#555';
         $ts    = date('d M Y H:i', strtotime($entry['ts']));
         echo '<div style="padding:4px 0;border-bottom:1px solid #eee;color:' . $color . '">';
         echo $icon . ' <span style="color:#888">' . esc_html($ts) . '</span> ' . esc_html($entry['message']);

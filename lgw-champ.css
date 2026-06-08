@@ -1,4 +1,4 @@
-/* LGW Championships CSS - v7.1.17 */
+/* LGW Championships CSS - v7.1.121 */
 
 /* ── Default light-mode CSS variables ──────────────────────────────────────── */
 /* These mirror the division widget defaults so the cup widget looks correct    */
@@ -189,6 +189,14 @@
   opacity: .7;
 }
 
+.lgw-champ-placeholder {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--lgw-text-muted, #888);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
 /* ── Match team row ──────────────────────────────────────────────────────────── */
 .lgw-champ-team {
   display: flex;
@@ -294,6 +302,11 @@
   background: var(--lgw-navy, #1a2e5a);
   color: var(--lgw-gold, #e8b400);
 }
+.lgw-champ-round--current .lgw-champ-round-header{background:var(--lgw-navy,#1a2e5a);color:#fff}
+.lgw-champ-round--current .lgw-champ-round-header::before{content:'\25B6 NOW';display:block;font-size:9px;font-weight:800;letter-spacing:.12em;color:var(--lgw-gold,#e8b400);margin-bottom:2px}
+.lgw-champ-round--current .lgw-champ-round-date{color:rgba(255,255,255,.85)}
+.lgw-champ-round-final.lgw-champ-round--current .lgw-champ-round-header{background:var(--lgw-navy,#1a2e5a);color:var(--lgw-gold,#e8b400)}
+.lgw-champ-tab--current::after{content:'\25B6';font-size:8px;color:var(--lgw-gold,#e8b400);margin-left:5px;vertical-align:middle}
 
 /* ── Trophy / winner card ────────────────────────────────────────────────────── */
 .lgw-champ-champion {
@@ -1004,31 +1017,104 @@
 
   .lgw-champ-champion { font-size: 10pt !important; padding: 6px !important; }
   .lgw-champ-score    { font-size: 8.5pt !important; }
+
+  /* Sponsor footer: fixed bottom-right */
+  .lgw-print-footer {
+    display: block !important;
+    visibility: visible !important;
+    position: fixed !important;
+    bottom: 12px !important;
+    right: 16px !important;
+    text-align: right !important;
+    opacity: 0.85 !important;
+  }
+  .lgw-print-footer img {
+    max-height: 48px !important;
+    max-width: 160px !important;
+    object-fit: contain !important;
+    display: block !important;
+  }
+  .lgw-print-footer-label {
+    font-size: 7pt !important;
+    color: #888 !important;
+    letter-spacing: .05em !important;
+    text-transform: uppercase !important;
+    margin-bottom: 3px !important;
+  }
 }
 
 
-/* ── Mobile: tab-based round view ────────────────────────────────────────────── */
+/* ── Mobile: horizontal-scroll bracket with tab navigation ──────────────────── */
 @media (max-width: 700px) {
+  /* Show tab bar */
   .lgw-champ-tabs { display: block; }
-  .lgw-champ-bracket-outer { padding: 12px; }
+
+  /* Bracket outer: horizontal scroll with snap */
+  .lgw-champ-bracket-outer {
+    padding: 12px 0 12px 12px;
+    overflow-x: scroll;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .lgw-champ-bracket-outer::-webkit-scrollbar { display: none; }
+
+  /* Bracket: horizontal flex row, not column */
   .lgw-champ-bracket {
-    flex-direction: column;
-    min-width: unset;
-  }
-  .lgw-champ-round {
-    display: none;
-    width: 100%;
-    min-width: unset;
-  }
-  .lgw-champ-round.mobile-active { display: flex; }
-  .lgw-champ-connector-col { display: none; }
-  .lgw-champ-round-header { text-align: left; padding: 0 4px 10px; }
-  .lgw-champ-match { margin: 6px 0; }
-  .lgw-champ-champion {
     flex-direction: row;
-    justify-content: flex-start;
-    padding: 10px 4px;
-    gap: 12px;
+    min-width: unset;
+    width: max-content;
+    align-items: flex-start;
+  }
+
+  /* Every round: fixed snap-scroll column, always visible */
+  .lgw-champ-round {
+    display: flex !important;
+    width: 82vw;
+    min-width: 220px;
+    max-width: 340px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+
+  /* Connector columns hidden on mobile */
+  .lgw-champ-connector-col { display: none; }
+
+  /* Round header: tappable */
+  .lgw-champ-round-header {
+    cursor: pointer;
+    text-align: left;
+    padding: 8px 10px 8px;
+    margin: 0 8px 6px;
+    user-select: none;
+  }
+  .lgw-champ-round-header::after {
+    content: ' ›';
+    opacity: .5;
+    font-size: 13px;
+  }
+
+  /* Active round header highlight */
+  .lgw-champ-round.mobile-active .lgw-champ-round-header {
+    background: var(--lgw-navy, #1a2e5a);
+    color: var(--lgw-gold, #e8b400);
+  }
+  .lgw-champ-round.mobile-active .lgw-champ-round-date {
+    color: rgba(255,255,255,.85);
+  }
+
+  .lgw-champ-match { margin: 6px 4px; }
+
+  /* Champion card */
+  .lgw-champ-champion {
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 8px;
+    width: 70vw;
+    min-width: 160px;
+    max-width: 260px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
   }
 }
 
@@ -1186,4 +1272,357 @@
     flex-direction: column;
     gap: 2px;
   }
+}
+
+/* ── Championship Search Modal ──────────────────────────────────────────────── */
+.lgw-champ-search-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 100010;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.lgw-champ-search-box {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.28);
+  width: 100%;
+  max-width: 720px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: 'Saira', Arial, sans-serif;
+}
+.lgw-champ-search-header {
+  background: var(--lgw-navy, #1a2e5a);
+  color: #fff;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.lgw-champ-search-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+.lgw-champ-search-close {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.8);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color .15s;
+}
+.lgw-champ-search-close:hover { color: #fff; }
+.lgw-champ-search-hint {
+  padding: 10px 18px 0;
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+  flex-shrink: 0;
+}
+.lgw-champ-search-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 18px;
+  align-items: center;
+  border-bottom: 1px solid #e0e4f0;
+  flex-shrink: 0;
+}
+.lgw-champ-search-input {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid #c8cde4;
+  border-radius: 5px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .15s;
+}
+.lgw-champ-search-input:focus { border-color: var(--lgw-navy, #1a2e5a); }
+.lgw-champ-search-mode-tabs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.lgw-champ-search-mode-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid #c8cde4;
+  border-radius: 5px;
+  background: #f0f2f8;
+  color: var(--lgw-navy, #1a2e5a);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.lgw-champ-search-mode-btn.active,
+.lgw-champ-search-mode-btn:hover {
+  background: var(--lgw-navy, #1a2e5a);
+  color: #fff;
+  border-color: var(--lgw-navy, #1a2e5a);
+}
+.lgw-champ-search-btn {
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  background: var(--lgw-navy, #1a2e5a);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.lgw-champ-search-btn:hover { background: #243d78; }
+.lgw-champ-search-btn:disabled { opacity: .6; cursor: default; }
+.lgw-champ-search-status {
+  padding: 8px 18px;
+  font-size: 13px;
+  color: #555;
+  flex-shrink: 0;
+  min-height: 28px;
+}
+.lgw-champ-sr-admin-hint {
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
+}
+.lgw-champ-search-results {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0 18px 10px;
+}
+.lgw-champ-sr-section { margin-bottom: 20px; }
+.lgw-champ-sr-section-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--lgw-navy, #1a2e5a);
+  padding: 5px 0 6px;
+  border-bottom: 2px solid var(--lgw-navy, #1a2e5a);
+  margin-bottom: 6px;
+  letter-spacing: .02em;
+}
+/* Home/Away group blocks */
+.lgw-champ-sr-group { margin-bottom: 22px; }
+.lgw-champ-sr-group-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  padding: 7px 12px;
+  border-radius: 4px 4px 0 0;
+  margin-bottom: 0;
+}
+.lgw-champ-sr-home-label { background: var(--lgw-navy, #1a2e5a); color: #fff; }
+.lgw-champ-sr-away-label { background: #1a4e6e; color: #fff; }
+.lgw-champ-sr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.lgw-champ-sr-table th {
+  background: var(--lgw-navy, #1a2e5a);
+  color: #fff;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+}
+.lgw-champ-sr-home-label + .lgw-champ-sr-table th,
+.lgw-champ-sr-group .lgw-champ-sr-home-label ~ table th { background: var(--lgw-navy, #1a2e5a); }
+.lgw-champ-sr-away-label + .lgw-champ-sr-table th { background: #1a4e6e; }
+.lgw-champ-sr-group:has(.lgw-champ-sr-away-label) .lgw-champ-sr-table th { background: #1a4e6e; }
+.lgw-champ-sr-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid #eaedf6;
+  vertical-align: middle;
+}
+.lgw-champ-sr-table tr:nth-child(even) td { background: #f8f9fd; }
+.lgw-champ-sr-table tr:hover td { background: #eef1fa; }
+.lgw-champ-sr-section-cell {
+  font-size: 11px;
+  color: #666;
+  white-space: nowrap;
+}
+.lgw-champ-sr-round {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+  font-style: italic;
+}
+.lgw-champ-sr-date {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--lgw-navy, #1a2e5a);
+  font-weight: 700;
+  min-width: 60px;
+  vertical-align: top;
+  padding-top: 9px;
+}
+.lgw-champ-sr-tbd {
+  color: #999;
+  font-style: italic;
+  font-weight: 400;
+}
+/* Inline "A vs B" match cell */
+.lgw-champ-sr-match-cell { vertical-align: middle; }
+.lgw-champ-sr-vs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.lgw-champ-sr-vs-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.lgw-champ-sr-vs-name .lgw-champ-team-badge {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.lgw-champ-sr-vs-sep {
+  font-size: 11px;
+  font-weight: 600;
+  color: #999;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+.lgw-champ-sr-highlight {
+  font-weight: 700;
+  background: #fffbe6;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+/* Admin navigation row — pointer cursor */
+.lgw-champ-sr-row-nav { cursor: pointer; }
+.lgw-champ-sr-row-nav:hover td { background: #e8f0fe !important; }
+.lgw-champ-sr-row-nav:hover .lgw-champ-sr-highlight { background: #fef3c0; }
+
+/* Match card highlight flash — triggered by navigateToMatch */
+@keyframes lgw-match-highlight-flash {
+  0%   { box-shadow: 0 0 0 3px #e8b400, 0 0 18px 6px rgba(232,180,0,.5); background: #fffbe6; }
+  60%  { box-shadow: 0 0 0 3px #e8b400, 0 0 18px 6px rgba(232,180,0,.5); background: #fffbe6; }
+  100% { box-shadow: none; background: ''; }
+}
+.lgw-champ-match.lgw-champ-match-highlight {
+  animation: lgw-match-highlight-flash 2.2s ease-out forwards;
+  position: relative;
+  z-index: 2;
+}
+.lgw-champ-sr-score-col { width: 72px; text-align: center; white-space: nowrap; }
+.lgw-champ-sr-score-cell { text-align: center; white-space: nowrap; vertical-align: middle; }
+.lgw-champ-sr-score-val {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 2px;
+}
+.lgw-champ-sr-score-val.win-h,
+.lgw-champ-sr-score-val.win-a { color: #0a3622; font-weight: 800; }
+.lgw-champ-sr-score-dash { font-size: 12px; color: #aaa; padding: 0 1px; }
+.lgw-champ-sr-score-pending { color: #bbb; font-size: 13px; }
+.lgw-champ-search-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  border-top: 1px solid #e0e4f0;
+  background: #f8f9fd;
+  flex-shrink: 0;
+}
+.lgw-champ-search-copy-btn,
+.lgw-champ-search-pdf-btn,
+.lgw-champ-search-csv-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid #c8cde4;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--lgw-navy, #1a2e5a);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  white-space: nowrap;
+}
+.lgw-champ-search-copy-btn:hover,
+.lgw-champ-search-pdf-btn:hover,
+.lgw-champ-search-csv-btn:hover {
+  background: #e8ecf8;
+  border-color: var(--lgw-navy, #1a2e5a);
+}
+.lgw-champ-search-pdf-btn {
+  background: var(--lgw-navy, #1a2e5a);
+  color: #fff;
+  border-color: var(--lgw-navy, #1a2e5a);
+}
+.lgw-champ-search-pdf-btn:hover { background: #243d78; border-color: #243d78; }
+@media (max-width: 560px) {
+  .lgw-champ-search-box { max-height: 95vh; }
+  .lgw-champ-search-controls { flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 14px; }
+  .lgw-champ-search-input { font-size: 16px; padding: 7px 10px; flex: none; width: 100%; box-sizing: border-box; }
+  .lgw-champ-search-mode-tabs { justify-content: stretch; }
+  .lgw-champ-search-mode-btn { flex: 1; text-align: center; padding: 7px 8px; font-size: 12px; }
+  .lgw-champ-search-btn { width: 100%; text-align: center; padding: 8px; }
+  th.lgw-champ-sr-section-cell,
+  td.lgw-champ-sr-section-cell,
+  th.lgw-champ-sr-round,
+  td.lgw-champ-sr-round { display: none !important; width: 0 !important; padding: 0 !important; }
+  .lgw-champ-search-actions { flex-wrap: wrap; gap: 6px; padding: 8px 14px; }
+  .lgw-champ-search-copy-btn,
+  .lgw-champ-search-pdf-btn,
+  .lgw-champ-search-csv-btn { flex: 1 1 40%; font-size: 12px; padding: 7px 8px; text-align: center; }
+}
+
+/* Landscape on short screens (phones rotated): collapse chrome, make whole box scroll */
+@media (max-height: 500px) and (orientation: landscape) {
+  .lgw-champ-search-modal { align-items: flex-start; padding: 8px; }
+  .lgw-champ-search-box {
+    max-height: 100%;
+    height: calc(100vh - 16px);
+    overflow-y: auto;
+    display: block;          /* drop flex column — everything scrolls as one */
+  }
+  .lgw-champ-search-header { padding: 8px 14px; position: sticky; top: 0; z-index: 1; border-radius: 10px 10px 0 0; }
+  .lgw-champ-search-title { font-size: 14px; }
+  .lgw-champ-search-hint { padding: 6px 14px 0; font-size: 11px; }
+  .lgw-champ-search-controls { padding: 6px 14px; gap: 6px; }
+  .lgw-champ-search-input { font-size: 16px; padding: 5px 9px; }
+  .lgw-champ-search-mode-btn { padding: 5px 10px; font-size: 12px; }
+  .lgw-champ-search-btn { padding: 5px 14px; font-size: 13px; }
+  .lgw-champ-search-status { padding: 4px 14px; min-height: 20px; font-size: 12px; }
+  .lgw-champ-search-results { overflow-y: visible; padding: 0 14px 6px; }
+  .lgw-champ-search-actions {
+    position: sticky;
+    bottom: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 0 0 10px 10px;
+  }
+  .lgw-champ-search-copy-btn,
+  .lgw-champ-search-pdf-btn,
+  .lgw-champ-search-csv-btn { flex: 1 1 28%; font-size: 11px; padding: 6px 6px; text-align: center; }
+  th.lgw-champ-sr-section-cell,
+  td.lgw-champ-sr-section-cell,
+  th.lgw-champ-sr-round,
+  td.lgw-champ-sr-round { display: none !important; width: 0 !important; padding: 0 !important; }
 }

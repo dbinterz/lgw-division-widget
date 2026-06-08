@@ -4,3 +4,34 @@
 .lgw-admin-wrap .lgw-badge-table .regular-text { width: 240px; margin-right: 6px; }
 .lgw-admin-wrap .lgw-badge-preview { border: 1px solid #ddd; border-radius: 4px; padding: 2px; background: #fafafa; }
 .lgw-admin-wrap pre { margin: 8px 0; }
+
+/* ── Scorecard edit form (shared between scorecards admin page and post edit screen) ── */
+.lgw-sc-status{display:inline-block;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600}
+.lgw-sc-status.pending{background:#fff3cd;color:#856404}
+.lgw-sc-status.confirmed{background:#d1e7dd;color:#0a3622}
+.lgw-sc-status.disputed{background:#f8d7da;color:#842029}
+.lgw-edit-form{background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:16px;margin-top:12px}
+.lgw-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+.lgw-edit-row{display:flex;flex-direction:column;gap:4px}
+.lgw-edit-row label{font-weight:600;font-size:12px;color:#555}
+.lgw-edit-rinks-table td{padding:6px 8px;vertical-align:middle}
+.lgw-edit-rinks-table input.large-text{width:100%}
+.lgw-edit-msg{display:none;font-size:13px}
+.lgw-edit-msg.success{color:#0a3622;background:#d1e7dd;padding:6px 10px;border-radius:3px}
+.lgw-edit-msg.error{color:#842029;background:#f8d7da;padding:6px 10px;border-radius:3px}
+.lgw-audit-log{border:1px solid #ddd;border-radius:4px;overflow:hidden;margin-top:4px}
+.lgw-audit-entry{padding:10px 12px;border-bottom:1px solid #eee;font-size:12px}
+.lgw-audit-entry:last-child{border-bottom:none}
+.lgw-audit-header{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.lgw-audit-icon{font-size:14px}
+.lgw-audit-action{font-weight:700;padding:1px 6px;border-radius:3px;font-size:11px;text-transform:uppercase}
+.lgw-audit-action-edited{background:#fff3cd;color:#856404}
+.lgw-audit-action-confirmed{background:#d1e7dd;color:#0a3622}
+.lgw-audit-action-resolved{background:#cfe2ff;color:#084298}
+.lgw-audit-action-submitted{background:#f0f0f0;color:#333}
+.lgw-audit-user{font-weight:600;color:#1a2e5a}
+.lgw-audit-ts{color:#888;margin-left:auto}
+.lgw-audit-note{color:#444;line-height:1.4}
+.lgw-audit-changes{margin:4px 0 0 18px;padding:0;color:#666}
+.lgw-audit-changes li{margin-bottom:2px}
+.lgw-sc-amended{font-size:10px;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle}

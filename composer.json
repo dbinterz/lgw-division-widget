@@ -1,0 +1,13 @@
+{
+    "name": "dbinterz/lgw-tests",
+    "authors": [
+        {
+            "name": "Damien Bintley",
+            "email": "dbinterz@gmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require-dev": {
+        "phpunit/phpunit": "^10"
+    }
+}

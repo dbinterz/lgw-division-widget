@@ -1,6 +1,6 @@
 <?php
 /**
- * LGW National Championships - v6.4.30
+ * LGW National Championships - v7.1.121
  *
  * Single-elimination bracket competitions for singles, pairs, triples, fours.
  * Based on the cup draw system with two key differences:
@@ -23,7 +23,16 @@ function lgw_champ_enqueue() {
     wp_enqueue_style('lgw-saira',  'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
     wp_enqueue_style('lgw-widget', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-widget.css', array('lgw-saira'), LGW_VERSION);
     wp_enqueue_style('lgw-champ',  plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-champ.css',  array('lgw-widget'), LGW_VERSION);
-    wp_enqueue_script('lgw-champ', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-champ.js',   array(), LGW_VERSION, true);
+    // Enqueue scorecard script for player stats popover (even without [lgw_division] on page)
+    if (!wp_script_is('lgw-scorecard', 'registered')) {
+        wp_register_script('lgw-scorecard', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-scorecard.js', array(), LGW_VERSION, true);
+        wp_register_style('lgw-scorecard',  plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-scorecard.css', array(), LGW_VERSION);
+    }
+    if (!wp_script_is('lgw-scorecard', 'enqueued')) {
+        wp_enqueue_script('lgw-scorecard');
+        wp_enqueue_style('lgw-scorecard');
+    }
+    wp_enqueue_script('lgw-champ', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-champ.js',   array('lgw-scorecard'), LGW_VERSION, true);
     if (!wp_script_is('lgw-widget', 'enqueued')) {
         wp_localize_script('lgw-champ', 'lgwData', array(
             'ajaxUrl'    => admin_url('admin-ajax.php'),
@@ -38,6 +47,8 @@ function lgw_champ_enqueue() {
         'scoreNonce'        => wp_create_nonce('lgw_champ_score'),
         'drawPassphraseSet' => get_option('lgw_draw_passphrase', '') !== '' ? 1 : 0,
         'champNonce'        => wp_create_nonce('lgw_champ_nonce'),
+        'searchNonce'       => wp_create_nonce('lgw_champ_search'),
+        'statsNonce'        => wp_create_nonce('lgw_submit_nonce'),
         'drawSpeed'         => (float) get_option('lgw_draw_speed', 1.0),
         'badges'            => get_option('lgw_badges',      array()),
         'clubBadges'        => get_option('lgw_club_badges', array()),
@@ -135,6 +146,48 @@ function lgw_ajax_champ_save_score() {
         }
     }
 
+    // ── Log / clear championship appearances BEFORE cascade modifies team names ──
+    if ( !empty($champ['stats_eligible']) && function_exists('lgw_log_champ_appearance') ) {
+        $home_entry = $match['home'] ?? '';
+        $away_entry = $match['away'] ?? '';
+
+        // Resolve round date
+        $sec_dates = array();
+        if ( $section === 'final' ) {
+            $sec_dates = $champ['dates'] ?? array();
+        } else {
+            $sec_dates_raw = $champ['section_' . $section . '_dates'] ?? '';
+            if ( $sec_dates_raw ) {
+                $sec_dates = array_values( array_filter( array_map( 'trim', explode( "\n", $sec_dates_raw ) ) ) );
+            }
+            if ( empty( $sec_dates ) ) $sec_dates = $champ['dates'] ?? array();
+        }
+        $round_date = $sec_dates[$round_idx] ?? '';
+
+        // Use a stable positional key as match_title — immune to entry name changes.
+        // Format: "section:round_idx:match_idx" e.g. "0:2:1"
+        // Human-readable match name is derived from entry strings for display only.
+        $match_pos_key   = $section . ':' . $round_idx . ':' . $match_idx;
+        $match_title_log = $home_entry . ' v ' . $away_entry; // for display in history modal
+
+
+        if ( $home_score !== null && $away_score !== null && $home_entry && $away_entry ) {
+            // Score being set: always wipe existing appearances for this position first,
+            // then cascade-clear downstream positions so stale winner propagations are removed.
+            lgw_clear_champ_appearances_by_key( $champ_id, $match_pos_key, $match_title_log );
+            lgw_champ_cascade_clear_appearances( $champ_id, $bracket, $round_idx + 1,
+                lgw_champ_find_next_match_idx( $bracket, $round_idx, $match_idx ), $section );
+            if ( $home_score !== $away_score ) {
+                $home_win = $home_score > $away_score;
+                lgw_log_champ_appearance( $champ_id, $home_entry, $home_win ? 'W' : 'L', $round_date, $match_title_log, $home_score, $away_score, $match_pos_key );
+                lgw_log_champ_appearance( $champ_id, $away_entry, $home_win ? 'L' : 'W', $round_date, $match_title_log, $away_score, $home_score, $match_pos_key );
+            }
+        } elseif ( $home_score === null && $away_score === null ) {
+            // Score cleared — cascade-clear this match AND all downstream while names are intact.
+            lgw_champ_cascade_clear_appearances( $champ_id, $bracket, $round_idx, $match_idx, $section );
+        }
+    }
+
     // Reset: if both scores cleared, cascade-clear all downstream rounds
     if ($home_score === null && $away_score === null) {
         lgw_champ_cascade_reset($bracket, $round_idx, $match_idx);
@@ -146,6 +199,7 @@ function lgw_ajax_champ_save_score() {
     }
 
     update_option('lgw_champ_' . $champ_id, $champ);
+
     wp_send_json_success(array(
         'bracket'       => $bracket,
         'final_bracket' => $champ['final_bracket'] ?? null,
@@ -209,6 +263,418 @@ function lgw_champ_cascade_reset(&$bracket, $round_idx, $match_idx) {
 }
 
 /**
+ * Mirror of lgw_champ_cascade_reset that clears Player Tracking appearances
+ * for every match at and downstream of the given position.
+ *
+ * Uses a stable positional key (section:round:match) so clearing is immune
+ * to entry name changes or normalisation differences.
+ *
+ * MUST be called BEFORE lgw_champ_cascade_reset so team names are still intact
+ * for the path-following logic.
+ */
+function lgw_champ_cascade_clear_appearances( $champ_id, &$bracket, $round_idx, $match_idx, $section = '' ) {
+    if ( !function_exists('lgw_clear_champ_appearances_by_key') ) return;
+    if ( $match_idx === null || $match_idx === false ) return;
+
+    $all_matches = &$bracket['matches'];
+    if ( !isset( $all_matches[$round_idx][$match_idx] ) ) return;
+
+    // Clear by positional key — stable regardless of entry string content.
+    // Also pass match_title so any legacy rows (match_key IS NULL) are cleaned up too.
+    $m       = $all_matches[$round_idx][$match_idx];
+    $pos_key = $section . ':' . $round_idx . ':' . $match_idx;
+    $title   = ( !empty($m['home']) && !empty($m['away']) ) ? ( $m['home'] . ' v ' . $m['away'] ) : '';
+    lgw_clear_champ_appearances_by_key( $champ_id, $pos_key, $title );
+
+    // Follow winner propagation into next round
+    $next_round = $round_idx + 1;
+    if ( !isset( $all_matches[$next_round] ) ) return;
+
+    $this_game = $m['game_num'] ?? null;
+    $found_nm  = null;
+
+    if ( $this_game ) {
+        foreach ( $all_matches[$next_round] as $nm => $nm_ref ) {
+            if ( ($nm_ref['prev_game_home'] ?? null) == $this_game
+              || ($nm_ref['prev_game_away'] ?? null) == $this_game ) {
+                $found_nm = $nm;
+                break;
+            }
+        }
+    }
+    if ( $found_nm === null ) {
+        $fb_nm = intval( floor( $match_idx / 2 ) );
+        if ( isset( $all_matches[$next_round][$fb_nm] ) ) $found_nm = $fb_nm;
+    }
+
+    if ( $found_nm !== null ) {
+        lgw_champ_cascade_clear_appearances( $champ_id, $bracket, $next_round, $found_nm, $section );
+    }
+}
+
+/**
+ * Given a match at round_idx/match_idx, return the index of the next-round match
+ * that will receive this match's winner. Returns null if no next round exists.
+ */
+function lgw_champ_find_next_match_idx( &$bracket, $round_idx, $match_idx ) {
+    $all_matches = $bracket['matches'] ?? array();
+    $next_round  = $round_idx + 1;
+    if ( !isset( $all_matches[$next_round] ) ) return null;
+
+    $this_game = $all_matches[$round_idx][$match_idx]['game_num'] ?? null;
+    if ( $this_game ) {
+        foreach ( $all_matches[$next_round] as $nm => $nm_ref ) {
+            if ( ($nm_ref['prev_game_home'] ?? null) == $this_game
+              || ($nm_ref['prev_game_away'] ?? null) == $this_game ) {
+                return $nm;
+            }
+        }
+    }
+    $fb_nm = intval( floor( $match_idx / 2 ) );
+    return isset( $all_matches[$next_round][$fb_nm] ) ? $fb_nm : null;
+}
+
+// ── AJAX: admin manual draw edit ──────────────────────────────────────────────
+add_action('wp_ajax_lgw_champ_edit_match', 'lgw_ajax_champ_edit_match');
+/**
+ * Admin-only: swap one or both participants in a drawn match.
+ *
+ * POST params:
+ *   champ_id    – championship slug
+ *   section     – section index (int) or 'final'
+ *   round_idx   – 0-based round index within the bracket
+ *   match_idx   – 0-based match index within the round
+ *   new_home    – new home entry string (or empty to leave unchanged)
+ *   new_away    – new away entry string (or empty to leave unchanged)
+ *   nonce       – lgw_champ_score nonce (re-uses same nonce key)
+ *
+ * Behaviour:
+ *   1. Replace the specified participant(s) in the target match.
+ *   2. Clear scores for the edited match.
+ *   3. Cascade-reset all downstream rounds so winner placeholders
+ *      that depended on this match's result are nulled out — those
+ *      rounds must be scored again.
+ *   4. If the changed match is in a section bracket, unseed the
+ *      final_bracket so it can be re-drawn once section finals complete.
+ *   5. Persist and return the updated bracket + final_bracket.
+ */
+function lgw_ajax_champ_edit_match() {
+    check_ajax_referer('lgw_champ_score', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+
+    $champ_id  = sanitize_key($_POST['champ_id']  ?? '');
+    $section   = sanitize_key($_POST['section']   ?? '0');
+    $round_idx = intval($_POST['round_idx']        ?? -1);
+    $match_idx = intval($_POST['match_idx']        ?? -1);
+    $new_home  = sanitize_text_field(wp_unslash($_POST['new_home'] ?? ''));
+    $new_away  = sanitize_text_field(wp_unslash($_POST['new_away'] ?? ''));
+
+    if (!$champ_id || $round_idx < 0 || $match_idx < 0) {
+        wp_send_json_error('Invalid parameters');
+    }
+    if ($new_home === '' && $new_away === '') {
+        wp_send_json_error('No changes supplied');
+    }
+
+    $champ = get_option('lgw_champ_' . $champ_id, array());
+    if (empty($champ)) wp_send_json_error('Championship not found');
+
+    $bracket_key = ($section === 'final') ? 'final_bracket' : 'section_' . $section . '_bracket';
+    $bracket = &$champ[$bracket_key];
+
+    if (!isset($bracket['matches'][$round_idx][$match_idx])) {
+        wp_send_json_error('Match not found');
+    }
+
+    $match = &$bracket['matches'][$round_idx][$match_idx];
+
+    // ── Clear appearances BEFORE modifying the bracket (while team names intact) ──
+    if ( !empty($champ['stats_eligible']) ) {
+        lgw_champ_cascade_clear_appearances( $champ_id, $bracket, $round_idx, $match_idx, $section );
+    }
+
+    // Apply changes
+    if ($new_home !== '') $match['home'] = $new_home;
+    if ($new_away !== '') $match['away'] = $new_away;
+
+    // Clear this match's scores — result is now unknown
+    $match['home_score'] = null;
+    $match['away_score'] = null;
+
+    // Cascade-reset all downstream rounds that depended on this result
+    lgw_champ_cascade_reset($bracket, $round_idx, $match_idx);
+
+    // If a section bracket was changed, unseed the final stage
+    if ($section !== 'final' && isset($champ['final_bracket'])) {
+        unset($champ['final_bracket']);
+        unset($champ['final_draw_pairs']);
+        unset($champ['final_draw_version']);
+        unset($champ['final_pairs_cursor']);
+        unset($champ['final_draw_in_progress']);
+    }
+
+    update_option('lgw_champ_' . $champ_id, $champ);
+
+    wp_send_json_success(array(
+        'bracket'       => $bracket,
+        'final_bracket' => $champ['final_bracket'] ?? null,
+        'message'       => 'Match updated — downstream rounds have been cleared.',
+    ));
+}
+
+// ── AJAX: rename an entry everywhere (entries list + all bracket slots) ────────
+add_action('wp_ajax_lgw_champ_rename_entry', 'lgw_ajax_champ_rename_entry');
+/**
+ * Admin-only: rename an entry across the entries list and every bracket slot.
+ *
+ * POST params:
+ *   champ_id  – championship slug
+ *   old_name  – exact current entry string
+ *   new_name  – corrected entry string
+ *   nonce     – lgw_champ_score nonce
+ *
+ * Replaces all occurrences in:
+ *   - champ['entries'] array
+ *   - every section bracket (home/away in every match)
+ *   - final_bracket (home/away in every match)
+ * Does NOT reset any scores or cascade — this is a spelling-correction only.
+ */
+function lgw_ajax_champ_rename_entry() {
+    check_ajax_referer('lgw_champ_score', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+
+    $champ_id = sanitize_key($_POST['champ_id']  ?? '');
+    $old_name = sanitize_text_field(wp_unslash($_POST['old_name'] ?? ''));
+    $new_name = sanitize_text_field(wp_unslash($_POST['new_name'] ?? ''));
+
+    if (!$champ_id || $old_name === '' || $new_name === '') {
+        wp_send_json_error('Missing parameters');
+    }
+    if ($old_name === $new_name) {
+        wp_send_json_error('New name is identical to old name');
+    }
+
+    $champ = get_option('lgw_champ_' . $champ_id, array());
+    if (empty($champ)) wp_send_json_error('Championship not found');
+
+    $replaced = 0;
+
+    // 1. Update the entries list
+    foreach ($champ['entries'] as $i => $entry) {
+        if ($entry === $old_name) {
+            $champ['entries'][$i] = $new_name;
+            $replaced++;
+        }
+    }
+
+    // 2. Helper to rename in a bracket
+    $rename_in_bracket = function(&$bracket) use ($old_name, $new_name, &$replaced) {
+        if (empty($bracket['matches'])) return;
+        foreach ($bracket['matches'] as $ri => &$round) {
+            foreach ($round as $mi => &$match) {
+                if (($match['home'] ?? '') === $old_name) { $match['home'] = $new_name; $replaced++; }
+                if (($match['away'] ?? '') === $old_name) { $match['away'] = $new_name; $replaced++; }
+            }
+            unset($match);
+        }
+        unset($round);
+    };
+
+    // 3. Section brackets
+    foreach (($champ['sections'] ?? array()) as $idx => $sec) {
+        $key = 'section_' . $idx . '_bracket';
+        if (!empty($champ[$key])) {
+            $rename_in_bracket($champ[$key]);
+        }
+    }
+
+    // 4. Final bracket
+    if (!empty($champ['final_bracket'])) {
+        $rename_in_bracket($champ['final_bracket']);
+    }
+
+    if ($replaced === 0) {
+        wp_send_json_error('Entry "' . esc_html($old_name) . '" not found');
+    }
+
+    update_option('lgw_champ_' . $champ_id, $champ);
+
+    wp_send_json_success(array(
+        'message'  => 'Renamed "' . esc_html($old_name) . '" → "' . esc_html($new_name) . '" (' . $replaced . ' occurrences updated).',
+        'replaced' => $replaced,
+    ));
+}
+
+// ── AJAX: get draw entry list for edit dropdown ────────────────────────────────
+add_action('wp_ajax_lgw_champ_get_entries', 'lgw_ajax_champ_get_entries');
+/**
+ * Returns the full entries list for a given championship section so the
+ * admin edit UI can populate dropdowns without a page reload.
+ */
+function lgw_ajax_champ_get_entries() {
+    check_ajax_referer('lgw_champ_score', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+
+    $champ_id    = sanitize_key($_POST['champ_id'] ?? '');
+    $section_idx = intval($_POST['section'] ?? 0);
+
+    $champ = get_option('lgw_champ_' . $champ_id, array());
+    if (empty($champ)) wp_send_json_error('Championship not found');
+
+    $sections = $champ['sections'] ?? array();
+    if (!isset($sections[$section_idx])) wp_send_json_error('Section not found');
+
+    wp_send_json_success(array(
+        'entries' => $sections[$section_idx]['entries'] ?? array(),
+    ));
+}
+
+// ── AJAX: championship search ──────────────────────────────────────────────────
+add_action('wp_ajax_lgw_champ_search',        'lgw_ajax_champ_search');
+add_action('wp_ajax_nopriv_lgw_champ_search', 'lgw_ajax_champ_search');
+/**
+ * Search all brackets of a championship for fixtures/results matching a player or club query.
+ *
+ * POST params:
+ *   champ_id  – championship slug
+ *   query     – search string (player name or club name)
+ *   mode      – 'fixtures' (upcoming/undated matches) | 'results' (scored matches) | 'both'
+ *   nonce     – lgw_champ_search nonce
+ *
+ * Returns array of match objects with extra keys: section_label, round_name, date, is_result.
+ * For fixtures: includes future-dated OR undated matches where the entry appears.
+ * For results:  includes matches that have both scores recorded.
+ * A future-dated match that already has a result appears in BOTH modes.
+ */
+function lgw_ajax_champ_search() {
+    $nonce    = sanitize_text_field($_POST['nonce'] ?? '');
+    if (!wp_verify_nonce($nonce, 'lgw_champ_search')) {
+        wp_send_json_error('Session expired — please refresh and try again.');
+    }
+
+    $champ_id = sanitize_key($_POST['champ_id'] ?? '');
+    $query    = strtolower(trim(sanitize_text_field(wp_unslash($_POST['query'] ?? ''))));
+    $mode     = sanitize_key($_POST['mode'] ?? 'fixtures');
+
+    if (!$champ_id) wp_send_json_error('Missing championship ID.');
+    if (strlen($query) < 2) wp_send_json_error('Search query too short — please enter at least 2 characters.');
+
+    $champ = get_option('lgw_champ_' . $champ_id, array());
+    if (empty($champ)) wp_send_json_error('Championship not found.');
+
+    $sections       = $champ['sections'] ?? array();
+    $today          = mktime(0, 0, 0);
+    $results        = array();
+
+    // Parse a date string in d/m/yy or d/m/yyyy format → timestamp, or false.
+    $parse_date = function($s) {
+        if (!$s) return false;
+        if (preg_match('|^(\d{1,2})/(\d{1,2})/(\d{2,4})$|', trim($s), $m)) {
+            $y = intval($m[3]); if ($y < 100) $y += 2000;
+            return mktime(0, 0, 0, intval($m[2]), intval($m[1]), $y);
+        }
+        return false;
+    };
+
+    // Does the entry match the query (player name or club)?
+    $entry_matches = function($entry) use ($query) {
+        return $entry && (strpos(strtolower($entry), $query) !== false);
+    };
+
+    // Scan a bracket for matching matches.
+    $scan_bracket = function($bracket, $section_label, $bracket_label) use (
+        $query, $mode, $today, $parse_date, $entry_matches, &$results
+    ) {
+        $rounds       = $bracket['rounds']  ?? array();
+        $matches_all  = $bracket['matches'] ?? array();
+        $dates        = $bracket['dates']   ?? array();
+
+        foreach ($matches_all as $ri => $round_matches) {
+            $round_name = $rounds[$ri] ?? ('Round ' . ($ri + 1));
+            $date_str   = $dates[$ri]  ?? '';
+            $date_ts    = $parse_date($date_str);
+            $is_future  = ($date_ts !== false) ? ($date_ts >= $today) : true; // undated = treat as upcoming
+
+            foreach ($round_matches as $mi => $m) {
+                if ($m['bye'] ?? false) continue;
+                $home = $m['home'] ?? '';
+                $away = $m['away'] ?? '';
+                if (!$home && !$away) continue;
+
+                $matched = $entry_matches($home) || $entry_matches($away);
+                if (!$matched) continue;
+
+                $hs = $m['home_score'] ?? null;
+                $as = $m['away_score'] ?? null;
+                $has_result = ($hs !== null && $hs !== '' && $as !== null && $as !== '');
+
+                $include_as_fixture = false;
+                $include_as_result  = false;
+
+                if ($mode === 'fixtures' || $mode === 'both') {
+                    // Include if future/undated — regardless of whether a result exists
+                    if ($is_future) $include_as_fixture = true;
+                }
+                if ($mode === 'results' || $mode === 'both') {
+                    if ($has_result) $include_as_result = true;
+                }
+
+                if (!$include_as_fixture && !$include_as_result) continue;
+
+                $results[] = array(
+                    'section'      => $section_label,
+                    'section_idx'  => $bracket_label === 'Final Stage' ? 'final' : null, // filled below
+                    'bracket'      => $bracket_label,
+                    'round'        => $round_name,
+                    'date'         => $date_str,
+                    'date_ts'      => $date_ts !== false ? $date_ts : PHP_INT_MAX,
+                    'home'         => $home,
+                    'away'         => $away,
+                    'home_score'   => $has_result ? $hs : null,
+                    'away_score'   => $has_result ? $as : null,
+                    'has_result'   => $has_result,
+                    'is_fixture'   => $include_as_fixture,
+                    'is_result'    => $include_as_result,
+                    'game_num'     => $m['game_num'] ?? null,
+                );
+            }
+        }
+    };
+
+    // Scan section brackets
+    foreach ($sections as $idx => $sec) {
+        $bracket_key = 'section_' . $idx . '_bracket';
+        if (!empty($champ[$bracket_key])) {
+            $label = 'Section ' . ($sec['label'] ?? ($idx + 1));
+            $scan_bracket($champ[$bracket_key], $label, $label);
+            // Patch section_idx onto results added by this scan
+            foreach ($results as &$r) {
+                if ($r['section_idx'] === null && $r['section'] === $label) {
+                    $r['section_idx'] = $idx;
+                }
+            }
+            unset($r);
+        }
+    }
+
+    // Scan final bracket
+    if (!empty($champ['final_bracket'])) {
+        $scan_bracket($champ['final_bracket'], 'Final Stage', 'Final Stage');
+        // section_idx already set to 'final' in scan_bracket
+    }
+
+    // Sort by date ascending
+    usort($results, function($a, $b) { return $a['date_ts'] <=> $b['date_ts']; });
+
+    wp_send_json_success(array(
+        'query'   => $query,
+        'matches' => $results,
+        'count'   => count($results),
+        'title'   => $champ['title'] ?? $champ_id,
+    ));
+}
+
+/**
  * Extract qualifiers from a section bracket.
  * $q_per_section controls how many players qualify from this section:
  *   1 → section winner (final match must have a scored result)
@@ -267,17 +733,18 @@ function lgw_champ_try_seed_final($champ_id, &$champ) {
 
     $q_per_section = intval(4 / $n_sections); // 1, 2, or 4
 
-    $all_qualifiers = array();
+    // Collect qualifiers per section so carry-over can use section provenance
+    $qualifiers_by_section = array();
     foreach ($sections as $idx => $sec) {
         $bracket = $champ['section_' . $idx . '_bracket'] ?? null;
         if (!$bracket) return; // section not yet drawn
         $q = lgw_champ_get_section_qualifiers($bracket, $q_per_section);
         if ($q === null) return; // this section not ready yet
-        $all_qualifiers = array_merge($all_qualifiers, $q);
+        $qualifiers_by_section[] = $q;
     }
 
-    // All 4 qualifiers known — perform the final stage draw
-    lgw_champ_perform_final_draw($champ_id, $champ, $all_qualifiers);
+    // All qualifiers known — build the Final Stage carrying sections through
+    lgw_champ_perform_final_draw($champ_id, $champ, $qualifiers_by_section);
 }
 
 // ── AJAX: poll ─────────────────────────────────────────────────────────────────
@@ -368,13 +835,23 @@ function lgw_ajax_champ_perform_draw() {
 
     $champ_id = sanitize_key($_POST['champ_id'] ?? '');
     $section  = sanitize_key($_POST['section']  ?? '0');
+    $rebuild  = !empty($_POST['rebuild']);
     if (!$champ_id) wp_send_json_error('Missing champ_id');
 
     $champ = get_option('lgw_champ_' . $champ_id, array());
     if (empty($champ['entries'])) wp_send_json_error('No entries configured.');
 
     $ver_key = ($section === 'final') ? 'final_draw_version' : 'section_' . $section . '_draw_version';
-    if (!empty($champ[$ver_key]) && (int) $champ[$ver_key] > 0) wp_send_json_error('Draw already performed for this section.');
+
+    if ($rebuild && $section === 'final') {
+        // Rebuild: clear the existing Final Stage bracket so it can be re-seeded
+        // from section results using the carry-over logic.
+        unset($champ['final_bracket'], $champ['final_draw_pairs'],
+              $champ['final_draw_version'], $champ['final_pairs_cursor'],
+              $champ['final_draw_in_progress']);
+    } elseif (!empty($champ[$ver_key]) && (int) $champ[$ver_key] > 0) {
+        wp_send_json_error('Draw already performed for this section.');
+    }
 
     $result = lgw_champ_perform_draw($champ_id, $champ, $section);
     if (is_wp_error($result)) wp_send_json_error($result->get_error_message());
@@ -415,60 +892,112 @@ function lgw_champ_home_limit($club, $multi_green) {
 }
 
 /**
- * Try to separate same-club pairs in a list of numbered entries.
- * After the initial shuffle, scans for consecutive pairs where both entries
- * share a club and swaps one of them with a later entry from a different club.
- * Best-effort: if separation is impossible (e.g. all entries from same club)
- * it leaves the draw as-is rather than looping indefinitely.
+ * Separate same-club pairs in a list of numbered entries using a multi-pass
+ * approach. Repeats until no same-club pairing remains or no further progress
+ * can be made (impossible case, e.g. all entries from one club).
+ *
+ * Each pass scans all consecutive pairs; if a conflict is found it tries to
+ * swap the second member with the best candidate from any later position —
+ * preferring a swap that does not introduce a new conflict at the target pair.
  *
  * @param array $entries  Array of ['name'=>..., 'draw_num'=>...] — modified in place.
  */
 function lgw_champ_separate_clubs(&$entries) {
-    $n = count($entries);
-    for ($i = 0; $i < $n - 1; $i += 2) {
-        $ca = lgw_champ_entry_club($entries[$i]['name']);
-        $cb = lgw_champ_entry_club($entries[$i + 1]['name']);
-        if ($ca !== $cb) continue; // already different clubs, fine
-        // Find the nearest later entry with a different club to swap with
-        $swapped = false;
-        for ($j = $i + 2; $j < $n; $j++) {
-            $cj = lgw_champ_entry_club($entries[$j]['name']);
-            if ($cj !== $ca) {
-                // Swap entries[$i+1] with entries[$j]
-                list($entries[$i + 1], $entries[$j]) = array($entries[$j], $entries[$i + 1]);
-                $swapped = true;
-                break;
+    $n          = count($entries);
+    $max_passes = $n * 2 + 2;
+
+    for ($pass = 0; $pass < $max_passes; $pass++) {
+        $conflict_found = false;
+
+        for ($i = 0; $i < $n - 1; $i += 2) {
+            $ca = lgw_champ_entry_club($entries[$i]['name']);
+            $cb = lgw_champ_entry_club($entries[$i + 1]['name']);
+            if ($ca !== $cb) continue;
+
+            $conflict_found = true;
+
+            // Search ALL positions (forward first, then backward) for the best swap.
+            // Prefer a "clean" swap — one that won't create a conflict at the target's
+            // current pair. Fall back to any different-club entry if no clean swap exists.
+            $best_clean    = -1;
+            $best_fallback = -1;
+
+            $candidates = array();
+            for ($j = $i + 2; $j < $n; $j++) $candidates[] = $j;
+            for ($j = $i - 1; $j >= 0;  $j--) $candidates[] = $j;
+
+            foreach ($candidates as $j) {
+                $cj = lgw_champ_entry_club($entries[$j]['name']);
+                if ($cj === $ca) continue;
+                $pp = ($j % 2 === 0) ? $j + 1 : $j - 1;
+                $creates_conflict = ($pp >= 0 && $pp < $n)
+                    && lgw_champ_entry_club($entries[$pp]['name']) === $cb;
+                if (!$creates_conflict && $best_clean === -1) $best_clean = $j;
+                if ($best_fallback === -1)                    $best_fallback = $j;
+                if ($best_clean !== -1) break;
+            }
+
+            $best = $best_clean !== -1 ? $best_clean : $best_fallback;
+            if ($best !== -1) {
+                list($entries[$i + 1], $entries[$best]) = array($entries[$best], $entries[$i + 1]);
             }
         }
-        // If no swap possible, leave it — unavoidable same-club pairing
+
+        if (!$conflict_found) break;
     }
 }
 
 /**
- * Try to separate same-club adjacent pairs in $r2_slots (bye entries only).
- * Null slots (prelim winner placeholders) are ignored — those pairings are
- * acceptable as per requirements.
+ * Separate same-club adjacent pairs in $r2_slots (bye entries only) using
+ * multi-pass logic matching lgw_champ_separate_clubs.
+ * Null slots (prelim winner placeholders) are skipped — those pairings are
+ * determined at play time and cannot be pre-separated.
  */
 function lgw_champ_separate_r2_slots(&$slots, &$from_game) {
-    $n = count($slots);
-    for ($i = 0; $i < $n - 1; $i += 2) {
-        $a = $slots[$i];
-        $b = $slots[$i + 1];
-        // Only check pairs where both are known bye entries (not null placeholders)
-        if (!$a || !$b) continue;
-        $ca = lgw_champ_entry_club($a['name']);
-        $cb = lgw_champ_entry_club($b['name']);
-        if ($ca !== $cb) continue;
-        // Same club — try to swap $b with a later known bye entry from different club
-        for ($j = $i + 2; $j < $n; $j++) {
-            if (!$slots[$j]) continue; // skip null slots
-            $cj = lgw_champ_entry_club($slots[$j]['name']);
-            if ($cj !== $ca) {
-                list($slots[$i + 1], $slots[$j])       = array($slots[$j], $slots[$i + 1]);
-                list($from_game[$i + 1], $from_game[$j]) = array($from_game[$j], $from_game[$i + 1]);
-                break;
+    $n          = count($slots);
+    $max_passes = $n * 2 + 2;
+
+    for ($pass = 0; $pass < $max_passes; $pass++) {
+        $conflict_found = false;
+
+        for ($i = 0; $i < $n - 1; $i += 2) {
+            $a = $slots[$i];
+            $b = $slots[$i + 1];
+            if (!$a || !$b) continue; // null = prelim winner placeholder — skip
+
+            $ca = lgw_champ_entry_club($a['name']);
+            $cb = lgw_champ_entry_club($b['name']);
+            if ($ca !== $cb) continue;
+
+            $conflict_found = true;
+            $best_clean    = -1;
+            $best_fallback = -1;
+
+            // Search forward then backward for the best swap candidate among filled slots
+            $candidates = array();
+            for ($j = $i + 2; $j < $n; $j++) $candidates[] = $j;
+            for ($j = $i - 1; $j >= 0;  $j--) $candidates[] = $j;
+
+            foreach ($candidates as $j) {
+                if (!$slots[$j]) continue; // skip null placeholders
+                $cj = lgw_champ_entry_club($slots[$j]['name']);
+                if ($cj === $ca) continue;
+                $pp = ($j % 2 === 0) ? $j + 1 : $j - 1;
+                $creates_conflict = ($pp >= 0 && $pp < $n && $slots[$pp])
+                    && lgw_champ_entry_club($slots[$pp]['name']) === $cb;
+                if (!$creates_conflict && $best_clean === -1) $best_clean = $j;
+                if ($best_fallback === -1)                    $best_fallback = $j;
+                if ($best_clean !== -1) break;
+            }
+
+            $best = $best_clean !== -1 ? $best_clean : $best_fallback;
+            if ($best !== -1) {
+                list($slots[$i + 1],     $slots[$best])     = array($slots[$best],     $slots[$i + 1]);
+                list($from_game[$i + 1], $from_game[$best]) = array($from_game[$best], $from_game[$i + 1]);
             }
         }
+
+        if (!$conflict_found) break;
     }
 }
 
@@ -779,62 +1308,103 @@ function lgw_champ_perform_draw($champ_id, $champ, $section = '0') {
 }
 
 /**
- * Draw the Final Stage.
- * $qualifiers may be passed directly (from try_seed_final) or derived from
- * completed section brackets (admin "Draw Final Stage Now" button path).
+ * Build the Final Stage by carrying section qualifiers through directly —
+ * no re-shuffle or re-draw.  Sections are cross-paired to guarantee that
+ * qualifiers from the same section cannot meet until the Final:
+ *
+ *   4 sections (1q each):  SF1 = SecA winner v SecD winner
+ *                           SF2 = SecB winner v SecC winner
+ *   2 sections (2q each):  SF1 = SecA winner  v SecB runner-up
+ *                           SF2 = SecB winner  v SecA runner-up
+ *   1 section  (4q):       SF1 = q[0] v q[3],  SF2 = q[1] v q[2]
+ *                           (qualifiers are the four semi-finalists in
+ *                            bracket order from lgw_champ_get_section_qualifiers)
+ *
+ * $qualifiers_by_section: array of per-section qualifier arrays.
+ *   - Pass null to derive from stored brackets (admin "Draw Final Stage Now").
+ *   - Pass a per-section array (from try_seed_final) to avoid re-reading options.
+ *
+ * For draws already in progress: an admin "Rebuild Final Stage" button (shown
+ * when all qualifiers are known) clears final_bracket then calls this function,
+ * replacing any previously random-drawn bracket with the carry-over layout.
  */
-function lgw_champ_perform_final_draw($champ_id, &$champ, $qualifiers = null) {
+function lgw_champ_perform_final_draw($champ_id, &$champ, $qualifiers_by_section = null) {
     $sections    = $champ['sections'] ?? array();
     $n_sections  = count($sections);
-    $multi_green = array_filter(array_map('trim', explode("\n", $champ['multi_green'] ?? '')));
 
-    if ($qualifiers === null) {
-        // Admin manual trigger — derive qualifiers using the same logic as try_seed_final
-        $q_per_section  = $n_sections > 0 ? intval(4 / $n_sections) : 1;
-        $qualifiers = array();
+    if ($qualifiers_by_section === null) {
+        // Admin manual trigger — derive qualifiers per section
+        $q_per_section = $n_sections > 0 ? intval(4 / $n_sections) : 1;
+        $qualifiers_by_section = array();
         foreach ($sections as $idx => $sec) {
             $bracket = $champ['section_' . $idx . '_bracket'] ?? null;
             if (!$bracket) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' has not been drawn yet.');
             $q = lgw_champ_get_section_qualifiers($bracket, $q_per_section);
             if ($q === null) return new WP_Error('section_incomplete', 'Section ' . ($sec['label'] ?? $idx) . ' does not have enough results yet.');
-            $qualifiers = array_merge($qualifiers, $q);
+            $qualifiers_by_section[] = $q;
         }
     }
 
-    if (count($qualifiers) < 2) return new WP_Error('too_few', 'Need at least 2 qualifiers for Final Stage.');
-
-    shuffle($qualifiers);
-
-    $numbered = array();
-    foreach ($qualifiers as $i => $name) {
-        $numbered[] = array('name' => $name, 'draw_num' => $i + 1);
+    // Flatten and validate
+    $all_q = array();
+    foreach ($qualifiers_by_section as $qs) {
+        foreach ($qs as $q) { $all_q[] = $q; }
     }
+    if (count($all_q) < 2) return new WP_Error('too_few', 'Need at least 2 qualifiers for Final Stage.');
 
-    $result = lgw_draw_build_bracket($numbered, array(
-        'get_club'      => 'lgw_champ_entry_club',
-        'home_at_limit' => function($club, $counts) use ($multi_green) {
-            return ($counts[$club] ?? 0) >= lgw_champ_home_limit($club, $multi_green);
-        },
-        'separate_prelim' => 'lgw_champ_separate_clubs',
-        'separate_r2'     => 'lgw_champ_separate_r2_slots',
-        // Force round names based on full bracket size so we get e.g. Semi-Final/Final
-        // rather than Preliminary Round/Final when prelim_count > 0
-        'stored_rounds'   => lgw_draw_default_rounds(count($numbered)),
-        'dates'           => array(),
-        'r2_label'        => 'Final Stage Draw',
-        'game_nums'       => true,
-    ));
+    // ── Sequential pairing (sections flow through in order) ───────────────────
+    // Qualifiers are slotted in the order they appear across sections:
+    //   4 sections (1q each): SF1 = SecA vs SecB,  SF2 = SecC vs SecD
+    //   2 sections (2q each): SF1 = SecA winner vs SecA runner-up,
+    //                         SF2 = SecB winner vs SecB runner-up
+    //   1 section  (4q):      SF1 = q[0] vs q[1],  SF2 = q[2] vs q[3]
+    $sf1_home = $all_q[0] ?? null;
+    $sf1_away = $all_q[1] ?? null;
+    $sf2_home = $all_q[2] ?? null;
+    $sf2_away = $all_q[3] ?? null;
 
-    if (!$result) return new WP_Error('too_few', 'Need at least 2 section winners for Final Stage.');
+    // ── Build bracket matches manually ─────────────────────────────────────────
+    // Structure: [[SF1, SF2], [Final_skeleton]]
+    // game_nums: SF1=1, SF2=2, Final=3
+    $sf1 = array(
+        'home'          => $sf1_home, 'away'          => $sf1_away,
+        'home_score'    => null,      'away_score'    => null,
+        'draw_num_home' => 1,         'draw_num_away' => 2,
+        'bye'           => false,     'game_num'      => 1,
+    );
+    $sf2 = array(
+        'home'          => $sf2_home, 'away'          => $sf2_away,
+        'home_score'    => null,      'away_score'    => null,
+        'draw_num_home' => 3,         'draw_num_away' => 4,
+        'bye'           => false,     'game_num'      => 2,
+    );
+    $final = array(
+        'home'          => null, 'away'          => null,
+        'home_score'    => null, 'away_score'    => null,
+        'draw_num_home' => null, 'draw_num_away' => null,
+        'bye'           => false,
+        'game_num'      => 3,
+        'prev_game_home'=> 1,
+        'prev_game_away'=> 2,
+    );
+
+    $rounds  = array('Semi-Final', 'Final');
+    $matches = array(array($sf1, $sf2), array($final));
+
+    // Animation pairs for the live-draw overlay
+    $pairs = array(
+        array('home' => $sf1_home ?? 'TBC', 'away' => $sf1_away ?? 'TBC', 'bye' => false),
+        array('home' => $sf2_home ?? 'TBC', 'away' => $sf2_away ?? 'TBC', 'bye' => false),
+    );
 
     $champ['final_bracket'] = array(
         'title'   => ($champ['title'] ?? 'Championship') . ' — Final Stage',
-        'rounds'  => $result['rounds'],
+        'rounds'  => $rounds,
         'dates'   => array(),
-        'matches' => $result['matches'],
+        'matches' => $matches,
     );
-    $champ['final_draw_pairs']       = $result['pairs'];
-    $champ['final_draw_version']     = 1;
+    $champ['final_draw_pairs']       = $pairs;
+    $champ['final_draw_version']     = intval($champ['final_draw_version'] ?? 0) + 1;
     $champ['final_pairs_cursor']     = 0;
     $champ['final_draw_in_progress'] = true;
 
@@ -886,6 +1456,8 @@ function lgw_champ_handle_admin_actions() {
 
         $dates_raw   = sanitize_textarea_field($_POST['lgw_champ_dates'] ?? '');
         $dates       = array_values(array_filter(array_map('trim', explode("\n", $dates_raw))));
+        $rounds_raw    = sanitize_textarea_field(wp_unslash($_POST['lgw_champ_rounds'] ?? ''));
+        $rounds_labels = array_values(array_filter(array_map('trim', explode("\n", $rounds_raw))));
         $multi_green = sanitize_textarea_field(wp_unslash($_POST['lgw_champ_multi_green'] ?? ''));
 
         // Rebuild sections only if entries changed and no draw in progress
@@ -898,13 +1470,15 @@ function lgw_champ_handle_admin_actions() {
         $sections = $draw_started ? $existing_sections : lgw_champ_build_sections($entries);
 
         $champ_data = array_merge($existing, array(
-            'title'       => sanitize_text_field(wp_unslash($_POST['lgw_champ_title'] ?? '')),
-            'discipline'  => sanitize_text_field($_POST['lgw_champ_discipline'] ?? 'singles'),
-            'season'      => sanitize_text_field(wp_unslash($_POST['lgw_champ_season'] ?? '')),
-            'entries'     => $entries,
-            'sections'    => $sections,
-            'dates'       => $dates,
-            'multi_green' => $multi_green,
+            'title'          => sanitize_text_field(wp_unslash($_POST['lgw_champ_title'] ?? '')),
+            'discipline'     => sanitize_text_field($_POST['lgw_champ_discipline'] ?? 'singles'),
+            'season'         => sanitize_text_field(wp_unslash($_POST['lgw_champ_season'] ?? '')),
+            'entries'        => $entries,
+            'sections'       => $sections,
+            'dates'          => $dates,
+            'rounds'         => $rounds_labels,
+            'multi_green'    => $multi_green,
+            'stats_eligible' => isset($_POST['lgw_champ_stats_eligible']) ? 1 : 0,
         ));
         // Save per-section dates
         $sec_dates_post = $_POST['lgw_champ_section_dates'] ?? array();
@@ -913,7 +1487,7 @@ function lgw_champ_handle_admin_actions() {
             $champ_data[$key] = sanitize_textarea_field(wp_unslash($sec_dates_post[$idx] ?? ''));
         }
 
-        // Keep section bracket dates in sync with saved dates after draw
+        // Keep section bracket dates and round labels in sync after draw
         foreach ($sections as $idx => $sec) {
             $sec_dates_key = 'section_' . $idx . '_dates';
             $sec_dates_raw = $champ_data[$sec_dates_key] ?? '';
@@ -924,10 +1498,19 @@ function lgw_champ_handle_admin_actions() {
             $bracket_key = 'section_' . $idx . '_bracket';
             if (!empty($champ_data[$bracket_key])) {
                 $champ_data[$bracket_key]['dates'] = $sec_dates;
+                // Sync round labels — only if count exactly matches the bracket
+                $bracket_round_count = count($champ_data[$bracket_key]['rounds'] ?? array());
+                if (!empty($rounds_labels) && count($rounds_labels) === $bracket_round_count) {
+                    $champ_data[$bracket_key]['rounds'] = $rounds_labels;
+                }
             }
             // Sync into final stage bracket if drawn
             if (!empty($champ_data['final_bracket'])) {
                 $champ_data['final_bracket']['dates'] = $dates;
+                $final_round_count = count($champ_data['final_bracket']['rounds'] ?? array());
+                if (!empty($rounds_labels) && count($rounds_labels) === $final_round_count) {
+                    $champ_data['final_bracket']['rounds'] = $rounds_labels;
+                }
             }
         }
 
@@ -957,6 +1540,11 @@ function lgw_champ_handle_admin_actions() {
             unset($champ['draw_timestamp']);
             update_option('lgw_champ_' . $champ_id, $champ);
 
+            // Clear all player appearances for this championship
+            if ( function_exists('lgw_clear_all_champ_appearances') ) {
+                lgw_clear_all_champ_appearances( $champ_id );
+            }
+
             // Release all green bookings for this championship
             lgw_champ_release_bookings($champ_id);
 
@@ -969,6 +1557,10 @@ function lgw_champ_handle_admin_actions() {
     if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
         $del_id = sanitize_key($_GET['id']);
         if (wp_verify_nonce($_GET['_wpnonce'] ?? '', 'lgw_champ_delete_' . $del_id)) {
+            // Clear all player appearances before deleting
+            if ( function_exists('lgw_clear_all_champ_appearances') ) {
+                lgw_clear_all_champ_appearances( $del_id );
+            }
             delete_option('lgw_champ_' . $del_id);
             wp_redirect(admin_url('admin.php?page=lgw-champs&deleted=1'));
             exit;
@@ -1007,6 +1599,10 @@ function lgw_champs_admin_page() {
     $champ_id = sanitize_key($_GET['edit'] ?? '');
     if ($champ_id && ($action === 'edit' || isset($_GET['edit']))) { lgw_champ_edit_page($champ_id); return; }
     if ($action === 'new') { lgw_champ_edit_page(''); return; }
+    // Delegate to group-stage championship router if applicable (lgw-gchamp.php)
+    if (isset($_GET['gedit']) || ($_GET['gaction'] ?? '') !== '') {
+        if (function_exists('lgw_gchamp_admin_router') && lgw_gchamp_admin_router()) return;
+    }
     lgw_champs_list_page();
 }
 
@@ -1295,6 +1891,8 @@ function lgw_champs_list_page() {
     })();
     </script>
     <?php
+    // Allow lgw-gchamp.php to append group-stage championships to this page
+    do_action('lgw_champs_list_after');
 }
 
 function lgw_champ_edit_page($champ_id) {
@@ -1305,9 +1903,11 @@ function lgw_champ_edit_page($champ_id) {
     foreach (($champ['sections'] ?? array()) as $idx => $sec) {
         if (!empty($champ['section_' . $idx . '_draw_version'])) { $drawn = true; break; }
     }
+    $final_bracket = $champ['final_bracket'] ?? null;
 
     $entries_str = implode("\n", $champ['entries'] ?? array());
     $dates_str   = implode("\n", $champ['dates']   ?? array());
+    $rounds_str  = implode("\n", $champ['rounds']  ?? array());
     $sections    = $champ['sections'] ?? array();
     $disciplines = array('singles' => 'Singles', 'pairs' => 'Pairs', 'triples' => 'Triples', 'fours' => 'Fours');
     ?>
@@ -1370,10 +1970,80 @@ function lgw_champ_edit_page($champ_id) {
               Format: <code>Player Name(s), Club</code> — the club is used for the 6-per-green draw constraint.<br>
               For pairs/triples/fours separate players with <code>/</code>: <code>Smith / Jones, Salisbury</code><br>
               Currently: <strong><?php echo count($champ['entries'] ?? array()); ?></strong> entries.
-              <?php if ($drawn): ?><br><strong>Draw in progress — entries cannot be changed without resetting.</strong><?php endif; ?>
+              <?php if ($drawn): ?><br><strong>Draw in progress — to correct spelling mistakes use the Rename Entry tool below.</strong><?php endif; ?>
             </p>
           </td>
         </tr>
+        <?php if ($drawn && !$is_new): ?>
+        <tr>
+          <th><label for="lgw_rename_old">Rename Entry</label></th>
+          <td>
+            <div id="lgw-rename-entry-wrap">
+              <select id="lgw_rename_old" style="width:400px;max-width:100%;font-size:13px">
+                <option value="">— select entry to rename —</option>
+                <?php foreach (($champ['entries'] ?? array()) as $entry): ?>
+                <option value="<?php echo esc_attr($entry); ?>"><?php echo esc_html($entry); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <br style="margin-bottom:6px">
+              <input type="text" id="lgw_rename_new" placeholder="Corrected name" style="width:400px;max-width:100%;font-size:13px;margin-top:6px">
+              <br>
+              <button type="button" id="lgw_rename_btn" class="button button-secondary" style="margin-top:8px">Rename Entry</button>
+              <span id="lgw_rename_msg" style="margin-left:10px;font-size:13px"></span>
+            </div>
+            <p class="description">Corrects spelling in the entries list and throughout all drawn brackets. Does not affect scores or reset the draw.</p>
+            <script>
+            (function(){
+              document.getElementById('lgw_rename_btn').addEventListener('click', function(){
+                var oldVal = document.getElementById('lgw_rename_old').value.trim();
+                var newVal = document.getElementById('lgw_rename_new').value.trim();
+                var msg    = document.getElementById('lgw_rename_msg');
+                if (!oldVal) { msg.style.color='#c00'; msg.textContent='Please select an entry.'; return; }
+                if (!newVal) { msg.style.color='#c00'; msg.textContent='Please enter the corrected name.'; return; }
+                if (oldVal === newVal) { msg.style.color='#c00'; msg.textContent='Names are identical.'; return; }
+                this.disabled = true;
+                msg.style.color='#555'; msg.textContent='Saving...';
+                var fd = new FormData();
+                fd.append('action',   'lgw_champ_rename_entry');
+                fd.append('nonce',    '<?php echo esc_js(wp_create_nonce("lgw_champ_score")); ?>');
+                fd.append('champ_id', '<?php echo esc_js($champ_id); ?>');
+                fd.append('old_name', oldVal);
+                fd.append('new_name', newVal);
+                fetch('<?php echo esc_url(admin_url("admin-ajax.php")); ?>', {method:'POST', body:fd})
+                  .then(function(r){ return r.json(); })
+                  .then(function(data){
+                    if (data.success) {
+                      msg.style.color='#197319';
+                      msg.textContent = data.data.message;
+                      var sel = document.getElementById('lgw_rename_old');
+                      for (var i=0; i<sel.options.length; i++) {
+                        if (sel.options[i].value === oldVal) {
+                          sel.options[i].value = newVal;
+                          sel.options[i].text  = newVal;
+                          sel.options[i].selected = true;
+                          break;
+                        }
+                      }
+                      document.getElementById('lgw_rename_new').value = '';
+                      var ta = document.getElementById('lgw_champ_entries');
+                      if (ta) {
+                        ta.value = ta.value.split('\n').map(function(line){
+                          return line.trim() === oldVal ? newVal : line;
+                        }).join('\n');
+                      }
+                    } else {
+                      msg.style.color='#c00';
+                      msg.textContent = data.data || 'Error.';
+                    }
+                  })
+                  .catch(function(){ msg.style.color='#c00'; msg.textContent='Network error.'; })
+                  .finally(function(){ document.getElementById('lgw_rename_btn').disabled = false; });
+              });
+            })();
+            </script>
+          </td>
+        </tr>
+        <?php endif; ?>
         <tr>
           <th><label for="lgw_champ_dates">Default Round Dates</label></th>
           <td>
@@ -1384,6 +2054,34 @@ function lgw_champ_edit_page($champ_id) {
           </td>
         </tr>
         <tr>
+          <th><label for="lgw_champ_rounds">Round Labels</label></th>
+          <td>
+            <textarea id="lgw_champ_rounds" name="lgw_champ_rounds" rows="8"
+                      style="width:360px;font-family:monospace;font-size:13px"
+                      placeholder="One label per line (optional)&#10;Prelim&#10;Round 1&#10;Round 2&#10;Q-Final&#10;S-Final&#10;Final"><?php echo esc_textarea($rounds_str); ?></textarea>
+            <p class="description">
+              Custom names for each round in order — overrides the auto-generated labels.<br>
+              <?php
+              $sample_entries = $champ['entries'] ?? array();
+              $sample_n = count($sample_entries);
+              if ($sample_n >= 2) {
+                  $num_secs  = $sample_n <= 32 ? 1 : ($sample_n <= 64 ? 2 : 4);
+                  $sec_size  = (int) ceil($sample_n / $num_secs);
+                  // Compute per-section round count the same way the draw builder does
+                  $sec_bracket = 1;
+                  while ($sec_bracket < $sec_size) $sec_bracket *= 2;
+                  $sec_half    = $sec_bracket / 2;
+                  $sec_prelim  = $sec_size - $sec_half;
+                  $main_r      = count(lgw_draw_default_rounds($sec_half));
+                  $sec_rounds  = $sec_prelim > 0 ? 1 + $main_r : $main_r;
+                  echo '<strong>' . $sample_n . ' entries → ' . $num_secs . ' section' . ($num_secs > 1 ? 's' : '') . ' of ~' . $sec_size . ' → <span style="color:#c00">' . $sec_rounds . ' rounds per section</span></strong>.<br>';
+                  echo 'You need exactly <strong>' . $sec_rounds . '</strong> lines. If you have more lines than rounds, the last ' . $sec_rounds . ' lines are used.';
+              }
+              ?>
+            </p>
+          </td>
+        </tr>
+        <tr>
           <th><label for="lgw_champ_multi_green">Multi-Green Clubs</label></th>
           <td>
             <textarea id="lgw_champ_multi_green" name="lgw_champ_multi_green" rows="4"
@@ -1391,6 +2089,17 @@ function lgw_champ_edit_page($champ_id) {
                       placeholder="Club: greens&#10;Ballymena: 2&#10;Salisbury: 2"><?php echo esc_textarea($champ['multi_green'] ?? ''); ?></textarea>
             <p class="description">Clubs with more than one green can host more than 6 home games per round.<br>
             Format: <code>Club Name: number_of_greens</code> — one per line. The draw limit becomes 6 × greens.</p>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="lgw_champ_stats_eligible">Stats Tracking</label></th>
+          <td>
+            <label>
+              <input type="checkbox" id="lgw_champ_stats_eligible" name="lgw_champ_stats_eligible" value="1"
+                     <?php checked(!empty($champ['stats_eligible'])); ?>>
+              Enable player stats collection for this championship
+            </label>
+            <p class="description">When enabled, match results are logged to the Player Tracking system so participants appear in the stats modal under the <strong>Championships</strong> tab. Only enable for competitions where all participants are individually named. Pairs/triples entries must list all player names separated by <code>/</code>.</p>
           </td>
         </tr>
       </table>
@@ -1653,10 +2362,81 @@ function lgw_champ_edit_page($champ_id) {
     <h2>Draw</h2>
 
     <?php foreach ($sections as $idx => $sec):
-        $sec_drawn = !empty($champ['section_' . $idx . '_draw_version']);
+        $sec_drawn    = !empty($champ['section_' . $idx . '_draw_version']);
+        $sec_bracket  = $champ['section_' . $idx . '_bracket'] ?? null;
+        $sec_entries  = $sec['entries'] ?? array();
     ?>
     <h3>Section <?php echo esc_html($sec['label']); ?></h3>
-    <?php if ($sec_drawn): ?>
+    <?php if ($sec_drawn && $sec_bracket): ?>
+      <p>✅ Draw performed.
+        <button type="button"
+                class="button button-small lgw-champ-edit-draw-toggle"
+                data-section="<?php echo $idx; ?>"
+                style="margin-left:10px">
+          ✏️ Edit Draw
+        </button>
+      </p>
+
+      <?php /* ── Editable bracket table ── */ ?>
+      <div id="lgw-edit-draw-<?php echo $idx; ?>" style="display:none;margin:0 0 18px">
+        <p style="font-size:13px;color:#666;margin-bottom:8px">
+          Adjust the participants in any first-round match below. Changing a match will clear its score
+          and all downstream results so they can be re-entered. Only the drawn round (Round 1 / Preliminary Round)
+          can be directly edited — later rounds propagate automatically from scores.
+        </p>
+        <?php
+        $all_rounds  = $sec_bracket['matches'];
+        $round_names_arr = $sec_bracket['rounds'] ?? array();
+
+        // Show only the first two rounds (prelim + R1, or just R1 if no prelims)
+        $editable_rounds = array_slice($all_rounds, 0, 2, true);
+        $entries_json    = wp_json_encode($sec_entries);
+        ?>
+        <div class="lgw-edit-draw-section"
+             data-champ-id="<?php echo esc_attr($champ_id); ?>"
+             data-section="<?php echo $idx; ?>"
+             data-nonce="<?php echo esc_attr(wp_create_nonce('lgw_champ_score')); ?>"
+             data-entries="<?php echo esc_attr($entries_json); ?>">
+          <?php foreach ($editable_rounds as $ri => $round_matches): ?>
+          <h4 style="margin:12px 0 6px;font-size:13px;font-weight:600;color:#444">
+            <?php echo esc_html($round_names_arr[$ri] ?? ('Round ' . ($ri + 1))); ?>
+            <?php if ($ri === 0 && count($all_rounds) > 1): ?><em style="font-weight:400;color:#888">(Preliminary)</em><?php endif; ?>
+          </h4>
+          <table class="widefat" style="max-width:720px;font-size:13px;margin-bottom:6px">
+            <thead>
+              <tr>
+                <th style="width:30px">#</th>
+                <th>Home</th>
+                <th style="width:30px;text-align:center">vs</th>
+                <th>Away</th>
+                <th style="width:80px"></th>
+              </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($round_matches as $mi => $m): ?>
+            <tr data-round="<?php echo $ri; ?>" data-match="<?php echo $mi; ?>">
+              <td><?php echo esc_html($m['game_num'] ?? ($mi + 1)); ?></td>
+              <td class="lgw-em-home"><?php echo esc_html($m['home'] ?? '—'); ?></td>
+              <td style="text-align:center;color:#888">vs</td>
+              <td class="lgw-em-away"><?php echo esc_html($m['away'] ?? '—'); ?></td>
+              <td>
+                <button type="button" class="button button-small lgw-em-edit-btn"
+                        data-round="<?php echo $ri; ?>"
+                        data-match="<?php echo $mi; ?>"
+                        data-home="<?php echo esc_attr($m['home'] ?? ''); ?>"
+                        data-away="<?php echo esc_attr($m['away'] ?? ''); ?>">
+                  Edit
+                </button>
+              </td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+          <?php endforeach; ?>
+          <p class="lgw-em-status" style="font-size:13px;margin:6px 0;min-height:20px"></p>
+        </div><!-- .lgw-edit-draw-section -->
+      </div><!-- #lgw-edit-draw-N -->
+    <?php elseif ($sec_drawn): ?>
       <p>✅ Draw performed.</p>
     <?php else: ?>
       <p>No draw yet.</p>
@@ -1720,21 +2500,113 @@ function lgw_champ_edit_page($champ_id) {
     <?php endif; ?>
     <?php endforeach; ?>
 
-    <?php if (count($sections) > 1):
+    <?php
+        // Show Final Stage block for any championship (1 or more sections).
+        // For a single section the Final Stage holds the 4 semi-finalists;
+        // "all_drawn" means all qualifiers for that path are confirmed.
+        $n_sec_fs        = count($sections);
+        $q_per_sec_fs    = $n_sec_fs > 0 ? intval(4 / $n_sec_fs) : 1;
         $all_drawn = true;
         foreach ($sections as $idx => $sec) {
             $bracket_key = 'section_' . $idx . '_bracket';
             $bracket = $champ[$bracket_key] ?? null;
             if (!$bracket) { $all_drawn = false; break; }
-            $last = end($bracket['matches']); $fm = reset($last);
-            if (!$fm || $fm['home_score'] === null || $fm['away_score'] === null || $fm['home_score'] === $fm['away_score']) { $all_drawn = false; break; }
+            if ($n_sec_fs > 1) {
+                // Multi-section: require the section final to have a result
+                $last = end($bracket['matches']); $fm = reset($last);
+                if (!$fm || $fm['home_score'] === null || $fm['away_score'] === null || $fm['home_score'] === $fm['away_score']) { $all_drawn = false; break; }
+            } else {
+                // Single section: require 4 semi-finalists to be known
+                if (lgw_champ_get_section_qualifiers($bracket, 4) === null) { $all_drawn = false; break; }
+            }
         }
         $final_drawn = !empty($champ['final_draw_version']);
     ?>
+    <?php if (true): // always show Final Stage block when applicable ?>
     <hr>
     <h3>Final Stage</h3>
     <?php if ($final_drawn): ?>
-      <p>✅ Final Stage draw performed.</p>
+      <?php $final_bracket_data = $champ['final_bracket'] ?? null;
+            $final_entries_flat = array();
+            foreach ($sections as $sidx => $sec) {
+                foreach (($sec['entries'] ?? array()) as $e) { $final_entries_flat[] = $e; }
+            }
+      ?>
+      <?php
+        // Check if all section qualifiers are available — enables Rebuild button
+        $n_sec_admin     = count($sections);
+        $q_per_sec_admin = $n_sec_admin > 0 ? intval(4 / $n_sec_admin) : 1;
+        $all_qs_available = true;
+        foreach ($sections as $sidx2 => $sec2) {
+            $bk2 = $champ['section_' . $sidx2 . '_bracket'] ?? null;
+            if (!$bk2 || lgw_champ_get_section_qualifiers($bk2, $q_per_sec_admin) === null) {
+                $all_qs_available = false; break;
+            }
+        }
+      ?>
+      <p>✅ Final Stage draw performed.
+        <button type="button"
+                class="button button-small lgw-champ-edit-draw-toggle"
+                data-section="final"
+                style="margin-left:10px">
+          ✏️ Edit Draw
+        </button>
+        <?php if ($all_qs_available): ?>
+        <button class="button button-small lgw-champ-admin-draw-btn"
+                data-champ-id="<?php echo esc_attr($champ_id); ?>"
+                data-section="final"
+                data-nonce="<?php echo esc_attr($nonce); ?>"
+                data-rebuild="1"
+                style="margin-left:10px">
+          🔁 Rebuild Final Stage from Sections
+        </button>
+        <?php endif; ?>
+      </p>
+      <?php if ($final_bracket_data): ?>
+      <div id="lgw-edit-draw-final" style="display:none;margin:0 0 18px">
+        <p style="font-size:13px;color:#666;margin-bottom:8px">
+          Adjust participants in any first-round Final Stage match. Changing a match clears its score and all downstream results.
+        </p>
+        <?php $final_editable = array_slice($final_bracket_data['matches'], 0, 2, true);
+              $final_rounds   = $final_bracket_data['rounds'] ?? array();
+              $final_entries_json = wp_json_encode($final_entries_flat);
+        ?>
+        <div class="lgw-edit-draw-section"
+             data-champ-id="<?php echo esc_attr($champ_id); ?>"
+             data-section="final"
+             data-nonce="<?php echo esc_attr(wp_create_nonce('lgw_champ_score')); ?>"
+             data-entries="<?php echo esc_attr($final_entries_json); ?>">
+          <?php foreach ($final_editable as $ri => $round_matches): ?>
+          <h4 style="margin:12px 0 6px;font-size:13px;font-weight:600;color:#444">
+            <?php echo esc_html($final_rounds[$ri] ?? ('Round ' . ($ri + 1))); ?>
+          </h4>
+          <table class="widefat" style="max-width:720px;font-size:13px;margin-bottom:6px">
+            <thead><tr><th style="width:30px">#</th><th>Home</th><th style="width:30px;text-align:center">vs</th><th>Away</th><th style="width:80px"></th></tr></thead>
+            <tbody>
+            <?php foreach ($round_matches as $mi => $m): ?>
+            <tr data-round="<?php echo $ri; ?>" data-match="<?php echo $mi; ?>">
+              <td><?php echo esc_html($m['game_num'] ?? ($mi + 1)); ?></td>
+              <td class="lgw-em-home"><?php echo esc_html($m['home'] ?? '—'); ?></td>
+              <td style="text-align:center;color:#888">vs</td>
+              <td class="lgw-em-away"><?php echo esc_html($m['away'] ?? '—'); ?></td>
+              <td>
+                <button type="button" class="button button-small lgw-em-edit-btn"
+                        data-round="<?php echo $ri; ?>"
+                        data-match="<?php echo $mi; ?>"
+                        data-home="<?php echo esc_attr($m['home'] ?? ''); ?>"
+                        data-away="<?php echo esc_attr($m['away'] ?? ''); ?>">
+                  Edit
+                </button>
+              </td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+          <?php endforeach; ?>
+          <p class="lgw-em-status" style="font-size:13px;margin:6px 0;min-height:20px"></p>
+        </div>
+      </div>
+      <?php endif; ?>
     <?php elseif ($all_drawn): ?>
       <p>All sections complete — ready for Final Stage draw.</p>
       <button class="button button-primary lgw-champ-admin-draw-btn"
@@ -1763,6 +2635,19 @@ function lgw_champ_edit_page($champ_id) {
     <hr>
     <h2>Shortcode</h2>
     <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block">[lgw_champ id="<?php echo esc_html($champ_id); ?>"]</pre>
+
+    <?php if ($drawn): ?>
+    <hr>
+    <h2>Export Draw</h2>
+    <p>Download the current draw as an Excel spreadsheet — one sheet per section<?php echo $final_bracket ? ', plus a Final Stage sheet' : ''; ?>.</p>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>">
+      <input type="hidden" name="action" value="lgw_export_champ">
+      <input type="hidden" name="champ_id" value="<?php echo esc_attr($champ_id); ?>">
+      <input type="hidden" name="nonce" value="<?php echo esc_attr(wp_create_nonce('lgw_export_nonce')); ?>">
+      <?php submit_button('📥 Download Draw (.xlsx)', 'secondary'); ?>
+    </form>
+    <?php endif; ?>
+
     <?php endif; ?>
     </div>
     <?php
@@ -1851,6 +2736,11 @@ function lgw_champ_shortcode($atts) {
         <?php if (!empty($champ['final_bracket'])): ?>
         <button class="lgw-champ-section-tab" data-section="final">🏆 Final Stage</button>
         <?php endif; ?>
+        <button class="lgw-champ-section-tab lgw-champ-search-tab"
+                data-champ-id="<?php echo esc_attr($champ_id); ?>"
+                title="Search fixtures and results">
+          🔍 Search
+        </button>
       </div>
 
       <?php foreach ($sections as $idx => $sec):
@@ -1870,7 +2760,8 @@ function lgw_champ_shortcode($atts) {
              data-draw-version="<?php echo esc_attr($version); ?>"
              data-draw-in-progress="<?php echo ($in_progress) ? '1' : '0'; ?>"
              data-bracket="<?php echo esc_attr($bracket_json); ?>"
-             data-sponsors="<?php echo $extra_json; ?>">
+             data-sponsors="<?php echo $extra_json; ?>"
+             data-stats-eligible="<?php echo !empty($champ['stats_eligible']) ? '1' : '0'; ?>">
 
           <div class="lgw-champ-header">
             <span class="lgw-champ-title">🏅 <?php echo esc_html($title); ?> — Section <?php echo esc_html($sec['label']); ?></span>
@@ -1909,6 +2800,16 @@ function lgw_champ_shortcode($atts) {
               <?php endif; ?>
             </span>
           </div>
+
+          <?php if ($primary_sponsor && !empty($primary_sponsor['image'])): ?>
+          <div class="lgw-print-footer" style="display:none">
+            <?php if (!empty($primary_sponsor['name'])): ?>
+              <div class="lgw-print-footer-label">Sponsored by</div>
+            <?php endif; ?>
+            <img src="<?php echo esc_url($primary_sponsor['image']); ?>" alt="<?php echo esc_attr($primary_sponsor['name'] ?: 'Sponsor'); ?>">
+          </div>
+          <?php endif; ?>
+
         </div>
       </div>
       <?php endforeach; ?>
@@ -1927,7 +2828,8 @@ function lgw_champ_shortcode($atts) {
              data-draw-version="<?php echo esc_attr($fb_version); ?>"
              data-draw-in-progress="<?php echo $fb_in_prog ? '1' : '0'; ?>"
              data-bracket="<?php echo esc_attr($fb_json); ?>"
-             data-sponsors="<?php echo $extra_json; ?>">
+             data-sponsors="<?php echo $extra_json; ?>"
+             data-stats-eligible="<?php echo !empty($champ['stats_eligible']) ? '1' : '0'; ?>">
 
           <div class="lgw-champ-header">
             <span class="lgw-champ-title">🏆 <?php echo esc_html($title); ?> — Final Stage</span>
@@ -1948,6 +2850,16 @@ function lgw_champ_shortcode($atts) {
             <span class="lgw-champ-status-dot"></span>
             <span class="lgw-champ-status-text">Final Stage</span>
           </div>
+
+          <?php if ($primary_sponsor && !empty($primary_sponsor['image'])): ?>
+          <div class="lgw-print-footer" style="display:none">
+            <?php if (!empty($primary_sponsor['name'])): ?>
+              <div class="lgw-print-footer-label">Sponsored by</div>
+            <?php endif; ?>
+            <img src="<?php echo esc_url($primary_sponsor['image']); ?>" alt="<?php echo esc_attr($primary_sponsor['name'] ?: 'Sponsor'); ?>">
+          </div>
+          <?php endif; ?>
+
         </div>
       </div>
       <?php endif; ?>
@@ -1959,6 +2871,8 @@ function lgw_champ_shortcode($atts) {
     .lgw-champ-section-tab.active { background:#1a4e6e; color:#fff; border-color:#1a4e6e; }
     .lgw-champ-section-pane { display:none; }
     .lgw-champ-section-pane.active { display:block; }
+    .lgw-champ-search-tab { margin-left:auto; background:#1a4e6e; color:#fff; border-color:#1a4e6e; }
+    .lgw-champ-search-tab:hover { background:#1a2e5a; border-color:#1a2e5a; }
     </style>
     <?php
     return ob_get_clean();

@@ -97,10 +97,14 @@ function lgw_audit_on_confirm($post_id, $club) {
 
 // Called when admin resolves a disputed scorecard
 function lgw_audit_on_resolve($post_id, $version, $sub_by, $con_by) {
-    $label = $version === 'away' ? 'Version B (' . $con_by . ')' : 'Version A (' . $sub_by . ')';
-    lgw_audit_log($post_id, 'resolved',
-        'Admin accepted ' . $label . ' to resolve dispute'
-    );
+    if ($version === 'admin_edit') {
+        $note = 'Admin edited scorecard directly to resolve dispute — both versions overridden';
+    } elseif ($version === 'away') {
+        $note = 'Admin accepted Version B (' . $con_by . ') to resolve dispute';
+    } else {
+        $note = 'Admin accepted Version A (' . $sub_by . ') to resolve dispute';
+    }
+    lgw_audit_log($post_id, 'resolved', $note);
 }
 
 // ── AJAX: save admin edit ─────────────────────────────────────────────────────
@@ -127,10 +131,10 @@ function lgw_ajax_admin_edit_scorecard() {
         'venue'       => sanitize_text_field($_POST['venue']       ?? ''),
         'division'    => sanitize_text_field($_POST['division']    ?? ''),
         'competition' => sanitize_text_field($_POST['competition'] ?? ''),
-        'home_total'  => intval($_POST['home_total']  ?? 0),
-        'away_total'  => intval($_POST['away_total']  ?? 0),
-        'home_points' => intval($_POST['home_points'] ?? 0),
-        'away_points' => intval($_POST['away_points'] ?? 0),
+        'home_total'  => floatval($_POST['home_total']  ?? 0),
+        'away_total'  => floatval($_POST['away_total']  ?? 0),
+        'home_points' => floatval($_POST['home_points'] ?? 0),
+        'away_points' => floatval($_POST['away_points'] ?? 0),
         'rinks'       => array(),
     );
 
@@ -146,10 +150,12 @@ function lgw_ajax_admin_edit_scorecard() {
             explode(',', $home_players[$i] ?? '')));
         $ap = array_filter(array_map('sanitize_text_field',
             explode(',', $away_players[$i] ?? '')));
+        $hs_raw = $home_scores[$i] ?? '';
+        $as_raw = $away_scores[$i] ?? '';
         $after['rinks'][] = array(
             'rink'         => intval($rn),
-            'home_score'   => intval($home_scores[$i] ?? 0),
-            'away_score'   => intval($away_scores[$i] ?? 0),
+            'home_score'   => is_numeric($hs_raw) ? floatval($hs_raw) : null,
+            'away_score'   => is_numeric($as_raw) ? floatval($as_raw) : null,
             'home_players' => array_values($hp),
             'away_players' => array_values($ap),
         );
@@ -164,6 +170,23 @@ function lgw_ajax_admin_edit_scorecard() {
     // Save
     update_post_meta($post_id, 'lgw_scorecard_data', $after);
     update_post_meta($post_id, 'lgw_admin_edited',   current_time('mysql'));
+
+    // If the scorecard was disputed, an admin edit is the authoritative resolution —
+    // override both versions, clear the dispute, and confirm.
+    $pre_save_status = get_post_meta($post_id, 'lgw_sc_status', true) ?: 'pending';
+    if ($pre_save_status === 'disputed') {
+        $sub_by_res = get_post_meta($post_id, 'lgw_submitted_by', true);
+        $con_by_res = get_post_meta($post_id, 'lgw_confirmed_by', true);
+        update_post_meta($post_id, 'lgw_sc_status',      'confirmed');
+        update_post_meta($post_id, 'lgw_away_scorecard', '');
+        update_post_meta($post_id, 'lgw_confirmed_by',   wp_get_current_user()->user_login);
+        lgw_audit_on_resolve($post_id, 'admin_edit', $sub_by_res, $con_by_res);
+    }
+    // Ensure sc_context is set (may be missing on older records — default to league)
+    $existing_ctx = get_post_meta($post_id, 'lgw_sc_context', true);
+    if (empty($existing_ctx)) {
+        update_post_meta($post_id, 'lgw_sc_context', 'league');
+    }
     // Clear division-unresolved flag if division now maps to a known sheet tab
     $drive_opts    = get_option('lgw_drive', array());
     $resolved_tab  = lgw_sheets_tab_for_division($after['division'], $drive_opts);
@@ -178,16 +201,30 @@ function lgw_ajax_admin_edit_scorecard() {
     // Audit
     lgw_audit_log($post_id, 'edited', $note, $before, $after);
 
-    // Re-log appearances (idempotent)
+    // Re-log appearances (idempotent — deletes and re-inserts for this scorecard)
     lgw_log_appearances($post_id);
+
+    // Prune orphaned player records left by name corrections (players with zero appearances)
+    if (function_exists('lgw_prune_orphaned_players')) {
+        lgw_prune_orphaned_players();
+    }
 
     // Fire action — triggers Drive upload (versioned) and sheets writeback
     // Wrapped separately so a Drive/Sheets failure doesn't 500 the whole request
+    $skip_sheets_edit = !empty($_POST['skip_sheets']) && current_user_can('manage_options');
+    if ($skip_sheets_edit) {
+        remove_action('lgw_scorecard_admin_edited', 'lgw_sheets_on_confirmed');
+        update_post_meta($post_id, 'lgw_skip_google', 1);
+    }
     try {
         do_action('lgw_scorecard_admin_edited', $post_id);
     } catch (\Throwable $e) {
         // Log but don't fail the save
         lgw_audit_log($post_id, 'error', 'Post-save action failed: ' . $e->getMessage());
+    }
+    if ($skip_sheets_edit) {
+        add_action('lgw_scorecard_admin_edited', 'lgw_sheets_on_confirmed');
+        delete_post_meta($post_id, 'lgw_skip_google');
     }
 
     wp_send_json_success(array('message' => 'Scorecard updated. ✅'));
@@ -197,16 +234,133 @@ function lgw_ajax_admin_edit_scorecard() {
     }
 }
 
+// ── Meta boxes on the native WP post edit screen ─────────────────────────────
+// ── save_post hook: keep score overrides and appearances in sync when the WP
+// post editor's "Update" button is used (e.g. arriving via the player modal link).
+add_action('save_post_lgw_scorecard', 'lgw_sc_on_save_post', 20, 1);
+function lgw_sc_on_save_post($post_id) {
+    // Skip autosaves, revisions, and bulk-edit requests
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+    if (wp_is_post_revision($post_id)) return;
+    if (!current_user_can('edit_post', $post_id)) return;
+
+    // Only run for confirmed scorecards (ignore draft/pending saves)
+    $status = get_post_meta($post_id, 'lgw_sc_status', true);
+    if (!in_array($status, array('confirmed', 'submitted'), true)) return;
+
+    // Re-log appearances (idempotent)
+    if (function_exists('lgw_log_appearances')) {
+        lgw_log_appearances($post_id);
+    }
+    // Sync score overrides so the widget reflects the latest totals
+    if (function_exists('lgw_sync_override_from_scorecard')) {
+        lgw_sync_override_from_scorecard($post_id);
+    }
+}
+
+add_action( 'add_meta_boxes', 'lgw_sc_register_meta_boxes' );
+function lgw_sc_register_meta_boxes() {
+    add_meta_box(
+        'lgw_sc_edit',
+        '✏️ Scorecard',
+        'lgw_sc_meta_box_edit',
+        'lgw_scorecard',
+        'normal',
+        'high'
+    );
+    add_meta_box(
+        'lgw_sc_audit',
+        '📋 Audit Log',
+        'lgw_sc_meta_box_audit',
+        'lgw_scorecard',
+        'normal',
+        'default'
+    );
+}
+
+function lgw_sc_meta_box_edit( $post ) {
+    // Enqueue the admin JS/CSS needed for the save handler
+    wp_enqueue_style( 'lgw-admin-css',   plugin_dir_url( __FILE__ ) . 'lgw-admin.css',   array(), LGW_VERSION );
+    wp_enqueue_script( 'lgw-admin-js',   plugin_dir_url( __FILE__ ) . 'lgw-admin.js',    array('jquery'), LGW_VERSION, true );
+    wp_localize_script( 'lgw-admin-js', 'lgwAdminData', array(
+        'ajaxUrl' => admin_url('admin-ajax.php'),
+        'nonce'   => wp_create_nonce('lgw_admin_nonce'),
+    ) );
+    $sc = get_post_meta( $post->ID, 'lgw_scorecard_data', true );
+    lgw_render_admin_edit_form( $post->ID, $sc );
+}
+
+function lgw_sc_meta_box_audit( $post ) {
+    lgw_render_audit_log( $post->ID );
+}
+
+// Hide the unnecessary default meta boxes on this CPT edit screen
+add_action( 'admin_head', 'lgw_sc_hide_default_boxes' );
+function lgw_sc_hide_default_boxes() {
+    $screen = get_current_screen();
+    if ( !$screen || $screen->id !== 'lgw_scorecard' ) return;
+    echo '<style>
+        #submitdiv .misc-pub-post-status,
+        #submitdiv .misc-pub-visibility,
+        #misc-publishing-actions .misc-pub-post-status,
+        #misc-publishing-actions .misc-pub-visibility,
+        #minor-publishing-actions,
+        #slugdiv, #authordiv, #commentstatusdiv, #commentsdiv,
+        #revisionsdiv, #trackbacksdiv
+        { display:none !important }
+        #post-body-content { display:none !important }
+        #titlediv { margin-bottom:0 }
+        #submitdiv { min-width:0 }
+    </style>';
+}
+
 // ── Admin edit form renderer ──────────────────────────────────────────────────
 function lgw_render_admin_edit_form($post_id, $sc) {
     if (!$sc) { echo '<p>No scorecard data to edit.</p>'; return; }
     $rinks           = $sc['rinks'] ?? array();
-    $div_unresolved  = get_post_meta($post_id, 'lgw_division_unresolved', true);
     $drive_opts      = get_option('lgw_drive', array());
     $known_divisions = array_map(function($e){ return $e['division']; }, $drive_opts['sheets_tabs'] ?? array());
+    $sc_ctx          = get_post_meta($post_id, 'lgw_sc_context', true) ?: 'league';
+    $mc_game_id      = get_post_meta($post_id, 'lgw_multichamp_game_id', true);
+    // Re-evaluate live so a stale flag doesn't persist after the division is corrected
+    $resolved_tab   = ($sc_ctx === 'league') ? lgw_sheets_tab_for_division($sc['division'] ?? '', $drive_opts) : true;
+    $div_unresolved = ($sc_ctx === 'league') && (empty($sc['division']) || !$resolved_tab);
+    if (!$div_unresolved) {
+        // Proactively clear any stale flag
+        delete_post_meta($post_id, 'lgw_division_unresolved');
+    }
     ?>
-    <div class="lgw-edit-form" id="lgw-edit-<?php echo $post_id; ?>">
+    <?php
+    $edit_status     = get_post_meta($post_id, 'lgw_sc_status', true) ?: 'pending';
+    $is_disputed_edit = ($edit_status === 'disputed');
+    ?>
+    <div class="lgw-edit-form" id="lgw-edit-<?php echo $post_id; ?>"<?php if ($is_disputed_edit) echo ' data-disputed="1"'; ?>>
         <h4 style="margin:0 0 12px;color:#1a2e5a">✏️ Edit Scorecard</h4>
+
+        <?php if ($is_disputed_edit): ?>
+        <div class="lgw-disputed-edit-notice" style="background:#f8d7da;border:1px solid #f1aeb5;border-radius:4px;padding:10px 14px;margin-bottom:14px;font-size:13px;display:flex;align-items:flex-start;gap:10px">
+            <span style="font-size:16px;line-height:1.3">⚠️</span>
+            <div>
+                <strong>This scorecard is disputed.</strong><br>
+                <span style="color:#842029">Saving your edits will override both submitted versions and mark the scorecard as <strong>Confirmed</strong>. The dispute will be resolved.</span>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($mc_game_id):
+            // Parse: champ_id:fix_id:disc_id:game_idx
+            $mc_parts = explode(':', $mc_game_id);
+            $mc_champ = get_option('lgw_multichamp_' . ($mc_parts[0] ?? ''), []);
+            $mc_edit_url = admin_url('admin.php?page=lgw-multichamp&action=edit&id=' . ($mc_parts[0] ?? '') . '&tab=scores');
+        ?>
+        <div style="background:#eaf3de;border:1px solid #b7d9a0;border-radius:4px;padding:8px 12px;margin-bottom:14px;font-size:12px;display:flex;align-items:center;gap:12px;">
+            <span>🏅 <strong>Multi-Discipline Championship scorecard</strong></span>
+            <span><?php echo esc_html($mc_champ['title'] ?? $mc_parts[0] ?? ''); ?></span>
+            <span>·</span>
+            <span><?php echo esc_html(ucfirst($mc_parts[2] ?? '')); ?><?php if (!empty($mc_parts[3])) echo ' game ' . ((int)$mc_parts[3] + 1); ?></span>
+            <a href="<?php echo esc_url($mc_edit_url); ?>" style="margin-left:auto">← Back to championship scores</a>
+        </div>
+        <?php endif; ?>
 
         <div class="lgw-edit-grid">
             <div class="lgw-edit-row">
@@ -218,8 +372,8 @@ function lgw_render_admin_edit_form($post_id, $sc) {
                 <input type="text" name="away_team" value="<?php echo esc_attr($sc['away_team'] ?? ''); ?>" class="regular-text">
             </div>
             <div class="lgw-edit-row">
-                <label>Date</label>
-                <input type="text" name="match_date" value="<?php echo esc_attr($sc['date'] ?? ''); ?>" placeholder="dd/mm/yyyy" class="small-text">
+                <label>Date Played</label>
+                <input type="text" name="match_date" value="<?php echo esc_attr($sc['date'] ?? ''); ?>" placeholder="dd/mm/yyyy" class="medium-text">
             </div>
             <div class="lgw-edit-row">
                 <label>Venue</label>
@@ -270,13 +424,13 @@ function lgw_render_admin_edit_form($post_id, $sc) {
                     </td>
                     <td>
                         <input type="number" name="rink_home_score[]"
-                            value="<?php echo intval($rk['home_score']); ?>"
-                            min="0" class="small-text">
+                            value="<?php echo floatval($rk['home_score']); ?>"
+                            min="0" step="0.5" class="small-text">
                     </td>
                     <td>
                         <input type="number" name="rink_away_score[]"
-                            value="<?php echo intval($rk['away_score']); ?>"
-                            min="0" class="small-text">
+                            value="<?php echo floatval($rk['away_score']); ?>"
+                            min="0" step="0.5" class="small-text">
                     </td>
                     <td>
                         <input type="text" name="rink_away_players[]"
@@ -292,27 +446,28 @@ function lgw_render_admin_edit_form($post_id, $sc) {
         <div class="lgw-edit-grid">
             <div class="lgw-edit-row">
                 <label>Home Total Shots</label>
-                <input type="number" name="home_total" value="<?php echo intval($sc['home_total'] ?? 0); ?>" min="0" class="small-text">
+                <input type="number" name="home_total" value="<?php echo floatval($sc['home_total'] ?? 0); ?>" min="0" step="0.5" class="small-text">
             </div>
             <div class="lgw-edit-row">
                 <label>Away Total Shots</label>
-                <input type="number" name="away_total" value="<?php echo intval($sc['away_total'] ?? 0); ?>" min="0" class="small-text">
+                <input type="number" name="away_total" value="<?php echo floatval($sc['away_total'] ?? 0); ?>" min="0" step="0.5" class="small-text">
             </div>
             <div class="lgw-edit-row">
                 <label>Home Points</label>
-                <input type="number" name="home_points" value="<?php echo intval($sc['home_points'] ?? 0); ?>" min="0" max="7" class="small-text">
+                <input type="number" name="home_points" value="<?php echo floatval($sc['home_points'] ?? 0); ?>" min="0" max="7" step="0.5" class="small-text">
             </div>
             <div class="lgw-edit-row">
                 <label>Away Points</label>
-                <input type="number" name="away_points" value="<?php echo intval($sc['away_points'] ?? 0); ?>" min="0" max="7" class="small-text">
+                <input type="number" name="away_points" value="<?php echo floatval($sc['away_points'] ?? 0); ?>" min="0" max="7" step="0.5" class="small-text">
             </div>
         </div>
 
         <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
             <button class="button button-primary lgw-save-edit"
                 data-postid="<?php echo $post_id; ?>"
-                data-nonce="<?php echo wp_create_nonce('lgw_admin_nonce'); ?>">
-                💾 Save Changes
+                data-nonce="<?php echo wp_create_nonce('lgw_admin_nonce'); ?>"
+                <?php if ($is_disputed_edit) echo 'data-disputed="1"'; ?>>
+                <?php echo $is_disputed_edit ? '⚖️ Save &amp; Resolve Dispute' : '💾 Save Changes'; ?>
             </button>
             <span class="lgw-edit-msg" style="display:none"></span>
         </div>

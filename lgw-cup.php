@@ -11,11 +11,24 @@ function lgw_cup_enqueue() {
     if (!is_singular() || !is_a($post, 'WP_Post')) return;
     $content = $post->post_content . ' ' . get_the_content(null, false, $post);
     if (!has_shortcode($content, 'lgw_cup')) return;
-    wp_enqueue_style('lgw-saira',  'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
-    wp_enqueue_style('lgw-widget', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-widget.css', array('lgw-saira'), LGW_VERSION);
-    wp_enqueue_style('lgw-cup',    plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-cup.css',    array('lgw-widget'), LGW_VERSION);
-    wp_enqueue_script('lgw-cup',   plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-cup.js',     array(), LGW_VERSION, true);
-    // Reuse lgwData (badges, clubBadges, ajaxUrl) if already localised by main widget
+    wp_enqueue_style('lgw-saira',     'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null);
+    wp_enqueue_style('lgw-widget',    plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-widget.css',    array('lgw-saira'), LGW_VERSION);
+    wp_enqueue_style('lgw-scorecard', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-scorecard.css', array('lgw-widget'), LGW_VERSION);
+    wp_enqueue_style('lgw-cup',       plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-cup.css',       array('lgw-scorecard'), LGW_VERSION);
+    // lgw-scorecard.js must load before lgw-cup.js so lgwFetchScorecardOrSubmit / lgwOpenSubmitInModal are defined
+    if (!wp_script_is('lgw-scorecard', 'registered')) {
+        wp_register_script('lgw-scorecard', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-scorecard.js', array(), LGW_VERSION, true);
+    }
+    wp_enqueue_script('lgw-scorecard');
+    wp_enqueue_script('lgw-cup', plugin_dir_url(LGW_PLUGIN_FILE) . 'lgw-cup.js', array('lgw-scorecard'), LGW_VERSION, true);
+    // Ensure lgwSubmit is localised for the scorecard login gate (clubs list, authClub, nonce)
+    wp_localize_script('lgw-scorecard', 'lgwSubmit', array(
+        'ajaxUrl'  => admin_url('admin-ajax.php'),
+        'nonce'    => wp_create_nonce('lgw_submit_nonce'),
+        'authClub' => function_exists('lgw_get_auth_club') ? lgw_get_auth_club() : '',
+        'clubs'    => array_map(function($c){ return $c['name']; }, get_option('lgw_clubs', array())),
+    ));
+    // Reuse lgwData (badges, clubBadges, ajaxUrl) if not already localised by main widget
     if (!wp_script_is('lgw-widget', 'enqueued')) {
         $badges      = get_option('lgw_badges',      array());
         $club_badges = get_option('lgw_club_badges', array());
@@ -36,6 +49,8 @@ function lgw_cup_enqueue() {
         'scorePassphraseSet' => get_option('lgw_draw_passphrase', '') !== '' ? 1 : 0,
         'cupNonce'           => wp_create_nonce('lgw_cup_nonce'),
         'drawSpeed'          => (float) get_option('lgw_draw_speed', 1.0),
+        'submissionMode'     => get_option('lgw_submission_mode', 'open'),
+        'authClub'           => function_exists('lgw_get_auth_club') ? lgw_get_auth_club() : '',
     ));
 }
 
@@ -326,6 +341,15 @@ function lgw_cup_shortcode($atts) {
           <?php endif; ?>
         </span>
       </div>
+
+      <?php if ($primary_sponsor && !empty($primary_sponsor['image'])): ?>
+      <div class="lgw-print-footer" style="display:none">
+        <?php if (!empty($primary_sponsor['name'])): ?>
+          <div class="lgw-print-footer-label">Sponsored by</div>
+        <?php endif; ?>
+        <img src="<?php echo esc_url($primary_sponsor['image']); ?>" alt="<?php echo esc_attr($primary_sponsor['name'] ?: 'Sponsor'); ?>">
+      </div>
+      <?php endif; ?>
 
     </div>
     <?php
@@ -1026,6 +1050,18 @@ function lgw_cup_edit_page($cup_id) {
     <h2>Shortcode</h2>
     <p>Add this shortcode to any page to display the cup bracket:</p>
     <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block">[lgw_cup id="<?php echo esc_html($cup_id); ?>" title="<?php echo esc_attr($cup['title'] ?? ''); ?>"]</pre>
+
+    <?php if ($drawn): ?>
+    <hr>
+    <h2>Export Draw</h2>
+    <p>Download the current draw as an Excel spreadsheet.</p>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>">
+      <input type="hidden" name="action" value="lgw_export_cup">
+      <input type="hidden" name="cup_id" value="<?php echo esc_attr($cup_id); ?>">
+      <input type="hidden" name="nonce" value="<?php echo esc_attr(wp_create_nonce('lgw_export_nonce')); ?>">
+      <?php submit_button('📥 Download Draw (.xlsx)', 'secondary'); ?>
+    </form>
+    <?php endif; ?>
 
     <?php endif; ?>
     </div>

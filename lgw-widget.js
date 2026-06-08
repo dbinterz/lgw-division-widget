@@ -1,4 +1,4 @@
-/* LGW Division Widget JS - v5.2 */
+/* LGW Division Widget JS - v5.3 */
 (function(){
   'use strict';
 
@@ -6,6 +6,10 @@
   var clubBadges = (typeof lgwData !== 'undefined' && lgwData.clubBadges) ? lgwData.clubBadges : {};
   var ajaxUrl        = (typeof lgwData !== 'undefined') ? lgwData.ajaxUrl : '/wp-admin/admin-ajax.php';
   var scoreOverrides = (typeof lgwData !== 'undefined' && lgwData.scoreOverrides) ? lgwData.scoreOverrides : {};
+  var playedDates    = (typeof lgwData !== 'undefined' && lgwData.playedDates)    ? lgwData.playedDates    : {};
+  var recentResults  = (typeof lgwData !== 'undefined' && lgwData.recentResults)  ? lgwData.recentResults  : [];
+  var scorecardStatus = (typeof lgwData !== 'undefined' && lgwData.scorecardStatus) ? lgwData.scorecardStatus : {};
+  var postponements   = (typeof lgwData !== 'undefined' && lgwData.postponements)   ? lgwData.postponements   : {};
 
   // ── Apply admin score overrides to parsed fixture groups ─────────────────────
   function applyScoreOverrides(groups, csvUrl){
@@ -26,6 +30,10 @@
     });
     return groups;
   }
+
+  var submissionMode = (typeof lgwData !== 'undefined' && lgwData.submissionMode) ? lgwData.submissionMode : 'open';
+  var isAdmin        = (typeof lgwData !== 'undefined' && lgwData.isAdmin === '1');
+  var widgetAuthClub = (typeof lgwData !== 'undefined' && lgwData.authClub) ? lgwData.authClub : '';
 
   var PRINT_ICON = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/></svg>';
 
@@ -104,9 +112,25 @@
     i++;
     if(i>=rows.length) return [];
 
-    var colPtsH=0,colHTeam=2,colHScore=7,colAScore=9,colATeam=10,colPtsA=15;
+    var colPtsH=0,colHTeam=2,colHScore=7,colAScore=9,colATeam=10,colPtsA=15,colTime=-1;
     for(var h=i;h<Math.min(i+5,rows.length);h++){
-      if(rows[h].join('').indexOf('HPts')!==-1){
+      var rowJoined=rows[h].join('').toLowerCase();
+      // New-style reference row: uses labels like 'homepts','home','home shots','awaypts','time'
+      if(rowJoined.indexOf('homepts')!==-1){
+        for(var c=0;c<rows[h].length;c++){
+          var hv=rows[h][c].trim().toLowerCase();
+          if(hv==='homepts')    colPtsH=c;
+          if(hv==='home')       colHTeam=c;
+          if(hv==='home shots') colHScore=c;
+          if(hv==='away shots') colAScore=c;
+          if(hv==='away')       colATeam=c;
+          if(hv==='awaypts')    colPtsA=c;
+          if(hv==='time')       colTime=c;
+        }
+        i=h+1; break;
+      }
+      // Legacy-style header row: HPts, HTeam, HScore, AScore, ATeam, APts
+      if(rowJoined.indexOf('hpts')!==-1){
         for(var c=0;c<rows[h].length;c++){
           var hv=rows[h][c].trim();
           if(hv==='HPts')   colPtsH=c;
@@ -140,8 +164,36 @@
         var awayTeam =(r[colATeam] ||'').trim();
         var ptsAway  =(r[colPtsA]  ||'').trim();
         var timeNote='';
-        for(var x=colATeam+1;x<Math.min(colPtsA,r.length);x++){
-          if(/^\d{1,2}:\d{2}$/.test((r[x]||'').trim())) timeNote=r[x].trim();
+        if(colTime>=0){
+          // Reference row provided a 'time' column — read directly, no scanning needed
+          var tv=(r[colTime]||'').trim();
+          if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(tv)){
+            timeNote=(tv.split(':').length>2)?tv.replace(/:\d{2}$/,''):tv;
+          } else {
+            var fv=parseFloat(tv);
+            if(!isNaN(fv) && fv>0 && fv<1){
+              var mins=Math.round(fv*1440);
+              var hh=Math.floor(mins/60), mm=mins%60;
+              timeNote=(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;
+            }
+          }
+        } else {
+          // No reference row — scan between awayTeam and awayPts (legacy fallback)
+          for(var x=colATeam+1;x<colPtsA;x++){
+            var tv=(r[x]||'').trim();
+            if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(tv)){
+              timeNote=(tv.split(':').length>2)?tv.replace(/:\d{2}$/,''):tv;
+              break;
+            } else {
+              var fv=parseFloat(tv);
+              if(!isNaN(fv) && fv>=0.333 && fv<=0.938){
+                var mins=Math.round(fv*1440);
+                var hh=Math.floor(mins/60), mm=mins%60;
+                timeNote=(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;
+                break;
+              }
+            }
+          }
         }
         if(homeTeam && awayTeam){
           var played=(shotsHome!=='0'||shotsAway!=='0'||ptsHome!=='0'||ptsAway!=='0');
@@ -239,7 +291,9 @@
     +'.fx-away{text-align:left;font-weight:600;width:35%}'
     +'.fx-score{text-align:center;font-weight:700;white-space:nowrap;width:30%}'
     +'.fx-pts{font-size:11px;color:#999}'
-    +'@media print{body{padding:0}}';
+    +'@media print{body{padding:0}}'
+    +'.fx-score-wrap{display:flex;flex-direction:column;align-items:center;gap:3px}'
+    +'.fx-time-pill{display:inline-block;background:#1a2e5a;color:#e8b400;font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;letter-spacing:.04em}';
 
   function printFixturesData(groups, title){
     var html='<h2>'+(title||'Fixtures &amp; Results')+'</h2>';
@@ -249,9 +303,10 @@
       g.matches.forEach(function(m){
         var scoreStr = m.played ? m.shotsHome+' – '+m.shotsAway : 'v';
         var ptsStr   = m.played ? '<span class="fx-pts">('+m.ptsHome+' – '+m.ptsAway+')</span>' : '';
+        var printTimePill=m.timeNote?'<span class="fx-time-pill">&#9200; '+m.timeNote+'</span>':'';
         html+='<tr>'
           +'<td class="fx-home">'+badgeImg(m.homeTeam)+m.homeTeam+'</td>'
-          +'<td class="fx-score">'+scoreStr+' '+ptsStr+'</td>'
+          +'<td class="fx-score"><div class="fx-score-wrap">'+scoreStr+' '+ptsStr+printTimePill+'</div></td>'
           +'<td class="fx-away">'+badgeImg(m.awayTeam)+m.awayTeam+'</td>'
           +'</tr>';
       });
@@ -408,8 +463,9 @@
         var scAttrs=m.played
           ? ' data-home="'+m.homeTeam.replace(/"/g,'&quot;')+'" data-away="'+m.awayTeam.replace(/"/g,'&quot;')+'" data-scrowid="'+scRowId+'" title="Click to view scorecard"'
           : '';
+        var timePill=(!m.played&&m.timeNote)?'<span class="modal-fx-time">&#9200; '+m.timeNote+'</span>':'';
         fixtureRows+='<tr class="modal-fx-row'+(rowCls?' '+rowCls:'')+'"'+scAttrs+'>'
-          +'<td>'+g.date+'</td>'
+          +'<td><div class="modal-fx-date">'+g.date+timePill+'</div></td>'
           +'<td style="text-align:center;font-weight:700;color:'+(isHome?'#1a2e5a':'#c0202a')+'">'+ha+'</td>'
           +'<td>'+badgeImg(opponent)+opponent+'</td>'
           +'<td style="text-align:center">'+scoreStr+'</td>'
@@ -552,17 +608,58 @@
     if(!filtered.length) return '<div class="lgw-status">No fixtures to display.</div>';
     var h='';
     filtered.forEach(function(g){
-      h+='<div class="date-group"><div class="date-hdr">'+g.date+'</div>';
+      h+='<div class="date-group"><div class="date-hdr"><span>'+g.date+'</span><span class="date-hdr-notes">Notes</span></div>';
       g.matches.forEach(function(m){
         var pc=m.played?' played':'';
-        var fxAttrs=m.played?' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'" title="Click to view full scorecard"':'';
+        var fxAttrs=m.played
+          ?' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'" title="Click to view full scorecard"'
+          :' data-home="'+m.homeTeam.replace(/"/g,"&quot;")+'" data-away="'+m.awayTeam.replace(/"/g,"&quot;")+'" data-date="'+g.date.replace(/"/g,"&quot;")+'"';
+        // Build fixture key for all annotation lookups
+        var pdKey=(m.homeTeam+'||'+m.awayTeam+'||'+g.date).toLowerCase();
+        // Played on a different date pill
+        var playedOn=playedDates[pdKey]||'';
+        var playedPill=playedOn?'<span class="fx-played-pill">&#x1F4C5; Played '+playedOn+'</span>':'';
+        // Scorecard submission status pill
+        // scRaw may be 'confirmed', 'disputed', or 'pending:home'/'pending:away'/'pending:both'
+        var scRaw=scorecardStatus[pdKey]||'';
+        var scStatus=scRaw.indexOf(':')!==-1?scRaw.split(':')[0]:scRaw;
+        var scSide=scRaw.indexOf(':')!==-1?scRaw.split(':')[1]:'';
+        var scPendingLabel='Pending';
+        if(scStatus==='pending'&&scSide&&scSide!=='both'){
+          // Show which team is still awaited (the OTHER side from who submitted)
+          var submittedTeam=scSide==='home'?m.homeTeam:m.awayTeam;
+          var awaitingTeam=scSide==='home'?m.awayTeam:m.homeTeam;
+          scPendingLabel='Pending ('+awaitingTeam+')';
+        }
+        var scIcon=scStatus==='confirmed'?'&#x2705;':scStatus==='disputed'?'&#x26A0;&#xFE0F;':'&#x1F4CB;';
+        var scLabel=scStatus==='pending'?scPendingLabel:scStatus.charAt(0).toUpperCase()+scStatus.slice(1);
+        var scPill=scStatus?'<span class="fx-sc-status fx-sc-'+scStatus+'">'+scIcon+' '+scLabel+'</span>':'';
+        // Postponed pill
+        // All annotation pills
+        var postEntry=postponements[pdKey]||null;
+        // Notes column: postponed splits into two stacked pills
+        var postponedNotePills=postEntry
+          ?'<span class="fx-postponed-pill">&#x1F6AB; Postponed</span>'
+           +(postEntry.rescheduled_for?'<span class="fx-reschedule-pill">&#x1F4C5; Rescheduled '+postEntry.rescheduled_for+'</span>':'')
+          :'';
+        // Mobile: single combined pill
+        var postponedPill=postEntry
+          ?'<span class="fx-postponed-pill">&#x1F6AB; Postponed'+(postEntry.rescheduled_for?' &bull; &#x1F4C5; Rescheduled '+postEntry.rescheduled_for:'')+'</span>'
+          :'';
+        // Notes column (widescreen): all pills including postponed (split)
+        var notesInner=postponedNotePills+playedPill+scPill;
+        var fxNotes='<div class="fx-notes">'+notesInner+'</div>';
+        // Mobile pills row: all pills below the row
+        var fxPills=(postponedPill||playedPill||scPill)?'<div class="fx-pills">'+postponedPill+playedPill+scPill+'</div>':'';
         h+='<div class="fx-row'+pc+'"'+fxAttrs+'>'
           +'<div class="fx-ph">'+(m.played?m.ptsHome:'')+'</div>'
           +'<div class="fx-h"><span class="lgw-team-link" data-team="'+m.homeTeam+'">'+badgeImg(m.homeTeam)+m.homeTeam+'</span></div>'
           +'<div class="fx-sc"><span class="fx-sb">'+m.shotsHome+'</span><span class="fx-sep">v</span><span class="fx-sb">'+m.shotsAway+'</span></div>'
           +'<div class="fx-a"><span class="lgw-team-link" data-team="'+m.awayTeam+'">'+badgeImg(m.awayTeam)+m.awayTeam+'</span></div>'
           +'<div class="fx-pa">'+(m.played?m.ptsAway:'')+'</div>'
-          +(m.timeNote?'<div class="fx-time">&#9200; '+m.timeNote+'</div>':'')
+          +fxNotes
+          +(m.timeNote?'<div class="fx-time"><span>&#9200; '+m.timeNote+'</span></div>':'')
+          +fxPills
           +'</div>';
       });
       h+='</div>';
@@ -570,7 +667,47 @@
     return h;
   }
 
+  // ── Results ticker: horizontal scrolling strip of latest results ─────────────────────
+  // Filters to results for a specific division (current season only — PHP already
+  // constrains recentResults to the active season before passing to JS).
+  function renderResultsTicker(divisionName) {
+    if (!recentResults || !recentResults.length) return '';
+    // Filter to the current division only (case-insensitive trim match)
+    var divNorm = divisionName ? divisionName.trim().toLowerCase() : '';
+    var filtered = divNorm
+      ? recentResults.filter(function(r) {
+          return r.division && r.division.trim().toLowerCase() === divNorm;
+        })
+      : recentResults;
+    if (!filtered.length) return '';
+    var items = filtered.map(function(r) {
+      var ht  = (r.home_total  !== null && r.home_total  !== undefined) ? r.home_total  : '?';
+      var at  = (r.away_total  !== null && r.away_total  !== undefined) ? r.away_total  : '?';
+      var pts = (r.home_points !== null && r.home_points !== undefined &&
+                 r.away_points !== null && r.away_points !== undefined)
+        ? '<span class="lgw-ticker-pts">(' + r.home_points + '–' + r.away_points + ' pts)</span>'
+        : '';
+      var dt  = r.date ? '<span class="lgw-ticker-date">' + r.date + '</span>' : '';
+      return '<span class="lgw-ticker-item">'
+        + badgeImg(r.home_team, 'lgw-ticker-badge') + r.home_team
+        + '<strong class="lgw-ticker-score"> ' + ht + ' – ' + at + ' </strong>'
+        + badgeImg(r.away_team, 'lgw-ticker-badge') + r.away_team
+        + pts + dt
+        + '</span>';
+    });
+    // Duplicate content so CSS animation loops seamlessly
+    var inner = items.join('<span class="lgw-ticker-sep">●</span>');
+    inner = inner + '<span class="lgw-ticker-sep"> </span>' + inner;
+    return '<div class="lgw-results-ticker" aria-label="Latest results" role="marquee">'
+      + '<div class="lgw-ticker-label">Latest Results</div>'
+      + '<div class="lgw-ticker-track">'
+      + '<div class="lgw-ticker-scroll">' + inner + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+
   function filterBar(af){
+
     var h='<div class="fix-filter">';
     ['all','results','upcoming'].forEach(function(f){
       var cap=f.charAt(0).toUpperCase()+f.slice(1);
@@ -579,11 +716,26 @@
     return h+'</div>';
   }
 
-  // ── Init widget ───────────────────────────────────────────────────────────────
+  // ── Init widget ─────────────────────────────────────────────────────────────────
   function initWidget(widget){
+    // -- Results ticker -- injected per widget, inside the wrap, below sponsor/title,
+    //    above the lgw-w element. Filtered to this division's results only.
+    var divisionName = widget.getAttribute('data-division') || '';
+    var tickerHtml = renderResultsTicker(divisionName);
+    if (tickerHtml) {
+      var wrap = widget.closest('.lgw-widget-wrap') || widget.parentElement;
+      if (wrap) {
+        var tickerEl = document.createElement('div');
+        tickerEl.innerHTML = tickerHtml;
+        var ticker = tickerEl.firstChild;
+        // Insert inside the wrap, immediately before the lgw-w widget div
+        wrap.insertBefore(ticker, widget);
+      }
+    }
     var csvUrl   =widget.getAttribute('data-csv');
     var promote  =parseInt(widget.getAttribute('data-promote')  ||'0',10);
     var relegate =parseInt(widget.getAttribute('data-relegate') ||'0',10);
+    var maxPts   =parseInt(widget.getAttribute('data-maxpts')   ||'7',10);
     var extraSponsors=[];
     try{extraSponsors=JSON.parse(widget.getAttribute('data-sponsors')||'[]');}catch(e){}
 
@@ -602,8 +754,10 @@
     }
     var selectedSeasonId=currentSeasonEntry?currentSeasonEntry.id:'';
 
-    var prev=widget.previousElementSibling;
-    var divisionTitle=prev&&prev.classList.contains('lgw-title')?prev.textContent.trim():'';
+    // Read division title from data-division attr (set by PHP from shortcode title).
+    // Previously used previousElementSibling but that broke when the ticker was
+    // injected between the .lgw-title element and the widget.
+    var divisionTitle = widget.getAttribute('data-division') || '';
 
     // Dark mode toggle — cycles auto→dark→light→auto, stored on :root
     var dmBtn=document.createElement('button');
@@ -619,6 +773,29 @@
     var tabBar=widget.querySelector('.lgw-tabs');
     if(tabBar) tabBar.appendChild(dmBtn);
 
+    // ── Admin view toggle ────────────────────────────────────────────────────
+    // Lets admins preview the widget as a regular visitor (no submit controls)
+    var viewAsAdmin = true; // starts in admin mode for admins
+    if(isAdmin && tabBar){
+      var viewToggleBtn = document.createElement('button');
+      viewToggleBtn.className = 'lgw-darkmode-btn lgw-view-toggle-btn';
+      viewToggleBtn.title = 'Switch to visitor view (hide admin controls)';
+      viewToggleBtn.textContent = '\uD83D\uDC41 Admin view';
+      viewToggleBtn.addEventListener('click', function(){
+        viewAsAdmin = !viewAsAdmin;
+        if(viewAsAdmin){
+          widget.classList.remove('lgw-visitor-preview');
+          viewToggleBtn.textContent = '\uD83D\uDC41 Admin view';
+          viewToggleBtn.title = 'Switch to visitor view (hide admin controls)';
+        } else {
+          widget.classList.add('lgw-visitor-preview');
+          viewToggleBtn.textContent = '\uD83D\uDC41 Visitor view';
+          viewToggleBtn.title = 'Switch back to admin view';
+        }
+      });
+      tabBar.appendChild(viewToggleBtn);
+    }
+
     function sponsorBar(){
       if(!extraSponsors.length) return '';
       var sp=extraSponsors[Math.floor(Math.random()*extraSponsors.length)];
@@ -629,19 +806,27 @@
     }
 
     var activeFilter='all', allRows=null;
+    var filterStoreKey = 'lgw_filter_' + (divisionTitle || widget.id || 'default');
+    try { var storedFilter = sessionStorage.getItem(filterStoreKey); if(storedFilter) activeFilter = storedFilter; } catch(e){}
     var parseFxGroups=parseFixtureGroups;
     var panels=widget.querySelectorAll('.lgw-panel');
     var tabs=widget.querySelectorAll('.lgw-tab');
 
+    var tabStoreKey = 'lgw_tab_' + (divisionTitle || widget.id || 'default');
+
+    function activateTab(name){
+      tabs.forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-tab') === name); });
+      panels.forEach(function(p){ p.classList.toggle('active', p.getAttribute('data-panel') === name); });
+    }
+
+    // Restore saved tab on load
+    try { var savedTab = sessionStorage.getItem(tabStoreKey); if(savedTab) activateTab(savedTab); } catch(e){}
+
     tabs.forEach(function(tab){
       tab.addEventListener('click',function(){
-        tabs.forEach(function(t){t.classList.remove('active');});
-        panels.forEach(function(p){p.classList.remove('active');});
-        tab.classList.add('active');
-        var name=tab.getAttribute('data-tab');
-        for(var i=0;i<panels.length;i++){
-          if(panels[i].getAttribute('data-panel')===name){panels[i].classList.add('active');break;}
-        }
+        var name = tab.getAttribute('data-tab');
+        activateTab(name);
+        try { sessionStorage.setItem(tabStoreKey, name); } catch(e){}
       });
     });
 
@@ -703,34 +888,279 @@
           );
         });
       });
+      // Unplayed fixture rows — always bind; canSubmit re-evaluated at click time
+      // so the view toggle takes effect without rebinding.
+      // Postponed fixtures are always clickable (to show postponement info), even
+      // when submission is disabled.
+      var canShowUnplayed = submissionMode !== 'disabled' && (submissionMode !== 'admin_only' || isAdmin);
+      widget.querySelectorAll('.fx-row:not(.played)[data-home]').forEach(function(row){
+        var rKey = (row.getAttribute('data-home')+'||'+row.getAttribute('data-away')+'||'+row.getAttribute('data-date')).toLowerCase();
+        var isPostponedRow = !!postponements[rKey];
+        var canClick = canShowUnplayed || isPostponedRow || isAdmin;
+        if(!canClick) return;
+        row.style.cursor='pointer';
+        row.title = isPostponedRow ? 'View postponement details' : 'Submit scorecard for this fixture';
+        row.addEventListener('click',function(e){
+          if(e.target.classList.contains('lgw-team-link')||e.target.closest('.lgw-team-link')) return;
+          var effectiveAdmin = isAdmin && viewAsAdmin;
+          // Allow click if postponed (show info) or if submission is available
+          var rKeyNow = (row.getAttribute('data-home')+'||'+row.getAttribute('data-away')+'||'+row.getAttribute('data-date')).toLowerCase();
+          if(!postponements[rKeyNow] && submissionMode === 'admin_only' && !effectiveAdmin) return;
+          if(!postponements[rKeyNow] && submissionMode === 'disabled' && !effectiveAdmin) return;
+          showUnplayedFixtureModal(
+            row.getAttribute('data-home'),
+            row.getAttribute('data-away'),
+            row.getAttribute('data-date'),
+            divisionTitle
+          );
+        });
+      });
+    }
+
+    function buildPostponePanel(home, away, date, effectiveAdmin){
+      var pdKey2    = (home+'||'+away+'||'+date).toLowerCase();
+      var postEntry2 = postponements[pdKey2] || null;
+      if(!effectiveAdmin && !postEntry2) return { html: '', key: pdKey2, entry: null };
+
+      var html = '';
+      if(effectiveAdmin){
+        var isPostponed = !!postEntry2;
+        var reschedVal  = postEntry2 ? (postEntry2.rescheduled_for || '') : '';
+        html =
+          '<div class="lgw-postpone-panel" id="lgw-postpone-panel">'          +'<div class="lgw-postpone-toggle">'          +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'          +'<input type="checkbox" id="lgw-postpone-chk"'+(isPostponed?' checked':'')+' style="width:16px;height:16px;cursor:pointer">'          +'<span>&#x1F6AB; Mark as postponed</span>'          +'</label>'          +'</div>'          +'<div class="lgw-reschedule-row" id="lgw-reschedule-row" style="margin-top:8px;display:'+(isPostponed?'flex':'none')+';align-items:center;gap:8px">'          +'<label style="font-size:12px;color:#666;white-space:nowrap">Rescheduled for:</label>'          +'<input type="text" id="lgw-reschedule-date" placeholder="dd/mm/yyyy" value="'+reschedVal+'" style="flex:1;padding:5px 8px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px">'          +'</div>'          +'<div style="display:flex;gap:8px;margin-top:8px">'          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-postpone-save">Save</button>'          +(isPostponed?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-postpone-clear">&#x274C; Clear postponement</button>':'')          +'</div>'          +'<p id="lgw-postpone-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'          +'</div>'          +'<hr class="lgw-sc-divider">';
+      } else if(postEntry2){
+        html = '<div class="lgw-postponed-notice">'          +'<span class="fx-postponed-pill" style="font-size:13px;padding:4px 14px">&#x1F6AB; This fixture has been postponed'          +(postEntry2.rescheduled_for?' &mdash; Rescheduled for <strong>'+postEntry2.rescheduled_for+'</strong>':'')+'</span>'          +'</div><hr class="lgw-sc-divider">';
+      }
+      return { html: html, key: pdKey2, entry: postEntry2 };
     }
 
     function showFixtureModal(home, away, date){
+      var effectiveAdmin = isAdmin && viewAsAdmin; // respects view toggle
+      var pp = buildPostponePanel(home, away, date, effectiveAdmin);
       var titleHtml='<h2>'+home+' v '+away+'</h2>';
       var bodyHtml='<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
+        + pp.html
         +'<hr class="lgw-sc-divider">'
         +'<div class="lgw-sc-title">Full Scorecard</div>'
-        +'<div id="lgw-sc-container"></div>';
+        +'<div id="lgw-sc-container"><p class="lgw-sc-loading">Loading…</p></div>';
       openModal(titleHtml, bodyHtml, widget);
-      // Load scorecard async after modal opens
+      bindPostponePanel(home, away, date, pp.key, pp.entry);
       var container=document.getElementById('lgw-sc-container');
-      if(container && typeof window.lgwFetchScorecard === 'function'){
+      if(!container) return;
+
+      // Determine if submission can be offered
+      var canSubmit = submissionMode !== 'disabled' && (submissionMode !== 'admin_only' || effectiveAdmin);
+
+      if(typeof window.lgwFetchScorecardOrSubmit === 'function'){
+        window.lgwFetchScorecardOrSubmit(home, away, date, container, {
+          canSubmit: canSubmit,
+          division: divisionTitle,
+          maxPts: maxPts,
+          isAdmin: effectiveAdmin,
+          submissionMode: submissionMode,
+          authClub: widgetAuthClub,
+        });
+      } else if(typeof window.lgwFetchScorecard === 'function'){
         window.lgwFetchScorecard(home, away, date, container);
-      } else if(container){
+      } else {
         container.innerHTML='<p class="lgw-sc-none">Scorecard feature not loaded.</p>';
       }
     }
 
+    // ── Unplayed fixture modal — submission entry point ───────────────────────
+    function showUnplayedFixtureModal(home, away, date, division){
+      var effectiveAdmin = isAdmin && viewAsAdmin; // respects view toggle
+      // Determine if submission should be offered
+      var canSubmit = false;
+      if(submissionMode === 'admin_only' && effectiveAdmin) canSubmit = true;
+      if(submissionMode === 'open') canSubmit = true;
+
+      var titleHtml = '<h2>'+home+' v '+away+'</h2>';
+
+      // Check existing postponement for this fixture
+      var pdKey2 = (home+'||'+away+'||'+date).toLowerCase();
+      var postEntry2 = postponements[pdKey2] || null;
+
+      // Build postpone panel (admin only)
+      var postponePanel = '';
+      if(effectiveAdmin){
+        var isPostponed = !!postEntry2;
+        var reschedVal  = postEntry2 ? (postEntry2.rescheduled_for || '') : '';
+        postponePanel =
+          '<div class="lgw-postpone-panel" id="lgw-postpone-panel">'
+          +'<div class="lgw-postpone-toggle">'
+          +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'
+          +'<input type="checkbox" id="lgw-postpone-chk"'+(isPostponed?' checked':'')+' style="width:16px;height:16px;cursor:pointer">'
+          +'<span>&#x1F6AB; Mark as postponed</span>'
+          +'</label>'
+          +'</div>'
+          +'<div class="lgw-reschedule-row" id="lgw-reschedule-row" style="margin-top:8px;display:'+(isPostponed?'flex':'none')+';align-items:center;gap:8px">'
+          +'<label style="font-size:12px;color:#666;white-space:nowrap">Rescheduled for:</label>'
+          +'<input type="text" id="lgw-reschedule-date" placeholder="dd/mm/yyyy" value="'+reschedVal+'" style="flex:1;padding:5px 8px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px">'
+          +'</div>'
+          +'<div style="display:flex;gap:8px;margin-top:8px">'
+          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-postpone-save">Save</button>'
+          +(isPostponed?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-postpone-clear">&#x274C; Clear postponement</button>':'')
+          +'</div>'
+          +'<p id="lgw-postpone-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+          +'</div>'
+          +'<hr class="lgw-sc-divider">';
+      } else if(postEntry2){
+        // Non-admin: just show a notice if postponed
+        postponePanel = '<div class="lgw-postponed-notice">'
+          +'<span class="fx-postponed-pill" style="font-size:13px;padding:4px 14px">&#x1F6AB; This fixture has been postponed'
+          +(postEntry2.rescheduled_for?' &mdash; Rescheduled for <strong>'+postEntry2.rescheduled_for+'</strong>':'')+'</span>'
+          +'</div><hr class="lgw-sc-divider">';
+      }
+
+      if(!canSubmit){
+        var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
+          + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
+          + postponePanel
+          + '<p class="lgw-sc-none">No scorecard submitted yet.</p>';
+        openModal(titleHtml, bodyHtml, widget);
+        bindPostponePanel(home, away, date, pdKey2, postEntry2);
+        return;
+      }
+
+      var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
+        + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
+        + postponePanel
+        + '<hr class="lgw-sc-divider">'
+        + '<div id="lgw-sc-modal-submit"></div>';
+
+      openModal(titleHtml, bodyHtml, widget);
+      bindPostponePanel(home, away, date, pdKey2, postEntry2);
+
+      var container = document.getElementById('lgw-sc-modal-submit');
+      if(!container) return;
+
+      if(typeof window.lgwOpenSubmitInModal === 'function'){
+        window.lgwOpenSubmitInModal(container, {
+          home: home,
+          away: away,
+          date: date,
+          division: division || '',
+          maxPts: maxPts,
+          isAdmin: effectiveAdmin,
+          submissionMode: submissionMode,
+          authClub: widgetAuthClub,
+        });
+      } else {
+        container.innerHTML='<p class="lgw-sc-none">Scorecard submission not available.</p>';
+      }
+    }
+
+    function bindPostponePanel(home, away, date, pdKey2, postEntry2){
+      var chk        = document.getElementById('lgw-postpone-chk');
+      var reschedRow = document.getElementById('lgw-reschedule-row');
+      var saveBtn    = document.getElementById('lgw-postpone-save');
+      var clearBtn   = document.getElementById('lgw-postpone-clear');
+      var statusEl   = document.getElementById('lgw-postpone-status');
+      if(!chk) return;
+
+      chk.addEventListener('change', function(){
+        if(reschedRow) reschedRow.style.display = chk.checked ? 'flex' : 'none';
+      });
+
+      function doSave(action){
+        var reschedDate = (document.getElementById('lgw-reschedule-date')||{}).value || '';
+        var fd = new FormData();
+        fd.append('action',          'lgw_save_postponement');
+        fd.append('nonce',           (typeof lgwData !== 'undefined' ? lgwData.scNonce : ''));
+        fd.append('home',            home);
+        fd.append('away',            away);
+        fd.append('date',            date);
+        fd.append('postpone_action', action);
+        fd.append('rescheduled_for', action === 'set' ? reschedDate : '');
+        if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = '⏳'; }
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', (typeof lgwData !== 'undefined' ? lgwData.ajaxUrl : '/wp-admin/admin-ajax.php'));
+        xhr.onload = function(){
+          if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+          var res = JSON.parse(xhr.responseText || '{}');
+          if(res.success){
+            // Update local map so pill refreshes on next render without page reload
+            if(action === 'set'){
+              postponements[pdKey2] = { rescheduled_for: (document.getElementById('lgw-reschedule-date')||{}).value || '' };
+            } else {
+              delete postponements[pdKey2];
+            }
+            showPostponeStatus(statusEl, action === 'set' ? '✅ Saved — fixture marked as postponed.' : '✅ Postponement cleared.', 'ok');
+            // Add/remove postponed pill on the underlying fixture row immediately
+            refreshPostponedPill(home, away, date, pdKey2);
+          } else {
+            showPostponeStatus(statusEl, '❌ ' + (res.data || 'Save failed'), 'error');
+          }
+        };
+        xhr.onerror = function(){
+          if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+          showPostponeStatus(statusEl, '❌ Network error', 'error');
+        };
+        xhr.send(fd);
+      }
+
+      if(saveBtn) saveBtn.addEventListener('click', function(){ doSave(chk.checked ? 'set' : 'clear'); });
+      if(clearBtn) clearBtn.addEventListener('click', function(){ doSave('clear'); });
+    }
+
+    function showPostponeStatus(el, msg, type){
+      if(!el) return;
+      el.textContent = msg;
+      el.className = 'lgw-notice lgw-notice-'+(type==='ok'?'success':'error');
+      el.style.display = '';
+    }
+
+    function refreshPostponedPill(home, away, date, pdKey2){
+      widget.querySelectorAll('.fx-row[data-home][data-away][data-date]').forEach(function(row){
+        var rKey = (row.getAttribute('data-home')+'||'+row.getAttribute('data-away')+'||'+row.getAttribute('data-date')).toLowerCase();
+        if(rKey !== pdKey2) return;
+        var postEntry3 = postponements[pdKey2] || null;
+        var newSpan = postEntry3
+          ? '<span class="fx-postponed-pill">&#x1F6AB; Postponed'+(postEntry3.rescheduled_for?' &bull; &#x1F4C5; Rescheduled '+postEntry3.rescheduled_for:'')+'</span>'
+          : '';
+        // Update notes column (widescreen) — split pills
+        var notesDiv = row.querySelector('.fx-notes');
+        if(notesDiv){
+          notesDiv.querySelectorAll('.fx-postponed-pill,.fx-reschedule-pill').forEach(function(el){ el.parentNode.removeChild(el); });
+          if(postEntry3){
+            var splitHtml = '<span class="fx-postponed-pill">&#x1F6AB; Postponed</span>'
+              +(postEntry3.rescheduled_for?'<span class="fx-reschedule-pill">&#x1F4C5; Rescheduled '+postEntry3.rescheduled_for+'</span>':'');
+            notesDiv.insertAdjacentHTML('afterbegin', splitHtml);
+          }
+        }
+        // Update mobile pills row
+        var pillsDiv = row.querySelector('.fx-pills');
+        if(pillsDiv){
+          var existingPostponed2 = pillsDiv.querySelector('.fx-postponed-pill');
+          if(existingPostponed2) existingPostponed2.parentNode.removeChild(existingPostponed2);
+          if(newSpan) pillsDiv.insertAdjacentHTML('afterbegin', newSpan);
+          pillsDiv.style.display = pillsDiv.children.length ? '' : 'none';
+        } else if(newSpan){
+          row.insertAdjacentHTML('beforeend', '<div class="fx-pills">'+newSpan+'</div>');
+        }
+      });
+    }
+
     function bindFilterBtns(){
+      // Handles both XHR-rendered and SSR-rendered filter bars — both now use
+      // .fix-filter with data-f (PHP lgw_cache_render_fixtures mirrors filterBar()).
       widget.querySelectorAll('.fix-filter button').forEach(function(b){
         b.addEventListener('click',function(){
           activeFilter=b.getAttribute('data-f');
+          try { sessionStorage.setItem(filterStoreKey, activeFilter); } catch(e){}
           widget.querySelectorAll('.fix-filter button').forEach(function(x){
             x.classList.toggle('active',x.getAttribute('data-f')===activeFilter);
           });
           var fp=getPanel('fixtures');
-          if(fp) fp.innerHTML=filterBar(activeFilter)+renderFixtures(allRows,activeFilter,parseFxGroups);
-          bindFilterBtns(); bindTeamLinks();
+          if(!fp) return;
+          if(widget.dataset.prerendered==='1'){
+            // SSR path — show/hide date groups rather than re-rendering
+            lgwApplyCachedFilter(fp, activeFilter);
+          } else {
+            fp.innerHTML=filterBar(activeFilter)+renderFixtures(allRows,activeFilter,parseFxGroups);
+            bindFilterBtns(); bindTeamLinks();
+          }
         });
       });
     }
@@ -846,6 +1276,36 @@
     }
 
     // ── Initial data load ─────────────────────────────────────────────────────
+    // If PHP pre-rendered the widget from the DB cache, skip the CSV XHR entirely.
+    // The cached fixture groups are in data-cached so JS still has allRows-equivalent
+    // data for team modals, print, and score overlays.
+    if (widget.dataset.prerendered === '1' && widget.dataset.cached) {
+      try {
+        var cachedGroups = JSON.parse(widget.dataset.cached);
+        allRows = lgwCachedGroupsToRows(cachedGroups);
+        parseFxGroups = function(rows) { return applyScoreOverrides(cachedGroups, csvUrl); };
+        var tp = getPanel('table'), fp = getPanel('fixtures');
+        if (tp) {
+          tp.insertBefore(makePrintBtn('table'), tp.firstChild);
+        }
+        if (fp) {
+          fp.insertBefore(makePrintBtn('fixtures'), fp.firstChild);
+          lgwApplyCachedFilter(fp, activeFilter);
+        }
+        console.log('[LGW-SSR] Pre-rendered path active. submissionMode='+submissionMode+' isAdmin='+isAdmin+' fixtures='+cachedGroups.reduce(function(n,g){return n+g.matches.length;},0));
+        bindFilterBtns(); bindTeamLinks(); bindFixtureClicks();
+        console.log('[LGW-SSR] Rows bound: played='+widget.querySelectorAll('.fx-row.played[data-home]').length+' unplayed='+widget.querySelectorAll('.fx-row:not(.played)[data-home]').length);
+      } catch(e) {
+        console.log('[LGW-SSR] Error in SSR path, falling back to XHR:', e);
+        widget.dataset.prerendered = '0';
+        lgwInitXhr();
+      }
+      return;
+    }
+    console.log('[LGW-SSR] No pre-rendered data, using XHR path. prerendered='+widget.dataset.prerendered);
+    lgwInitXhr();
+
+    function lgwInitXhr() {
     var proxyUrl=ajaxUrl+'?action=lgw_csv&url='+encodeURIComponent(csvUrl);
     var xhr=new XMLHttpRequest();
     xhr.open('GET',proxyUrl);
@@ -874,6 +1334,45 @@
     };
     xhr.onerror=function(){ showError('Network error — please check your connection and try again.'); };
     xhr.send();
+    } // end lgwInitXhr
+  }
+
+  // ── SSR helpers ───────────────────────────────────────────────────────────────
+  // Convert cached fixture groups into a safe allRows value.
+  // parseTableRows() is called by showTeamModal — passing [] means no stats row
+  // shows in the team modal, which is acceptable until Phase 4 adds SSR team data.
+  // parseFxGroups is overridden separately to return cachedGroups directly.
+  function lgwCachedGroupsToRows(groups) {
+    return [];
+  }
+
+  // Apply fixture filter to server-rendered fixture rows.
+  // Hides/shows .date-group elements based on filter value.
+  function lgwApplyCachedFilter(fp, filter) {
+    var now = new Date();
+    fp.querySelectorAll('.date-group').forEach(function(group) {
+      var dateHdr = group.querySelector('.date-hdr span');
+      var dateStr = dateHdr ? dateHdr.textContent.trim() : '';
+      var groupDate = null;
+      try {
+        var p = dateStr.split(' ')[1].split('-');
+        groupDate = new Date(p[1] + ' ' + p[0] + ' ' + p[2]);
+      } catch(e) {}
+
+      var rows = group.querySelectorAll('.fx-row');
+      var hasPlayed   = false;
+      var hasUpcoming = false;
+      rows.forEach(function(r) {
+        if (r.classList.contains('played')) hasPlayed = true;
+        else if (groupDate && groupDate >= now) hasUpcoming = true;
+      });
+
+      var show = filter === 'all'
+        || (filter === 'results'  && hasPlayed)
+        || (filter === 'upcoming' && hasUpcoming);
+
+      group.style.display = show ? '' : 'none';
+    });
   }
 
   function init(){
