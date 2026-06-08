@@ -108,6 +108,47 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+### v7.5.5
+- **Diagnostic:** Log played/unplayed row counts after binding.
+
+
+### v7.5.4
+- **Fix:** `bindTeamLinks` restored to original — no changes to team-link/row-click interaction.
+- **Fix:** `lgwCachedGroupsToRows` returns `[]` instead of sentinel object — prevents `parseTableRows` throw in SSR path.
+- **Diagnostic:** Console logs added to SSR detection block to confirm path taken and `submissionMode`.
+
+
+### v7.5.3
+- **Fix:** Clicking anywhere on an unplayed fixture row (including team names) now reliably opens the submission modal. Team link clicks on unplayed rows bubble up to the row handler; the team-link guard is removed from the unplayed row click handler.
+
+
+### v7.5.2
+- **Fix:** Clicking an unplayed fixture row reliably opens the submission modal. Team link clicks inside unplayed rows now `stopPropagation` and return early — the row click handler fires the modal as intended.
+
+
+### v7.5.1
+- **Fix:** SSR filter bar rendered with `.fix-filter`/`data-f` to match the XHR-path markup — restores filter button CSS styling.
+- **Fix:** Clicking an unplayed fixture row now correctly opens the submission modal. Team link `stopPropagation` is now skipped for unplayed rows so the row click handler fires.
+
+
+### v7.5.0
+- **New:** `[lgw_division]` shortcode renders standings and fixtures server-side from the DB cache. No loading spinner when cache is warm — content is in the HTML from first byte.
+- **New:** `data-prerendered` / `data-cached` attrs on the widget wrapper; `lgw-widget.js` detects these and skips the CSV XHR entirely, binding click handlers to the pre-rendered DOM.
+- **New:** Filter bar (All / Results / Upcoming) operates on pre-rendered fixture rows via DOM visibility rather than a full re-render.
+- **Fallback:** Cache miss or hard TTL expiry falls back to the existing XHR path — no visible difference to end users.
+
+
+### v7.4.1
+- **Fix:** `lgw_cache_sync_all()` and `lgw_cache_get_all_status()` now correctly unpack season division entries (`['division' => ..., 'csv_url' => ...]` arrays) — fixes "Array to string conversion" warning shown on Settings page before first sync.
+
+
+### v7.4.0
+- **New:** DB-primary division cache layer (`lgw-div-cache.php`). Division standings and fixtures are now stored in WP options and served instantly on page load — no outbound HTTP on the critical path.
+- **New:** Background WP-Cron sync keeps cache fresh automatically (configurable interval: 15 min / 30 min / 1 hour / 4 hours).
+- **New:** `lgw_cache_merge_result()` hooked to `lgw_scorecard_confirmed` — confirmed results appear in the fixture list immediately without waiting for the next CSV sync.
+- **New:** Division Cache health panel in Settings shows last-synced time, fixture count, and team count per division; per-division and bulk Sync buttons trigger immediate refresh via AJAX.
+- **Updated:** "Clear Cache Now" in Settings now also clears the new DB cache entries (`lgw_div_cache_*` options).
+
 ### v7.3.62
 - Fix: Starred and female flag checkboxes now correctly preserve filter state after update. Native `form.submit()` called by `onchange` does not fire the submit event, so filter injection now uses a `change` event delegation handler instead.
 

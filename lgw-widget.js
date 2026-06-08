@@ -1143,6 +1143,8 @@
     }
 
     function bindFilterBtns(){
+      // Handles both XHR-rendered and SSR-rendered filter bars — both now use
+      // .fix-filter with data-f (PHP lgw_cache_render_fixtures mirrors filterBar()).
       widget.querySelectorAll('.fix-filter button').forEach(function(b){
         b.addEventListener('click',function(){
           activeFilter=b.getAttribute('data-f');
@@ -1151,8 +1153,14 @@
             x.classList.toggle('active',x.getAttribute('data-f')===activeFilter);
           });
           var fp=getPanel('fixtures');
-          if(fp) fp.innerHTML=filterBar(activeFilter)+renderFixtures(allRows,activeFilter,parseFxGroups);
-          bindFilterBtns(); bindTeamLinks();
+          if(!fp) return;
+          if(widget.dataset.prerendered==='1'){
+            // SSR path — show/hide date groups rather than re-rendering
+            lgwApplyCachedFilter(fp, activeFilter);
+          } else {
+            fp.innerHTML=filterBar(activeFilter)+renderFixtures(allRows,activeFilter,parseFxGroups);
+            bindFilterBtns(); bindTeamLinks();
+          }
         });
       });
     }
@@ -1268,6 +1276,36 @@
     }
 
     // ── Initial data load ─────────────────────────────────────────────────────
+    // If PHP pre-rendered the widget from the DB cache, skip the CSV XHR entirely.
+    // The cached fixture groups are in data-cached so JS still has allRows-equivalent
+    // data for team modals, print, and score overlays.
+    if (widget.dataset.prerendered === '1' && widget.dataset.cached) {
+      try {
+        var cachedGroups = JSON.parse(widget.dataset.cached);
+        allRows = lgwCachedGroupsToRows(cachedGroups);
+        parseFxGroups = function(rows) { return applyScoreOverrides(cachedGroups, csvUrl); };
+        var tp = getPanel('table'), fp = getPanel('fixtures');
+        if (tp) {
+          tp.insertBefore(makePrintBtn('table'), tp.firstChild);
+        }
+        if (fp) {
+          fp.insertBefore(makePrintBtn('fixtures'), fp.firstChild);
+          lgwApplyCachedFilter(fp, activeFilter);
+        }
+        console.log('[LGW-SSR] Pre-rendered path active. submissionMode='+submissionMode+' isAdmin='+isAdmin+' fixtures='+cachedGroups.reduce(function(n,g){return n+g.matches.length;},0));
+        bindFilterBtns(); bindTeamLinks(); bindFixtureClicks();
+        console.log('[LGW-SSR] Rows bound: played='+widget.querySelectorAll('.fx-row.played[data-home]').length+' unplayed='+widget.querySelectorAll('.fx-row:not(.played)[data-home]').length);
+      } catch(e) {
+        console.log('[LGW-SSR] Error in SSR path, falling back to XHR:', e);
+        widget.dataset.prerendered = '0';
+        lgwInitXhr();
+      }
+      return;
+    }
+    console.log('[LGW-SSR] No pre-rendered data, using XHR path. prerendered='+widget.dataset.prerendered);
+    lgwInitXhr();
+
+    function lgwInitXhr() {
     var proxyUrl=ajaxUrl+'?action=lgw_csv&url='+encodeURIComponent(csvUrl);
     var xhr=new XMLHttpRequest();
     xhr.open('GET',proxyUrl);
@@ -1296,6 +1334,45 @@
     };
     xhr.onerror=function(){ showError('Network error — please check your connection and try again.'); };
     xhr.send();
+    } // end lgwInitXhr
+  }
+
+  // ── SSR helpers ───────────────────────────────────────────────────────────────
+  // Convert cached fixture groups into a safe allRows value.
+  // parseTableRows() is called by showTeamModal — passing [] means no stats row
+  // shows in the team modal, which is acceptable until Phase 4 adds SSR team data.
+  // parseFxGroups is overridden separately to return cachedGroups directly.
+  function lgwCachedGroupsToRows(groups) {
+    return [];
+  }
+
+  // Apply fixture filter to server-rendered fixture rows.
+  // Hides/shows .date-group elements based on filter value.
+  function lgwApplyCachedFilter(fp, filter) {
+    var now = new Date();
+    fp.querySelectorAll('.date-group').forEach(function(group) {
+      var dateHdr = group.querySelector('.date-hdr span');
+      var dateStr = dateHdr ? dateHdr.textContent.trim() : '';
+      var groupDate = null;
+      try {
+        var p = dateStr.split(' ')[1].split('-');
+        groupDate = new Date(p[1] + ' ' + p[0] + ' ' + p[2]);
+      } catch(e) {}
+
+      var rows = group.querySelectorAll('.fx-row');
+      var hasPlayed   = false;
+      var hasUpcoming = false;
+      rows.forEach(function(r) {
+        if (r.classList.contains('played')) hasPlayed = true;
+        else if (groupDate && groupDate >= now) hasUpcoming = true;
+      });
+
+      var show = filter === 'all'
+        || (filter === 'results'  && hasPlayed)
+        || (filter === 'upcoming' && hasUpcoming);
+
+      group.style.display = show ? '' : 'none';
+    });
   }
 
   function init(){

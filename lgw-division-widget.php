@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.3.62
+ * Version: 7.5.5
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.3.62');
+define('LGW_VERSION', '7.5.5');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -55,6 +55,15 @@ function lgw_migrate_options() {
 }
 add_action('init', 'lgw_migrate_options');
 
+// ── Custom cron intervals for division cache sync ─────────────────────────────
+add_filter('cron_schedules', 'lgw_add_cron_intervals');
+function lgw_add_cron_intervals($schedules) {
+    $schedules['lgw_15min'] = array('interval' => 15 * MINUTE_IN_SECONDS, 'display' => 'Every 15 minutes');
+    $schedules['lgw_30min'] = array('interval' => 30 * MINUTE_IN_SECONDS, 'display' => 'Every 30 minutes');
+    $schedules['lgw_4hour'] = array('interval' =>  4 * HOUR_IN_SECONDS,   'display' => 'Every 4 hours');
+    return $schedules;
+}
+
 // Include plugin modules — guarded so a missing/broken file cannot bring the whole site down
 $lgw_modules = array(
     'lgw-draw.php',
@@ -71,6 +80,7 @@ $lgw_modules = array(
     'lgw-calendar.php',
     'lgw-finals.php',
     'lgw-seasons.php',
+    'lgw-div-cache.php',
 );
 $lgw_missing = array();
 foreach ($lgw_modules as $lgw_module) {
@@ -855,6 +865,29 @@ function lgw_division_shortcode($atts) {
     // Extra sponsors JSON for JS random rotation below table
     $extra_json = esc_attr(json_encode($extra_sponsors));
 
+    // ── Attempt server-side render from DB cache ───────────────────────────────
+    $ssr = (function_exists('lgw_cache_render_division'))
+        ? lgw_cache_render_division(
+            $atts['csv'],
+            trim($atts['title']),
+            intval($atts['promote']),
+            intval($atts['relegate'])
+          )
+        : ['hit' => false];
+
+    // Build panel contents — pre-rendered from cache or Loading... shell for XHR fallback
+    if ($ssr['hit']) {
+        $table_panel    = $ssr['table_html'];
+        $fixtures_panel = $ssr['fixtures_html'];
+        $prerendered_attr = ' data-prerendered="1"';
+        $cached_attr      = ' data-cached="' . esc_attr($ssr['cached_json']) . '"';
+    } else {
+        $table_panel      = '<div class="lgw-status">Loading&hellip;</div>';
+        $fixtures_panel   = '<div class="lgw-status">Loading&hellip;</div>';
+        $prerendered_attr = '';
+        $cached_attr      = '';
+    }
+
     return $theme_style
         . '<div class="lgw-widget-wrap" id="' . $id . '-wrap">'
         . $primary_html
@@ -867,13 +900,15 @@ function lgw_division_shortcode($atts) {
         . ' data-sponsors="' . $extra_json . '"'
         . ' data-maxpts="' . max(6, min(7, intval($atts['max_points']))) . '"'
         . (!empty($seasons_data) ? ' data-seasons="' . $seasons_json . '"' : '')
+        . $prerendered_attr
+        . $cached_attr
         . '>'
         . '<div class="lgw-tabs">'
         . '<div class="lgw-tab active" data-tab="table">League Table</div>'
         . '<div class="lgw-tab" data-tab="fixtures">Fixtures &amp; Results</div>'
         . '</div>'
-        . '<div class="lgw-panel active" data-panel="table"><div class="lgw-status">Loading&hellip;</div></div>'
-        . '<div class="lgw-panel" data-panel="fixtures"><div class="lgw-status">Loading&hellip;</div></div>'
+        . '<div class="lgw-panel active" data-panel="table">' . $table_panel . '</div>'
+        . '<div class="lgw-panel" data-panel="fixtures">' . $fixtures_panel . '</div>'
         . '</div>'
         . '</div>';
 }
@@ -1852,6 +1887,12 @@ function lgw_save_league_setup() {
     $cache_mins = isset($_POST['lgw_cache_mins']) ? max(1, intval($_POST['lgw_cache_mins'])) : 5;
     update_option('lgw_cache_mins', $cache_mins);
 
+    // Division cache cron sync interval
+    $allowed_intervals = array('lgw_15min', 'lgw_30min', 'hourly', 'lgw_4hour');
+    $cron_interval = isset($_POST['lgw_cache_cron_interval']) && in_array($_POST['lgw_cache_cron_interval'], $allowed_intervals)
+        ? $_POST['lgw_cache_cron_interval'] : 'hourly';
+    update_option('lgw_cache_cron_interval', $cron_interval);
+
     // Photo analysis provider
     $allowed_providers = array('disabled', 'anthropic', 'openai', 'gemini');
     $vision_provider = isset($_POST['lgw_vision_provider']) && in_array($_POST['lgw_vision_provider'], $allowed_providers)
@@ -2055,7 +2096,12 @@ function lgw_clear_cache() {
     if (!current_user_can('manage_options')) wp_die('Unauthorized');
     check_admin_referer('lgw_clear_cache_nonce');
     global $wpdb;
+    // Clear transient CSV cache
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_lgw_csv_%' OR option_name LIKE '_transient_timeout_lgw_csv_%'");
+    // Clear DB-primary division cache
+    if (function_exists('lgw_cache_invalidate_all')) {
+        lgw_cache_invalidate_all();
+    }
     wp_redirect(admin_url('admin.php?page=' . LGW_SETUP_PAGE . '&cleared=1'));
     exit;
 }
@@ -2598,7 +2644,7 @@ function lgw_league_setup_page() {
                         <select id="lgw_data_source" name="lgw_data_source" onchange="lgwToggleDataSource(this.value)">
                             <option value="google_sheets" <?php selected($data_source, 'google_sheets'); ?>>Google Sheets CSV</option>
                             <option value="upload" <?php selected($data_source, 'upload'); ?> disabled>Spreadsheet upload — coming soon</option>
-                            <option value="wordpress" <?php selected($data_source, 'wordpress'); ?> disabled>WordPress DB — coming soon</option>
+                        <option value="wordpress" <?php selected($data_source, 'wordpress'); ?> disabled>WordPress DB — coming soon</option>
                         </select>
                     </td>
                 </tr>
@@ -2620,6 +2666,8 @@ function lgw_league_setup_page() {
                     <span style="margin-left:8px;color:#666;font-size:13px">Force all divisions to fetch fresh data on next page load.</span>
                 </p>
             </div>
+
+            <?php if (function_exists('lgw_cache_settings_html')) lgw_cache_settings_html(); ?>
 
             <hr>
             <!-- ── 2. Points System ── -->

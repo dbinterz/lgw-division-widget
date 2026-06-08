@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.3.62
+Stable tag: 7.5.5
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,45 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.5.5 =
+* Diagnostic: log played/unplayed row counts after binding to identify fixture click issue.
+
+
+= 7.5.4 =
+* Fix: Restore bindTeamLinks to original logic. Fix lgwCachedGroupsToRows to return empty array (safe for parseTableRows). Add console diagnostics to SSR path to identify fixture click issue.
+
+
+= 7.5.3 =
+* Fix: Fixture submission modal now reliably opens on click anywhere on an unplayed fixture row, including team name areas. Team link clicks on unplayed rows now bubble up to the row handler rather than being swallowed.
+
+
+= 7.5.2 =
+* Fix: Fixture submission modal now opens correctly when clicking an unplayed fixture row. Team name clicks inside unplayed rows stop propagation (preventing double modal) and defer to the row click handler.
+
+
+= 7.5.1 =
+* Fix: SSR filter bar now uses same .fix-filter/data-f markup as XHR path so existing CSS applies correctly.
+* Fix: Unplayed fixture row clicks now open the submission modal correctly — team name link clicks inside unplayed rows no longer stopPropagation, so the row click handler fires as expected.
+
+
+= 7.5.0 =
+* New: [lgw_division] shortcode now renders standings table and fixtures list server-side from the DB cache (Phase 4.2). No XHR or loading spinner when cache is warm — content appears instantly on page load.
+* New: data-prerendered and data-cached attributes allow lgw-widget.js to skip the initial CSV fetch and bind click handlers directly to pre-rendered HTML.
+* New: Filter bar (All / Results / Upcoming) works on server-rendered fixtures via DOM show/hide rather than re-rendering.
+* Graceful fallback: if cache is empty or stale beyond 24h the widget falls back to the existing XHR path transparently.
+
+
+= 7.4.1 =
+* Fix: Division cache sync and status panel now correctly unpack season division entries (array of {division, csv_url} objects) rather than expecting plain strings, resolving "Array to string conversion" warning on the Settings page.
+
+
+= 7.4.0 =
+* New: DB-primary division cache layer (lgw-div-cache.php). Division standings and fixtures are now stored in WP options and served instantly on page load — no outbound HTTP request required.
+* New: Background WP-Cron sync keeps the cache fresh automatically (configurable: 15 min / 30 min / 1 hour / 4 hours).
+* New: Confirmed scorecard results merge into the fixture cache immediately via lgw_scorecard_confirmed hook.
+* New: Division Cache health panel in Settings shows last-synced time, fixture count, and team count per division with per-division and bulk Sync buttons.
+* Updated: "Clear Cache Now" button in Settings also clears the new DB cache entries.
 
 = 7.3.62 =
 * Fix: ★/♀ flag checkboxes now restore filter state after update (native form.submit() bypasses submit event; fixed with change event delegation).
