@@ -108,6 +108,11 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [7.6.1]
+### Fixed
+- SSR (DB-primary cache) path now renders postponed pills on fixture rows — previously the `🚫 Postponed` and `Rescheduled` pills were missing when the widget was served from cache; only appeared on the XHR fallback path
+- `lgw_cache_render_fixtures()` now accepts and applies `$postponements` map, mirroring JS `postponedPill`/`notesInner` logic exactly
+
 ## [7.6.0]
 ### Added
 - **Phase 4.3 — Test Suite**: Playwright E2E suite in `tests/` directory covering all 29 spec tests across 5 files (DW, CS, SS, SM, AS)
@@ -123,7 +128,7 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 - PHPUnit bootstrap stubs all WordPress functions via WP_Mock; no full WP boot required for unit tests
 
 
-### v7.5.5
+### v7.6.1
 - **Diagnostic:** Log played/unplayed row counts after binding.
 
 

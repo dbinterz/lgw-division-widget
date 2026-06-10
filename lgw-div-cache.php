@@ -962,7 +962,8 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
     $club_badges = get_option( 'lgw_club_badges',  [] );
 
     $table_html    = lgw_cache_render_table( $teams, $promote, $relegate, $fixtures, $badges, $club_badges );
-    $fixtures_html = lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $badges, $club_badges );
+    $postponements  = function_exists( 'lgw_get_postponements' ) ? lgw_get_postponements() : [];
+    $fixtures_html = lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $badges, $club_badges, $postponements );
 
     // Build fixture groups array for data-cached — JS uses this for team modal + print
     $groups = [];
@@ -1091,7 +1092,7 @@ function lgw_cache_render_table( $teams, $promote, $relegate, $fixtures, $badges
  * Mirrors renderFixtures() in lgw-widget.js.
  * Always renders the full "All" filter — JS re-filters client-side via the filter bar.
  */
-function lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $badges, $club_badges ) {
+function lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $badges, $club_badges, $postponements = [] ) {
     if ( empty( $fixtures ) ) return '<div class="lgw-status">No fixtures to display.</div>';
 
     // Group by date
@@ -1160,10 +1161,24 @@ function lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $b
                 ? '<span class="fx-sc-status fx-sc-' . esc_attr( $sc_status ) . '">' . $sc_icon . ' ' . $sc_label . '</span>'
                 : '';
 
-            $notes_inner = $played_pill . $sc_pill;
+            // Postponed pill (mirrors JS postEntry/postponedPill logic)
+            $post_entry        = $postponements[ $pd_key ] ?? null;
+            $reschedule_for    = $post_entry ? ( $post_entry['rescheduled_for'] ?? '' ) : '';
+            $postponed_pill    = $post_entry
+                ? '<span class="fx-postponed-pill">🚫 Postponed'
+                  . ( $reschedule_for ? ' &bull; 📅 Rescheduled ' . esc_html( $reschedule_for ) : '' )
+                  . '</span>'
+                : '';
+            // Notes column: postponed splits into two stacked pills (mirrors JS notesInner)
+            $postponed_note_pill = $post_entry
+                ? '<span class="fx-postponed-pill">🚫 Postponed</span>'
+                  . ( $reschedule_for ? '<span class="fx-reschedule-pill">📅 Rescheduled ' . esc_html( $reschedule_for ) . '</span>' : '' )
+                : '';
+
+            $notes_inner = $postponed_note_pill . $played_pill . $sc_pill;
             $fx_notes    = '<div class="fx-notes">' . $notes_inner . '</div>';
-            $fx_pills    = ( $played_pill || $sc_pill )
-                ? '<div class="fx-pills">' . $played_pill . $sc_pill . '</div>'
+            $fx_pills    = ( $postponed_pill || $played_pill || $sc_pill )
+                ? '<div class="fx-pills">' . $postponed_pill . $played_pill . $sc_pill . '</div>'
                 : '';
 
             $home_badge = lgw_cache_badge_img( $home, $badges, $club_badges );

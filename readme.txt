@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.0
+Stable tag: 7.6.1
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,6 +71,11 @@ Parameters:
 
 == Changelog ==
 
+= 7.6.1 =
+* Fix: SSR (DB-primary) path now renders postponed pill on fixture rows, matching XHR path behaviour
+* Fix: Postponed fixtures now show 🚫 Postponed / Rescheduled pills in both notes column and pill bar when served from cache
+
+
 = 7.6.0 =
 * Test: Phase 4.3 — Playwright E2E test suite added (tests/ directory)
 * Test: PHPUnit unit tests for cache read/write, CSV parsing, and result merging
@@ -79,7 +84,7 @@ Parameters:
 * Build: GitHub Actions release.yml already excludes tests/ from release ZIP
 
 
-= 7.5.5 =
+= 7.6.1 =
 * Diagnostic: log played/unplayed row counts after binding to identify fixture click issue.
 
 

@@ -87,16 +87,9 @@ class CacheTest extends TestCase {
         $this->assertGreaterThanOrEqual( $before, $written['synced_at'] );
     }
 
-    // ── lgw_cache_get_all_status returns expected shape ───────────────────────
+    // ── lgw_cache_get_status returns expected shape ───────────────────────────
 
-    public function test_get_all_status_returns_correct_shape(): void {
-        // Seed seasons option so lgw_cache_get_all_status can find the division
-        WpStubs::$options['lgw_seasons'] = [ [
-            'id'        => '2026',
-            'active'    => true,
-            'divisions' => [ [ 'division' => 'Division 1', 'csv_url' => 'https://example.com/csv' ] ],
-        ] ];
-
+    public function test_get_status_returns_correct_shape(): void {
         $data = [
             'teams'     => array_fill( 0, 8, [ 'team' => 'X', 'pl' => 0, 'pts' => 0 ] ),
             'fixtures'  => array_fill( 0, 14, [ 'homeTeam' => 'A', 'awayTeam' => 'B' ] ),
@@ -107,17 +100,13 @@ class CacheTest extends TestCase {
         ];
         WpStubs::$options['lgw_div_cache_2026_division-1'] = $data;
 
-        $all = lgw_cache_get_all_status();
+        $status = lgw_cache_get_status( '2026', 'Division 1' );
 
-        $this->assertIsArray( $all );
-        $this->assertNotEmpty( $all );
-        $status = $all[0];
         $this->assertArrayHasKey( 'synced_at',     $status );
         $this->assertArrayHasKey( 'fixture_count', $status );
         $this->assertArrayHasKey( 'team_count',    $status );
         $this->assertSame( 8,  $status['team_count'] );
         $this->assertSame( 14, $status['fixture_count'] );
-        $this->assertSame( 'ok', $status['status'] );
     }
 
     // ── lgw_cache_invalidate on missing key is a no-op ────────────────────────
