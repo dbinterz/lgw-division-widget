@@ -145,7 +145,6 @@ if ( ! defined( 'ABSPATH' ) )           define( 'ABSPATH',           '/tmp/wp/' 
 if ( ! defined( 'DAY_IN_SECONDS' ) )    define( 'DAY_IN_SECONDS',    86400 );
 if ( ! defined( 'HOUR_IN_SECONDS' ) )   define( 'HOUR_IN_SECONDS',   3600 );
 if ( ! defined( 'MINUTE_IN_SECONDS' ) ) define( 'MINUTE_IN_SECONDS', 60 );
-if ( ! defined( 'LGW_CACHE_HARD_TTL' ) ) define( 'LGW_CACHE_HARD_TTL', DAY_IN_SECONDS );
 if ( ! defined( 'WP_DEBUG' ) )          define( 'WP_DEBUG',          false );
 
 // ── LGW stubs (functions defined in other plugin files) ───────────────────────
