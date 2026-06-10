@@ -25,7 +25,7 @@ jobs:
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHPUnit
-        run: ./vendor/bin/phpunit tests/phpunit.xml --testdox
+        run: cd tests && ../vendor/bin/phpunit --configuration phpunit.xml --testdox
 
   # ── Playwright E2E Tests ──────────────────────────────────────────────────────
   playwright:
