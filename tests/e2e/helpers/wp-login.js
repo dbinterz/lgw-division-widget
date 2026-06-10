@@ -12,6 +12,7 @@ const execAsync = promisify(exec);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+const BASE_URL       = process.env.LGW_BASE_URL    || 'http://localhost:8080';
 const WP_USER        = process.env.WP_USER         || 'admin';
 const WP_PASS        = process.env.WP_PASS         || 'password';
 const CONTAINER_NAME = process.env.WP_CONTAINER    || 'nipgl-local_wordpress_1';
@@ -30,11 +31,7 @@ const TEST_PASSPHRASE_B_RAW  = 'test-pass-b';
  * @param {import('@playwright/test').Page} page
  */
 async function wpAdminLogin(page) {
-  const base = page.context().browser()._options?.baseURL
-    || process.env.LGW_BASE_URL
-    || 'http://localhost:8080';
-
-  await page.goto(`${base}/wp-login.php`);
+  await page.goto(`${BASE_URL}/wp-login.php`);
   await page.fill('#user_login', WP_USER);
   await page.fill('#user_pass',  WP_PASS);
   await page.click('#wp-submit');
@@ -71,9 +68,14 @@ async function seedTestClubs() {
 /**
  * Delete all lgw_scorecard posts. Used to reset scorecard state between test
  * file runs so results from one spec don't bleed into another.
+ * Safe when no scorecards exist.
  */
 async function deleteAllScorecards() {
-  await wpcli(`post delete $(wp post list --post_type=lgw_scorecard --format=ids --allow-root) --force --allow-root 2>/dev/null || true`);
+  // Get IDs first; skip delete entirely if there are none
+  const ids = await wpcli(`post list --post_type=lgw_scorecard --format=ids 2>/dev/null || true`);
+  if (ids && ids.trim()) {
+    await wpcli(`post delete ${ids.trim()} --force 2>/dev/null || true`);
+  }
 }
 
 /**
