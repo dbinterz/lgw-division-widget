@@ -243,9 +243,10 @@ table.lg .lgw-badge{width:20px;height:20px}
 .lgw-pip-w{background:var(--lgw-win)}
 .lgw-pip-d{background:var(--lgw-text-muted)}
 .lgw-pip-l{background:var(--lgw-loss)}
-/* Tooltip via title attr — native tooltip is fine; custom on hover for modal */
-.lgw-form-pip[title]:hover::after{content:attr(title);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:#222;color:#fff;font-size:10px;font-weight:400;white-space:nowrap;padding:3px 7px;border-radius:4px;pointer-events:none;z-index:9999;box-shadow:0 2px 6px rgba(0,0,0,.3)}
-.lgw-form-pip[title]:hover::before{content:'';position:absolute;bottom:calc(100% + 0px);left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#222;pointer-events:none;z-index:9999}
+
+/* Tooltip — right-aligned to pip, no browser native title shown */
+.lgw-form-pip[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);right:0;background:#222;color:#fff;font-size:10px;font-weight:400;white-space:nowrap;padding:3px 8px;border-radius:4px;pointer-events:none;z-index:9999;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.lgw-form-pip[data-tip]:hover::before{content:'';position:absolute;bottom:calc(100% + 2px);right:6px;border:4px solid transparent;border-top-color:#222;pointer-events:none;z-index:9999}
 /* Table form column */
 .lgw-w table.lg th.cf{text-align:right;padding-right:10px}
 .lgw-w table.lg td.cf{text-align:right;padding-right:10px}
@@ -308,6 +309,27 @@ body.lgw-modal-open{overflow:hidden}
 .lgw-modal-print svg{width:16px;height:16px;fill:#fff}
 .lgw-modal-close{font-size:22px;line-height:1}
 .lgw-modal-body{overflow-y:auto;padding:16px;flex:1;color:var(--lgw-text);background:var(--lgw-bg)}
+
+
+/* ── Clickable form pips ─────────────────────────────────────────────────────── */
+.lgw-pip-link{cursor:pointer;opacity:.92;transition:opacity .12s,transform .12s}
+.lgw-pip-link:hover{opacity:1;transform:scale(1.25)}
+.lgw-pip-link:active{transform:scale(1.1)}
+
+/* ── Fixture modal matchup header ────────────────────────────────────────────── */
+.fx-modal-matchup{display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;padding:10px;background:var(--lgw-bg-alt);border-radius:6px;border:1px solid var(--lgw-border)}
+.fx-modal-team-block{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.fx-modal-team-name{font-size:12px;font-weight:700;color:var(--lgw-navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
+.fx-modal-vs{flex-shrink:0;font-size:13px;font-weight:800;color:var(--lgw-text-muted);padding-top:2px;align-self:center}
+.fx-modal-mini-stats{display:flex;gap:5px;flex-wrap:wrap}
+.fx-mini-stat{display:inline-flex;flex-direction:column;align-items:center;background:var(--lgw-bg);border:1px solid var(--lgw-border);border-radius:4px;padding:2px 6px;min-width:28px}
+.fx-mini-val{font-size:13px;font-weight:700;color:var(--lgw-text);line-height:1.2}
+.fx-mini-pts .fx-mini-val{color:var(--lgw-pts)}
+.fx-mini-w{color:var(--lgw-win)}
+.fx-mini-d{color:var(--lgw-text-muted)}
+.fx-mini-l{color:var(--lgw-loss)}
+.fx-mini-lbl{font-size:9px;color:var(--lgw-text-muted);text-transform:uppercase;letter-spacing:.04em;line-height:1}
+.fx-modal-form-row{display:flex;gap:3px;flex-wrap:wrap}
 
 /* ── Modal stats bar ─────────────────────────────────────────────────────────── */
 .modal-stat-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}

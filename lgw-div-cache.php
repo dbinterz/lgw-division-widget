@@ -1056,10 +1056,18 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
         $groups[] = [ 'date' => $date, 'matches' => $matches ];
     }
 
+    // Sort teams for data-teams (same order as rendered table)
+    usort( $teams, function( $a, $b ) {
+        $pd = floatval( $b['pts'] ) - floatval( $a['pts'] );
+        if ( $pd !== 0.0 ) return $pd > 0 ? 1 : -1;
+        return floatval( $b['diff'] ) - floatval( $a['diff'] ) > 0 ? 1 : -1;
+    } );
+
     return [
         'table_html'    => $table_html,
         'fixtures_html' => $fixtures_html,
         'cached_json'   => wp_json_encode( $groups ),
+        'teams_json'    => wp_json_encode( $teams ),
         'hit'           => true,
     ];
 }
@@ -1109,8 +1117,8 @@ function lgw_cache_build_form_map( $fixtures ) {
 
         $hu = strtoupper( $home );
         $au = strtoupper( $away );
-        $by_team[ $hu ][] = [ 'r' => $result_home, 'tip' => $tip_home ];
-        $by_team[ $au ][] = [ 'r' => $result_away, 'tip' => $tip_away ];
+        $by_team[ $hu ][] = [ 'r' => $result_home, 'tip' => $tip_home, 'home' => $home, 'away' => $away, 'date' => $date ];
+        $by_team[ $au ][] = [ 'r' => $result_away, 'tip' => $tip_away, 'home' => $home, 'away' => $away, 'date' => $date ];
     }
 
     // Keep only last 5
@@ -1131,7 +1139,17 @@ function lgw_cache_form_pips( $form_arr ) {
     foreach ( $form_arr as $f ) {
         $cls = $f['r'] === 'W' ? 'lgw-pip-w' : ( $f['r'] === 'L' ? 'lgw-pip-l' : 'lgw-pip-d' );
         $tip = esc_attr( $f['tip'] );
-        $html .= '<span class="lgw-form-pip ' . $cls . '" title="' . $tip . '">' . $f['r'] . '</span>';
+        $has_sc = ! empty( $f['home'] ) && ! empty( $f['away'] ) && ! empty( $f['date'] );
+        if ( $has_sc ) {
+            $html .= '<span class="lgw-form-pip ' . $cls . ' lgw-pip-link"'
+                   . ' data-tip="' . $tip . '"'
+                   . ' data-sc-home="' . esc_attr( $f['home'] ) . '"'
+                   . ' data-sc-away="' . esc_attr( $f['away'] ) . '"'
+                   . ' data-sc-date="' . esc_attr( $f['date'] ) . '"'
+                   . '>' . $f['r'] . '</span>';
+        } else {
+            $html .= '<span class="lgw-form-pip ' . $cls . '" data-tip="' . $tip . '">' . $f['r'] . '</span>';
+        }
     }
     $html .= '</span>';
     return $html;

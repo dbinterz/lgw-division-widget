@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.8
+Stable tag: 7.6.12
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,19 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.12 =
+* Fix: form guide tooltip right-aligned via data-tip attribute; browser native title tooltip removed to prevent double-up.
+
+= 7.6.11 =
+* Fix: fixture scorecard modal now shows team stats and form guide on the SSR path — data-teams JSON attr passes sorted standings to JS.
+
+= 7.6.10 =
+* Fix: form guide pips on the scorecard modal are not clickable — prevents accidental navigation to a different scorecard.
+
+= 7.6.9 =
+* Feature: form guide pips are now clickable on standings table and team modal — opens the scorecard for that match.
+* Feature: fixture scorecard modal now shows summary stats (Pl/Pts/W/D/L) and last-5 form for both teams.
 
 = 7.6.8 =
 * Fix: shots-defeat shown as L not D in fixture modal — shots now primary result decider.

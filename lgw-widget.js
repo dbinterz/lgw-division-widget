@@ -473,9 +473,10 @@
     return '<div class="modal-stat"><div class="modal-stat-val">'+val+'</div><div class="modal-stat-lbl">'+lbl+'</div></div>';
   }
 
-  function showTeamModal(teamName, allRows, sourceWidget, parseFn){
+  function showTeamModal(teamName, allRows, sourceWidget, parseFn, teamsList){
     parseFn = parseFn || parseFixtureGroups;
     var teams =parseTableRows(allRows);
+    if(!teams.length && teamsList) teams=teamsList;
     var groups=parseFn(allRows);
     var teamData=null;
     for(var t=0;t<teams.length;t++){
@@ -488,7 +489,7 @@
     var statsHtml='';
     if(teamData){
       var modalFormMap=buildFormMap(groups);
-      var modalForm=formPips(modalFormMap[teamName.toUpperCase()]);
+      var modalForm=formPips(modalFormMap[teamName.toUpperCase()], true);
       statsHtml='<div class="modal-stat-bar">'
         +stat(teamData.pl,'Played')+stat(teamData.pts,'Points')
         +stat(teamData.w,'Won')+stat(teamData.d,'Drawn')+stat(teamData.l,'Lost')
@@ -550,6 +551,19 @@
     if(!hasRows) fixtureRows+='<tr><td colspan="6" style="text-align:center;color:#999">No fixtures found</td></tr>';
     fixtureRows+='</tbody></table>';
     openModal(titleHtml,statsHtml+fixtureRows,sourceWidget);
+
+    // Bind form pip scorecard click handlers
+    if(modalEl){
+      modalEl.querySelectorAll('.lgw-pip-link').forEach(function(pip){
+        pip.addEventListener('click',function(e){
+          e.stopPropagation();
+          var h=pip.getAttribute('data-sc-home');
+          var a=pip.getAttribute('data-sc-away');
+          var d=pip.getAttribute('data-sc-date');
+          if(h&&a&&d) showFixtureModal(h,a,d);
+        });
+      });
+    }
 
     // Bind scorecard click handlers on played rows in the team modal
     if(modalEl){
@@ -614,7 +628,7 @@
         function push(team,isMine){
           var k=team.toUpperCase();
           if(!byTeam[k]) byTeam[k]=[];
-          byTeam[k].push({r:result(isMine),tip:tip(isMine)});
+          byTeam[k].push({r:result(isMine),tip:tip(isMine),home:m.homeTeam,away:m.awayTeam,date:g.date});
         }
         push(m.homeTeam,true);
         push(m.awayTeam,false);
@@ -629,12 +643,21 @@
     return out;
   }
 
-  function formPips(formArr){
+  function formPips(formArr, clickable){
     if(!formArr||!formArr.length) return '';
     var html='<span class="lgw-form">';
     formArr.forEach(function(f){
       var cls=f.r==='W'?'lgw-pip-w':f.r==='L'?'lgw-pip-l':'lgw-pip-d';
-      html+='<span class="lgw-form-pip '+cls+'" title="'+f.tip.replace(/"/g,'&quot;')+'">'+f.r+'</span>';
+      var tip=f.tip.replace(/"/g,'&quot;');
+      if(clickable&&f.home&&f.away){
+        html+='<span class="lgw-form-pip '+cls+' lgw-pip-link"'
+          +' data-tip="'+tip+'"'
+          +' data-sc-home="'+f.home.replace(/"/g,'&quot;')+'"'
+          +' data-sc-away="'+f.away.replace(/"/g,'&quot;')+'"'
+          +' data-sc-date="'+f.date.replace(/"/g,'&quot;')+'">'+f.r+'</span>';
+      } else {
+        html+='<span class="lgw-form-pip '+cls+'" data-tip="'+tip+'">'+f.r+'</span>';
+      }
     });
     html+='</span>';
     return html;
@@ -946,7 +969,7 @@
       return '<div class="lgw-sponsor-bar lgw-sponsor-secondary">'+inner+'</div>';
     }
 
-    var activeFilter='all', allRows=null;
+    var activeFilter='all', allRows=null, cachedTeams=null;
     var filterStoreKey = 'lgw_filter_' + (divisionTitle || widget.id || 'default');
     try { var storedFilter = sessionStorage.getItem(filterStoreKey); if(storedFilter) activeFilter = storedFilter; } catch(e){}
 
@@ -1016,11 +1039,21 @@
     }
 
     function bindTeamLinks(){
+      // Bind form pip clicks in the standings table (SSR-rendered pips)
+      widget.querySelectorAll('.lgw-pip-link').forEach(function(pip){
+        pip.addEventListener('click',function(e){
+          e.stopPropagation();
+          var h=pip.getAttribute('data-sc-home');
+          var a=pip.getAttribute('data-sc-away');
+          var d=pip.getAttribute('data-sc-date');
+          if(h&&a&&d) showFixtureModal(h,a,d);
+        });
+      });
       widget.querySelectorAll('.lgw-team-link').forEach(function(el){
         el.addEventListener('click',function(e){
           e.stopPropagation();
           var team=el.getAttribute('data-team')||el.closest('[data-team]').getAttribute('data-team');
-          if(team&&allRows) showTeamModal(team,allRows,widget,parseFxGroups);
+          if(team&&allRows) showTeamModal(team,allRows,widget,parseFxGroups,cachedTeams);
         });
       });
       // Played fixture rows — click to show scorecard
@@ -1085,7 +1118,42 @@
       var effectiveAdmin = isAdmin && viewAsAdmin; // respects view toggle
       var pp = buildPostponePanel(home, away, date, effectiveAdmin);
       var titleHtml='<h2>'+home+' v '+away+'</h2>';
-      var bodyHtml='<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
+
+      // ── Build summary stats + form for both teams ─────────────────────
+      var fxStatsHtml='';
+      if(allRows){
+        var fxGroups=parseFxGroups(allRows);
+        var fxTeams=parseTableRows(allRows);
+        if(!fxTeams.length && cachedTeams) fxTeams=cachedTeams;
+        var fxFormMap=buildFormMap(fxGroups);
+        function fxTeamBlock(tName){
+          var td=null;
+          for(var i=0;i<fxTeams.length;i++){if(fxTeams[i].team.toUpperCase()===tName.toUpperCase()){td=fxTeams[i];break;}}
+          var form=formPips(fxFormMap[tName.toUpperCase()]);
+          var s='<div class="fx-modal-team-block">';
+          s+='<div class="fx-modal-team-name">'+badgeImg(tName)+tName+'</div>';
+          if(td){
+            s+='<div class="fx-modal-mini-stats">';
+            s+='<span class="fx-mini-stat"><span class="fx-mini-val">'+td.pl+'</span><span class="fx-mini-lbl">Pl</span></span>';
+            s+='<span class="fx-mini-stat fx-mini-pts"><span class="fx-mini-val">'+td.pts+'</span><span class="fx-mini-lbl">Pts</span></span>';
+            s+='<span class="fx-mini-stat"><span class="fx-mini-val fx-mini-w">'+td.w+'</span><span class="fx-mini-lbl">W</span></span>';
+            s+='<span class="fx-mini-stat"><span class="fx-mini-val fx-mini-d">'+td.d+'</span><span class="fx-mini-lbl">D</span></span>';
+            s+='<span class="fx-mini-stat"><span class="fx-mini-val fx-mini-l">'+td.l+'</span><span class="fx-mini-lbl">L</span></span>';
+            s+='</div>';
+          }
+          if(form) s+='<div class="fx-modal-form-row">'+form+'</div>';
+          s+='</div>';
+          return s;
+        }
+        fxStatsHtml='<div class="fx-modal-matchup">'
+          +fxTeamBlock(home)
+          +'<div class="fx-modal-vs">v</div>'
+          +fxTeamBlock(away)
+          +'</div>';
+      }
+
+      var bodyHtml=fxStatsHtml
+        +'<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
         + pp.html
         +'<hr class="lgw-sc-divider">'
         +'<div class="lgw-sc-title">Full Scorecard</div>'
@@ -1556,6 +1624,9 @@
       try {
         var cachedGroups = JSON.parse(widget.dataset.cached);
         allRows = lgwCachedGroupsToRows(cachedGroups);
+        if(widget.dataset.teams){
+          try{ cachedTeams = JSON.parse(widget.dataset.teams); }catch(e){ cachedTeams=null; }
+        }
         parseFxGroups = function(rows) { return applyScoreOverrides(cachedGroups, csvUrl); };
         var tp = getPanel('table'), fp = getPanel('fixtures');
         if (tp) {

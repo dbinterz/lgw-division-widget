@@ -108,17 +108,39 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
-## [7.6.8]
+## [7.6.7]
 ### Fixed
-- Fixture modal: shots now primary result decider — `myShots > oppShots` = W, equal = D, less = L. Fixes shots-defeat shown as D when team won 3 rinks.
-- Form guide column missing on SSR path — `lgw_cache_render_table` now generates form pips matching JS `renderTable`.
-- README.md now packaged inside `lgw-division-widget/` in release zip.
+- Form guide column missing: PHP SSR path (`lgw_cache_render_table`) now generates form pips, matching JS `renderTable`.
+- README.md now correctly placed inside `lgw-division-widget/` in the release zip.
+
+## [7.6.6]
 ### Added
-- Form guide: last 5 results per team as coloured W/D/L pips on standings table (right-aligned, hidden ≤600px) and team modal. Hovering a pip shows result, score and date.
+- Form guide: last 5 results per team shown as coloured W/D/L pips on the standings table (right-aligned, hidden ≤600px) and team modal. Hovering a pip shows result, score and date.
+
+## [7.6.5]
+### Fixed
+- Fixture modal: shots-defeat now correctly shown as L, not D, even when team won 3 rinks.
 
 ## [7.6.4]
 ### Fixed
-- (see readme.txt)
+- (previous fixes)
+
+## [7.6.12]
+### Fixed
+- Form guide tooltip right-aligned via `data-tip` attribute; browser native `title` tooltip removed to prevent double-up.
+
+## [7.6.11]
+### Fixed
+- Fixture scorecard modal now shows team stats and form guide on the SSR path — `data-teams` JSON attr passes sorted standings to JS.
+
+## [7.6.10]
+### Fixed
+- Form guide pips on the scorecard modal are not clickable — prevents accidental navigation to a different scorecard.
+
+## [7.6.9]
+### Added
+- Form guide pips are now clickable — opens the scorecard for that match.
+- Fixture scorecard modal now shows summary stats (Pl/Pts/W/D/L) and last-5 form for both teams.
 
 ## [7.6.2]
 ### Fixed
