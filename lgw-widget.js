@@ -10,6 +10,65 @@
   var recentResults  = (typeof lgwData !== 'undefined' && lgwData.recentResults)  ? lgwData.recentResults  : [];
   var scorecardStatus = (typeof lgwData !== 'undefined' && lgwData.scorecardStatus) ? lgwData.scorecardStatus : {};
   var postponements   = (typeof lgwData !== 'undefined' && lgwData.postponements)   ? lgwData.postponements   : {};
+  var concessions     = (typeof lgwData !== 'undefined' && lgwData.concessions)     ? lgwData.concessions     : {};
+
+  // ── Apply concession adjustments to parsed table rows ────────────────────────
+  // Mirrors lgw_apply_concessions_to_teams() in PHP.
+  // Called after parseTableRows(); winner +maxPts/+W/+50F, conceder -maxPts/+L/+50A.
+  function applyConcessionsToTable(teams, maxPts){
+    if(!Object.keys(concessions).length || !teams.length) return teams;
+    // Build name → index map (case-insensitive)
+    var idxMap = {};
+    teams.forEach(function(t, i){ idxMap[t.team.toUpperCase()] = i; });
+
+    Object.keys(concessions).forEach(function(key){
+      var c = concessions[key];
+      var parts = key.split('||');
+      if(parts.length < 2) return;
+      var homeName  = parts[0].trim();
+      var awayName  = parts[1].trim();
+      var homeConcedes = (c.conceding_team === 'home');
+      var winnerName = homeConcedes ? awayName : homeName;
+      var loserName  = homeConcedes ? homeName : awayName;
+      var wi = idxMap[winnerName.toUpperCase()];
+      var li = idxMap[loserName.toUpperCase()];
+      if(wi !== undefined){
+        teams[wi].pl  = (parseInt(teams[wi].pl,10)  || 0) + 1;
+        teams[wi].pts = (parseFloat(teams[wi].pts) || 0) + maxPts;
+        teams[wi].w   = (parseInt(teams[wi].w,10)   || 0) + 1;
+        teams[wi].f   = (parseInt(teams[wi].f,10)   || 0) + 50;
+        teams[wi].diff = (parseInt(teams[wi].f,10)||0) - (parseInt(teams[wi].a,10)||0);
+      }
+      if(li !== undefined){
+        teams[li].pl  = (parseInt(teams[li].pl,10)  || 0) + 1;
+        teams[li].pts = (parseFloat(teams[li].pts) || 0) - maxPts;
+        teams[li].l   = (parseInt(teams[li].l,10)   || 0) + 1;
+        teams[li].a   = (parseInt(teams[li].a,10)   || 0) + 50;
+        teams[li].diff = (parseInt(teams[li].f,10)||0) - (parseInt(teams[li].a,10)||0);
+      }
+    });
+    return teams;
+  }
+
+  // ── Apply concessions to parsed fixture groups (mark as played, 50-0 result) ─
+  function applyConcessionsToFixtures(groups, maxPts){
+    if(!Object.keys(concessions).length) return groups;
+    groups.forEach(function(g){
+      g.matches.forEach(function(m){
+        var key = (m.homeTeam+'||'+m.awayTeam+'||'+g.date).toLowerCase();
+        var c   = concessions[key];
+        if(!c) return;
+        var homeConcedes = (c.conceding_team === 'home');
+        m.shotsHome  = homeConcedes ? '0' : '50';
+        m.shotsAway  = homeConcedes ? '50' : '0';
+        m.ptsHome    = homeConcedes ? String(-maxPts) : String(maxPts);
+        m.ptsAway    = homeConcedes ? String(maxPts) : String(-maxPts);
+        m.played     = true;
+        m.conceded   = c.conceding_team;
+      });
+    });
+    return groups;
+  }
 
   // ── Apply admin score overrides to parsed fixture groups ─────────────────────
   function applyScoreOverrides(groups, csvUrl){
@@ -514,11 +573,15 @@
   }
 
   // ── Render table ──────────────────────────────────────────────────────────────
-  function renderTable(rows, promote, relegate, parseFn){
+  function renderTable(rows, promote, relegate, parseFn, maxPtsOverride){
     parseFn = parseFn || parseFixtureGroups;
     promote=promote||0; relegate=relegate||0;
     var teams=parseTableRows(rows);
     if(!teams.length) return '<div class="lgw-status">Could not find league table in data.</div>';
+
+    // Apply concession adjustments before sorting
+    var tableMaxPts = maxPtsOverride || 7;
+    if(Object.keys(concessions).length) teams = applyConcessionsToTable(teams, tableMaxPts);
 
     teams.sort(function(a,b){
       var pd=parseFloat(b.pts)-parseFloat(a.pts); if(pd!==0) return pd;
@@ -646,11 +709,18 @@
         var postponedPill=postEntry
           ?'<span class="fx-postponed-pill">&#x1F6AB; Postponed'+(postEntry.rescheduled_for?' &bull; &#x1F4C5; Rescheduled '+postEntry.rescheduled_for:'')+'</span>'
           :'';
+        // Concession pill
+        var concessionEntry=concessions[pdKey]||null;
+        var concessionPill='';
+        if(concessionEntry){
+          var concedingTeam=concessionEntry.conceding_team==='home'?m.homeTeam:m.awayTeam;
+          concessionPill='<span class="fx-conceded-pill">&#x1F3F3;&#xFE0F; Conceded ('+concedingTeam+')</span>';
+        }
         // Notes column (widescreen): all pills including postponed (split)
-        var notesInner=postponedNotePills+playedPill+scPill;
+        var notesInner=postponedNotePills+concessionPill+playedPill+scPill;
         var fxNotes='<div class="fx-notes">'+notesInner+'</div>';
         // Mobile pills row: all pills below the row
-        var fxPills=(postponedPill||playedPill||scPill)?'<div class="fx-pills">'+postponedPill+playedPill+scPill+'</div>':'';
+        var fxPills=(postponedPill||concessionPill||playedPill||scPill)?'<div class="fx-pills">'+postponedPill+concessionPill+playedPill+scPill+'</div>':'';
         h+='<div class="fx-row'+pc+'"'+fxAttrs+'>'
           +'<div class="fx-ph">'+(m.played?m.ptsHome:'')+'</div>'
           +'<div class="fx-h"><span class="lgw-team-link" data-team="'+m.homeTeam+'">'+badgeImg(m.homeTeam)+m.homeTeam+'</span></div>'
@@ -808,7 +878,13 @@
     var activeFilter='all', allRows=null;
     var filterStoreKey = 'lgw_filter_' + (divisionTitle || widget.id || 'default');
     try { var storedFilter = sessionStorage.getItem(filterStoreKey); if(storedFilter) activeFilter = storedFilter; } catch(e){}
-    var parseFxGroups=parseFixtureGroups;
+
+    // Wrap parseFixtureGroups to apply concessions and score overrides
+    var parseFxGroups = function(rows){
+      var groups = parseFixtureGroups(rows);
+      if(Object.keys(concessions).length) groups = applyConcessionsToFixtures(groups, maxPts);
+      return groups;
+    };
     var panels=widget.querySelectorAll('.lgw-panel');
     var tabs=widget.querySelectorAll('.lgw-tab');
 
@@ -977,9 +1053,45 @@
 
       var titleHtml = '<h2>'+home+' v '+away+'</h2>';
 
-      // Check existing postponement for this fixture
+      // Check existing postponement and concession for this fixture
       var pdKey2 = (home+'||'+away+'||'+date).toLowerCase();
-      var postEntry2 = postponements[pdKey2] || null;
+      var postEntry2       = postponements[pdKey2] || null;
+      var concessionEntry2 = concessions[pdKey2]   || null;
+
+      // Build concession panel (admin only)
+      var concessionPanel = '';
+      if(effectiveAdmin){
+        var isConceded2    = !!concessionEntry2;
+        var concedingSide2 = concessionEntry2 ? (concessionEntry2.conceding_team || 'away') : 'away';
+        concessionPanel =
+          '<div class="lgw-concede-panel" id="lgw-concede-panel">'
+          +'<div class="lgw-concede-toggle">'
+          +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'
+          +'<input type="checkbox" id="lgw-concede-chk"'+(isConceded2?' checked':'')+' style="width:16px;height:16px;cursor:pointer">'
+          +'<span>&#x1F3F3;&#xFE0F; Mark as conceded</span>'
+          +'</label>'
+          +'</div>'
+          +'<div class="lgw-concede-row" id="lgw-concede-row" style="margin-top:8px;display:'+(isConceded2?'flex':'none')+';align-items:center;gap:12px">'
+          +'<label style="font-size:12px;color:#666;white-space:nowrap;font-weight:600">Conceding team:</label>'
+          +'<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">'
+          +'<input type="radio" name="lgw-concede-side" id="lgw-concede-home" value="home"'+(concedingSide2==='home'?' checked':'')+'>'+home+'</label>'
+          +'<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">'
+          +'<input type="radio" name="lgw-concede-side" id="lgw-concede-away" value="away"'+(concedingSide2==='away'?' checked':'')+'>'+away+'</label>'
+          +'</div>'
+          +'<p style="font-size:12px;color:#888;margin:6px 0 8px" id="lgw-concede-note">'+(isConceded2?'':'Penalty: winner receives <strong>'+maxPts+' pts</strong> and a 50–0 victory; conceding team loses <strong>'+maxPts+' pts</strong>.')+'</p>'
+          +'<div style="display:flex;gap:8px;">'
+          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-concede-save">Save</button>'
+          +(isConceded2?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-clear">&#x274C; Clear concession</button>':'')
+          +'</div>'
+          +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+          +'</div>'
+          +'<hr class="lgw-sc-divider">';
+      } else if(concessionEntry2){
+        var concedingTeamName2 = concessionEntry2.conceding_team === 'home' ? home : away;
+        concessionPanel = '<div class="lgw-conceded-notice">'
+          +'<span class="fx-conceded-pill" style="font-size:13px;padding:4px 14px">&#x1F3F3;&#xFE0F; This fixture was conceded by <strong>'+concedingTeamName2+'</strong></span>'
+          +'</div><hr class="lgw-sc-divider">';
+      }
 
       // Build postpone panel (admin only)
       var postponePanel = '';
@@ -1016,20 +1128,24 @@
       if(!canSubmit){
         var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
           + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
+          + concessionPanel
           + postponePanel
           + '<p class="lgw-sc-none">No scorecard submitted yet.</p>';
         openModal(titleHtml, bodyHtml, widget);
+        bindConcedePanel(home, away, date, pdKey2, concessionEntry2);
         bindPostponePanel(home, away, date, pdKey2, postEntry2);
         return;
       }
 
       var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
         + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
+        + concessionPanel
         + postponePanel
         + '<hr class="lgw-sc-divider">'
         + '<div id="lgw-sc-modal-submit"></div>';
 
       openModal(titleHtml, bodyHtml, widget);
+      bindConcedePanel(home, away, date, pdKey2, concessionEntry2);
       bindPostponePanel(home, away, date, pdKey2, postEntry2);
 
       var container = document.getElementById('lgw-sc-modal-submit');
@@ -1049,6 +1165,92 @@
       } else {
         container.innerHTML='<p class="lgw-sc-none">Scorecard submission not available.</p>';
       }
+    }
+
+    // ── Concede panel binding ─────────────────────────────────────────────────
+    function bindConcedePanel(home, away, date, pdKey2, concessionEntry2){
+      var chk       = document.getElementById('lgw-concede-chk');
+      var row       = document.getElementById('lgw-concede-row');
+      var saveBtn   = document.getElementById('lgw-concede-save');
+      var clearBtn  = document.getElementById('lgw-concede-clear');
+      var statusEl  = document.getElementById('lgw-concede-status');
+      var noteEl    = document.getElementById('lgw-concede-note');
+      if(!chk) return;
+
+      chk.addEventListener('change', function(){
+        if(row) row.style.display = chk.checked ? 'flex' : 'none';
+        if(noteEl) noteEl.innerHTML = chk.checked
+          ? 'Penalty: winner receives <strong>'+maxPts+' pts</strong> and a 50–0 victory; conceding team loses <strong>'+maxPts+' pts</strong>.'
+          : '';
+      });
+
+      function doSave(action){
+        var concedingSide = 'away';
+        var sideEl = document.querySelector('input[name="lgw-concede-side"]:checked');
+        if(sideEl) concedingSide = sideEl.value;
+        var fd = new FormData();
+        fd.append('action',            'lgw_save_concession');
+        fd.append('nonce',             (typeof lgwData !== 'undefined' ? lgwData.scNonce : ''));
+        fd.append('home',              home);
+        fd.append('away',              away);
+        fd.append('date',              date);
+        fd.append('concession_action', action);
+        fd.append('conceding_team',    concedingSide);
+        if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = '⏳'; }
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', (typeof lgwData !== 'undefined' ? lgwData.ajaxUrl : '/wp-admin/admin-ajax.php'));
+        xhr.onload = function(){
+          if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+          var res = JSON.parse(xhr.responseText || '{}');
+          if(res.success){
+            if(action === 'set'){
+              concessions[pdKey2] = { conceding_team: concedingSide };
+            } else {
+              delete concessions[pdKey2];
+            }
+            showPostponeStatus(statusEl,
+              action === 'set' ? '✅ Saved — fixture marked as conceded. Reload to see standings update.' : '✅ Concession cleared.',
+              'ok'
+            );
+            refreshConcededPill(home, away, date, pdKey2);
+          } else {
+            showPostponeStatus(statusEl, '❌ ' + (res.data || 'Save failed'), 'error');
+          }
+        };
+        xhr.onerror = function(){
+          if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+          showPostponeStatus(statusEl, '❌ Network error', 'error');
+        };
+        xhr.send(fd);
+      }
+
+      if(saveBtn)  saveBtn.addEventListener('click',  function(){ doSave('set'); });
+      if(clearBtn) clearBtn.addEventListener('click', function(){ doSave('clear'); });
+    }
+
+    function refreshConcededPill(home, away, date, pdKey2){
+      widget.querySelectorAll('.fx-row[data-home][data-away][data-date]').forEach(function(row){
+        var rKey = (row.getAttribute('data-home')+'||'+row.getAttribute('data-away')+'||'+row.getAttribute('data-date')).toLowerCase();
+        if(rKey !== pdKey2) return;
+        var ce = concessions[pdKey2] || null;
+        var concedingTeam = ce ? (ce.conceding_team === 'home' ? home : away) : '';
+        var newPill = ce ? '<span class="fx-conceded-pill">&#x1F3F3;&#xFE0F; Conceded ('+concedingTeam+')</span>' : '';
+        // Update notes column
+        var notesDiv = row.querySelector('.fx-notes');
+        if(notesDiv){
+          notesDiv.querySelectorAll('.fx-conceded-pill').forEach(function(el){ el.parentNode.removeChild(el); });
+          if(newPill) notesDiv.insertAdjacentHTML('afterbegin', newPill);
+        }
+        // Update mobile pills
+        var pillsDiv = row.querySelector('.fx-pills');
+        if(pillsDiv){
+          pillsDiv.querySelectorAll('.fx-conceded-pill').forEach(function(el){ el.parentNode.removeChild(el); });
+          if(newPill) pillsDiv.insertAdjacentHTML('afterbegin', newPill);
+          pillsDiv.style.display = pillsDiv.children.length ? '' : 'none';
+        } else if(newPill){
+          row.insertAdjacentHTML('beforeend', '<div class="fx-pills">'+newPill+'</div>');
+        }
+      });
     }
 
     function bindPostponePanel(home, away, date, pdKey2, postEntry2){
@@ -1229,7 +1431,7 @@
           }
           var tp=getPanel('table'), fp=getPanel('fixtures');
           if(tp){
-            tp.innerHTML=renderTable(allRows,promote,relegate,parseFxGroups)+sponsorBar();
+            tp.innerHTML=renderTable(allRows,promote,relegate,parseFxGroups,maxPts)+sponsorBar();
             tp.insertBefore(makePrintBtn('table'),tp.firstChild);
             if(!isLive) addArchiveBanner(tp);
           }
@@ -1315,7 +1517,7 @@
         parseFxGroups=function(rows){ return applyScoreOverrides(parseFixtureGroups(rows), csvUrl); };
         var tp=getPanel('table'), fp=getPanel('fixtures');
         if(tp){
-          tp.innerHTML=renderTable(allRows,promote,relegate,parseFxGroups)+sponsorBar();
+          tp.innerHTML=renderTable(allRows,promote,relegate,parseFxGroups,maxPts)+sponsorBar();
           tp.insertBefore(makePrintBtn('table'),tp.firstChild);
         }
         if(fp){

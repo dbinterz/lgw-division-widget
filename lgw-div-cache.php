@@ -909,6 +909,63 @@ function lgw_cache_health_table_html( $all_status, $nonce ) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Apply concession penalties to the teams standings array.
+ *
+ * For each concession:
+ *  - Winner:   +max_pts pts, +1 Pl, +1 W, +50 For, +0 Agn, diff recalculated
+ *  - Conceder: -max_pts pts, +1 Pl, +1 L, +0 For, +50 Agn, diff recalculated
+ *
+ * The CSV standings already reflect all played results — concessions are
+ * additional adjustments on top (the game was never played in the sheet).
+ *
+ * @param array $teams       Team rows from lgw_cache_parse_teams()
+ * @param array $concessions From lgw_get_concessions()
+ * @param int   $max_pts     Max points per match (6 or 7)
+ * @return array Modified teams array
+ */
+function lgw_apply_concessions_to_teams( $teams, $concessions, $max_pts ) {
+    if ( empty( $concessions ) || empty( $teams ) ) return $teams;
+
+    // Build name → index map (case-insensitive)
+    $idx_map = [];
+    foreach ( $teams as $i => $t ) {
+        $idx_map[ strtoupper( trim( $t['team'] ) ) ] = $i;
+    }
+
+    foreach ( $concessions as $key => $c ) {
+        // Key format: "home||away||date" (all lowercase)
+        $parts = explode( '||', $key );
+        if ( count( $parts ) < 2 ) continue;
+        $home_name    = trim( $parts[0] );
+        $away_name    = trim( $parts[1] );
+        $home_concedes = ( $c['conceding_team'] ?? 'away' ) === 'home';
+        $winner_name  = $home_concedes ? $away_name : $home_name;
+        $loser_name   = $home_concedes ? $home_name : $away_name;
+
+        $wi = $idx_map[ strtoupper( $winner_name ) ] ?? null;
+        $li = $idx_map[ strtoupper( $loser_name  ) ] ?? null;
+
+        if ( $wi !== null ) {
+            $teams[ $wi ]['pl']   = intval( $teams[ $wi ]['pl'] )  + 1;
+            $teams[ $wi ]['pts']  = floatval( $teams[ $wi ]['pts'] ) + $max_pts;
+            $teams[ $wi ]['w']    = intval( $teams[ $wi ]['w'] )   + 1;
+            $teams[ $wi ]['f']    = intval( $teams[ $wi ]['f'] )   + 50;
+            // diff recalculated from for/against
+            $teams[ $wi ]['diff'] = intval( $teams[ $wi ]['f'] ) - intval( $teams[ $wi ]['a'] );
+        }
+        if ( $li !== null ) {
+            $teams[ $li ]['pl']   = intval( $teams[ $li ]['pl'] )  + 1;
+            $teams[ $li ]['pts']  = floatval( $teams[ $li ]['pts'] ) - $max_pts;
+            $teams[ $li ]['l']    = intval( $teams[ $li ]['l'] )   + 1;
+            $teams[ $li ]['a']    = intval( $teams[ $li ]['a'] )   + 50;
+            $teams[ $li ]['diff'] = intval( $teams[ $li ]['f'] ) - intval( $teams[ $li ]['a'] );
+        }
+    }
+
+    return $teams;
+}
+
+/**
  * Attempt to render the division widget panels from the DB cache.
  *
  * Returns an array with keys:
@@ -923,7 +980,7 @@ function lgw_cache_health_table_html( $all_status, $nonce ) {
  * @param  int    $relegate    Number of relegation places.
  * @return array
  */
-function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate = 0 ) {
+function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate = 0, $max_pts = 7 ) {
     $empty = [ 'table_html' => '', 'fixtures_html' => '', 'cached_json' => '[]', 'hit' => false ];
 
     if ( ! function_exists( 'lgw_get_active_season_id' ) ) return $empty;
@@ -953,6 +1010,29 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
     }
     unset( $fx );
 
+    // Apply concessions — marks fixture as played with 50-0 result and flags it
+    $concessions  = function_exists( 'lgw_get_concessions' ) ? lgw_get_concessions() : [];
+    $max_pts_raw  = max( 6, min( 7, intval( $max_pts ) ) );
+    foreach ( $fixtures as &$fx ) {
+        $fx_key = strtolower( ( $fx['homeTeam'] ?? '' ) . '||' . ( $fx['awayTeam'] ?? '' ) . '||' . ( $fx['date'] ?? '' ) );
+        if ( isset( $concessions[ $fx_key ] ) ) {
+            $c = $concessions[ $fx_key ];
+            $home_concedes     = ( $c['conceding_team'] ?? 'away' ) === 'home';
+            $fx['shotsHome']   = $home_concedes ? '0'  : '50';
+            $fx['shotsAway']   = $home_concedes ? '50' : '0';
+            $fx['ptsHome']     = $home_concedes ? (string) -$max_pts_raw : (string) $max_pts_raw;
+            $fx['ptsAway']     = $home_concedes ? (string) $max_pts_raw : (string) -$max_pts_raw;
+            $fx['played']      = true;
+            $fx['conceded']    = $c['conceding_team'];
+        }
+    }
+    unset( $fx );
+
+    // Apply concession adjustments to team standings (penalty deduction)
+    if ( ! empty( $concessions ) ) {
+        $teams = lgw_apply_concessions_to_teams( $teams, $concessions, $max_pts_raw );
+    }
+
     // Scorecard status map — for pill rendering on fixture rows
     $sc_status_map  = function_exists( 'lgw_build_scorecard_status_map' ) ? lgw_build_scorecard_status_map() : [];
     $played_dates   = function_exists( 'lgw_build_played_dates_map' )     ? lgw_build_played_dates_map()    : [];
@@ -963,7 +1043,7 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
 
     $table_html    = lgw_cache_render_table( $teams, $promote, $relegate, $fixtures, $badges, $club_badges );
     $postponements  = function_exists( 'lgw_get_postponements' ) ? lgw_get_postponements() : [];
-    $fixtures_html = lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $badges, $club_badges, $postponements );
+    $fixtures_html = lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $badges, $club_badges, $postponements, $concessions );
 
     // Build fixture groups array for data-cached — JS uses this for team modal + print
     $groups = [];
@@ -1092,7 +1172,7 @@ function lgw_cache_render_table( $teams, $promote, $relegate, $fixtures, $badges
  * Mirrors renderFixtures() in lgw-widget.js.
  * Always renders the full "All" filter — JS re-filters client-side via the filter bar.
  */
-function lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $badges, $club_badges, $postponements = [] ) {
+function lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $badges, $club_badges, $postponements = [], $concessions = [] ) {
     if ( empty( $fixtures ) ) return '<div class="lgw-status">No fixtures to display.</div>';
 
     // Group by date
@@ -1175,10 +1255,20 @@ function lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $b
                   . ( $reschedule_for ? '<span class="fx-reschedule-pill">📅 Rescheduled ' . esc_html( $reschedule_for ) . '</span>' : '' )
                 : '';
 
-            $notes_inner = $postponed_note_pill . $played_pill . $sc_pill;
+            // Concession pill
+            $concession_entry      = $concessions[ $pd_key ] ?? null;
+            $conceding_team_label  = '';
+            $concession_pill       = '';
+            if ( $concession_entry ) {
+                $conceding_side       = $concession_entry['conceding_team'] ?? 'away';
+                $conceding_team_label = $conceding_side === 'home' ? $home : $away;
+                $concession_pill      = '<span class="fx-conceded-pill">🏳️ Conceded (' . esc_html( $conceding_team_label ) . ')</span>';
+            }
+
+            $notes_inner = $postponed_note_pill . $concession_pill . $played_pill . $sc_pill;
             $fx_notes    = '<div class="fx-notes">' . $notes_inner . '</div>';
-            $fx_pills    = ( $postponed_pill || $played_pill || $sc_pill )
-                ? '<div class="fx-pills">' . $postponed_pill . $played_pill . $sc_pill . '</div>'
+            $fx_pills    = ( $postponed_pill || $concession_pill || $played_pill || $sc_pill )
+                ? '<div class="fx-pills">' . $postponed_pill . $concession_pill . $played_pill . $sc_pill . '</div>'
                 : '';
 
             $home_badge = lgw_cache_badge_img( $home, $badges, $club_badges );

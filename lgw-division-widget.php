@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.6.3
+ * Version: 7.6.4
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.6.3');
+define('LGW_VERSION', '7.6.4');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -535,6 +535,51 @@ function lgw_ajax_save_postponement() {
     wp_send_json_success(array('key' => $key, 'action' => $action));
 }
 
+// ── Concessions ──────────────────────────────────────────────────────────────
+/**
+ * Returns the concessions map: fixture_key → { conceding_team: 'home'|'away', conceded_on: 'YYYY-MM-DD' }
+ * fixture_key = strtolower("home||away||date")
+ */
+function lgw_get_concessions() {
+    return get_option('lgw_concessions', array());
+}
+
+// Save or clear a concession via AJAX (admin only)
+add_action('wp_ajax_lgw_save_concession', 'lgw_ajax_save_concession');
+function lgw_ajax_save_concession() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Not authorised');
+    }
+    $home   = strtolower(sanitize_text_field(wp_unslash($_POST['home'] ?? '')));
+    $away   = strtolower(sanitize_text_field(wp_unslash($_POST['away'] ?? '')));
+    $date   = strtolower(sanitize_text_field(wp_unslash($_POST['date'] ?? '')));
+    $action = sanitize_text_field($_POST['concession_action'] ?? 'set');
+    $conceding_team = sanitize_text_field($_POST['conceding_team'] ?? 'away'); // 'home' or 'away'
+
+    if (!$home || !$away || !$date) {
+        wp_send_json_error('Missing fixture details');
+    }
+    if (!in_array($conceding_team, array('home', 'away'), true)) {
+        wp_send_json_error('Invalid conceding_team value');
+    }
+
+    $key = $home . '||' . $away . '||' . $date;
+    $map = lgw_get_concessions();
+
+    if ($action === 'clear') {
+        unset($map[$key]);
+    } else {
+        $map[$key] = array(
+            'conceding_team' => $conceding_team,
+            'conceded_on'    => current_time('Y-m-d'),
+        );
+    }
+
+    update_option('lgw_concessions', $map);
+    wp_send_json_success(array('key' => $key, 'action' => $action, 'conceding_team' => $conceding_team));
+}
+
 // ── Scorecard submission status map ──────────────────────────────────────────
 /**
  * Returns a map of fixture keys → submission status ('pending'|'confirmed'|'disputed')
@@ -717,6 +762,7 @@ function lgw_enqueue() {
         'playedDates'    => lgw_build_played_dates_map(),
         'scorecardStatus'  => lgw_build_scorecard_status_map(),
         'postponements'    => lgw_build_postponements_map(),
+        'concessions'      => lgw_get_concessions(),
         'recentResults'  => lgw_get_recent_results(30),
     ));
 }
@@ -871,7 +917,8 @@ function lgw_division_shortcode($atts) {
             $atts['csv'],
             trim($atts['title']),
             intval($atts['promote']),
-            intval($atts['relegate'])
+            intval($atts['relegate']),
+            intval($atts['max_points'])
           )
         : ['hit' => false];
 

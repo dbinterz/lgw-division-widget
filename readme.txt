@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.3
+Stable tag: 7.6.4
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.4 =
+* Feature: Concession support — admin can mark any unplayed fixture as conceded via the fixture modal, specifying which team concedes; winner receives max_points pts + 50-shot victory; conceding team receives a -max_points deduction + 50 shots against; both adjustments reflected in standings table, shot difference, W/L record and Pl count; fixture row shows a purple 🏳️ Conceded pill; non-admins see a notice in the fixture modal
 
 = 7.6.2 =
 * Fix: wpAdminLogin() uses LGW_BASE_URL env var instead of private Playwright browser._options API
