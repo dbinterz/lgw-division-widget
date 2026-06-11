@@ -236,6 +236,23 @@ table.lg .lgw-badge{width:20px;height:20px}
 .lgw-team-link{cursor:pointer}
 .lgw-team-link:hover{text-decoration:underline}
 
+
+/* ── Form guide ──────────────────────────────────────────────────────────────── */
+.lgw-form{display:inline-flex;gap:3px;align-items:center}
+.lgw-form-pip{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:3px;font-size:9px;font-weight:800;color:#fff;cursor:default;line-height:1;position:relative}
+.lgw-pip-w{background:var(--lgw-win)}
+.lgw-pip-d{background:var(--lgw-text-muted)}
+.lgw-pip-l{background:var(--lgw-loss)}
+/* Tooltip via title attr — native tooltip is fine; custom on hover for modal */
+.lgw-form-pip[title]:hover::after{content:attr(title);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:#222;color:#fff;font-size:10px;font-weight:400;white-space:nowrap;padding:3px 7px;border-radius:4px;pointer-events:none;z-index:9999;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.lgw-form-pip[title]:hover::before{content:'';position:absolute;bottom:calc(100% + 0px);left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#222;pointer-events:none;z-index:9999}
+/* Table form column */
+.lgw-w table.lg th.cf{text-align:right;padding-right:10px}
+.lgw-w table.lg td.cf{text-align:right;padding-right:10px}
+/* Modal form row */
+.modal-form-row{display:flex;align-items:center;gap:8px;margin:-8px 0 14px;flex-wrap:wrap}
+.modal-form-lbl{font-size:11px;font-weight:700;color:var(--lgw-text-muted);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+
 /* ── Mobile table ────────────────────────────────────────────────────────────── */
 @media(max-width:600px){
   /* Sticky pos column */
@@ -258,6 +275,7 @@ table.lg .lgw-badge{width:20px;height:20px}
   .lgw-w table.lg tr.row-relegated td.cp,.lgw-w table.lg tr.row-relegated td.ct{background:var(--lgw-relegate-cl) !important}
   /* Badge stacking in team column */
   .lgw-w table.lg td.ct{display:flex;flex-direction:column;align-items:flex-start;gap:2px;white-space:normal;min-width:90px;max-width:130px}
+  .lgw-w table.lg th.cf,.lgw-w table.lg td.cf{display:none}
   .lgw-w table.lg td.ct .lgw-badge{margin-right:0;width:22px;height:22px}
   .lgw-w table.lg th.ct{min-width:100px}
   /* Fixture rows on mobile */

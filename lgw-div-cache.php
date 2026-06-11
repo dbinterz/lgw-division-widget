@@ -1068,6 +1068,75 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
  * Render the league standings table from cached team rows.
  * Mirrors renderTable() in lgw-widget.js exactly.
  */
+
+/**
+ * Build last-5-results form map for all teams.
+ * Mirrors buildFormMap() in lgw-widget.js.
+ *
+ * @param array $fixtures  Flat array of fixture rows (all dates, chronological order).
+ * @return array  Keyed by UPPERCASE team name => array of up to 5 ['r'=>W/D/L,'tip'=>string]
+ */
+function lgw_cache_build_form_map( $fixtures ) {
+    $by_team = [];
+
+    foreach ( $fixtures as $fx ) {
+        if ( empty( $fx['played'] ) ) continue;
+
+        $home = $fx['homeTeam'] ?? '';
+        $away = $fx['awayTeam'] ?? '';
+        $date = $fx['date']     ?? '';
+        $sh   = $fx['shotsHome'] ?? '';
+        $sa   = $fx['shotsAway'] ?? '';
+        $ph   = $fx['ptsHome']   ?? '';
+        $pa   = $fx['ptsAway']   ?? '';
+
+        if ( ! $home || ! $away ) continue;
+
+        $ms = is_numeric( $sh ) ? floatval( $sh ) : null;
+        $os = is_numeric( $sa ) ? floatval( $sa ) : null;
+
+        // Shots-primary result for each side
+        $result_home = ( $ms !== null && $os !== null )
+            ? ( $ms > $os ? 'W' : ( $ms < $os ? 'L' : 'D' ) )
+            : ( intval( $ph ) >= 4 ? 'W' : ( intval( $ph ) === 3 ? 'D' : 'L' ) );
+
+        $result_away = ( $ms !== null && $os !== null )
+            ? ( $os > $ms ? 'W' : ( $os < $ms ? 'L' : 'D' ) )
+            : ( intval( $pa ) >= 4 ? 'W' : ( intval( $pa ) === 3 ? 'D' : 'L' ) );
+
+        $tip_home = $result_home . ' v ' . $away . ' (' . $sh . '-' . $sa . ') ' . $date;
+        $tip_away = $result_away . ' v ' . $home . ' (' . $sa . '-' . $sh . ') ' . $date;
+
+        $hu = strtoupper( $home );
+        $au = strtoupper( $away );
+        $by_team[ $hu ][] = [ 'r' => $result_home, 'tip' => $tip_home ];
+        $by_team[ $au ][] = [ 'r' => $result_away, 'tip' => $tip_away ];
+    }
+
+    // Keep only last 5
+    $out = [];
+    foreach ( $by_team as $key => $arr ) {
+        $out[ $key ] = array_slice( $arr, max( 0, count( $arr ) - 5 ) );
+    }
+    return $out;
+}
+
+/**
+ * Render form pips HTML for a single team.
+ * Mirrors formPips() in lgw-widget.js.
+ */
+function lgw_cache_form_pips( $form_arr ) {
+    if ( empty( $form_arr ) ) return '';
+    $html = '<span class="lgw-form">';
+    foreach ( $form_arr as $f ) {
+        $cls = $f['r'] === 'W' ? 'lgw-pip-w' : ( $f['r'] === 'L' ? 'lgw-pip-l' : 'lgw-pip-d' );
+        $tip = esc_attr( $f['tip'] );
+        $html .= '<span class="lgw-form-pip ' . $cls . '" title="' . $tip . '">' . $f['r'] . '</span>';
+    }
+    $html .= '</span>';
+    return $html;
+}
+
 function lgw_cache_render_table( $teams, $promote, $relegate, $fixtures, $badges, $club_badges ) {
     if ( empty( $teams ) ) return '<div class="lgw-status">Could not find league table in data.</div>';
 
@@ -1099,9 +1168,12 @@ function lgw_cache_render_table( $teams, $promote, $relegate, $fixtures, $badges
     $promote  = intval( $promote );
     $relegate = intval( $relegate );
 
+    $form_map = lgw_cache_build_form_map( $fixtures );
+
     $h  = '<div class="tbl-wrap"><table class="lg"><thead><tr>';
     $h .= '<th class="cp">Pos</th><th class="ct">Team</th>';
     $h .= '<th>Pl</th><th>Pts</th><th>+/-</th><th>W</th><th>L</th><th>D</th><th>For</th><th>Agn</th>';
+    $h .= '<th class="cf">Form</th>';
     $h .= '</tr></thead><tbody>';
 
     foreach ( $teams as $idx => $t ) {
@@ -1152,6 +1224,7 @@ function lgw_cache_render_table( $teams, $promote, $relegate, $fixtures, $badges
         $h .= '<td>' . esc_html( $t['d'] )    . '</td>';
         $h .= '<td>' . esc_html( $t['f'] )    . '</td>';
         $h .= '<td>' . esc_html( $t['a'] )    . '</td>';
+        $h .= '<td class="cf">' . lgw_cache_form_pips( $form_map[ strtoupper( $t['team'] ) ] ?? [] ) . '</td>';
         $h .= '</tr>';
     }
 

@@ -108,6 +108,18 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [7.6.8]
+### Fixed
+- Fixture modal: shots now primary result decider — `myShots > oppShots` = W, equal = D, less = L. Fixes shots-defeat shown as D when team won 3 rinks.
+- Form guide column missing on SSR path — `lgw_cache_render_table` now generates form pips matching JS `renderTable`.
+- README.md now packaged inside `lgw-division-widget/` in release zip.
+### Added
+- Form guide: last 5 results per team as coloured W/D/L pips on standings table (right-aligned, hidden ≤600px) and team modal. Hovering a pip shows result, score and date.
+
+## [7.6.4]
+### Fixed
+- (see readme.txt)
+
 ## [7.6.2]
 ### Fixed
 - `wpAdminLogin()` helper no longer uses the private `browser()._options` Playwright API — base URL now read from `LGW_BASE_URL` env var (loaded via dotenv)

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.4
+Stable tag: 7.6.8
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.8 =
+* Fix: shots-defeat shown as L not D in fixture modal — shots now primary result decider.
+* Feature: form guide — last 5 results per team on standings table (hidden ≤600px) and team modal with hover tooltip.
+* Fix: form guide missing on SSR path — PHP cache render (lgw_cache_render_table) now outputs form pips.
+* Fix: README.md now packaged inside lgw-division-widget/ folder in release zip.
 
 = 7.6.4 =
 * Feature: Concession support — admin can mark any unplayed fixture as conceded via the fixture modal, specifying which team concedes; winner receives max_points pts + 50-shot victory; conceding team receives a -max_points deduction + 50 shots against; both adjustments reflected in standings table, shot difference, W/L record and Pl count; fixture row shows a purple 🏳️ Conceded pill; non-admins see a notice in the fixture modal

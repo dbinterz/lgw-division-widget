@@ -487,11 +487,14 @@
 
     var statsHtml='';
     if(teamData){
+      var modalFormMap=buildFormMap(groups);
+      var modalForm=formPips(modalFormMap[teamName.toUpperCase()]);
       statsHtml='<div class="modal-stat-bar">'
         +stat(teamData.pl,'Played')+stat(teamData.pts,'Points')
         +stat(teamData.w,'Won')+stat(teamData.d,'Drawn')+stat(teamData.l,'Lost')
         +stat(teamData.f,'For')+stat(teamData.a,'Against')+stat(teamData.diff,'+/-')
-        +'</div>';
+        +'</div>'
+        +(modalForm?'<div class="modal-form-row"><span class="modal-form-lbl">Last 5:</span>'+modalForm+'</div>':'');
     }
 
     var fixtureRows='<table class="modal-fix-table"><thead><tr>'
@@ -513,10 +516,18 @@
         var scoreStr=m.played?myShots+' - '+oppShots:'-';
         var rowCls='',resultLbl='';
         if(m.played){
-          var p=parseInt(myPts,10);
-          if(p>=4){rowCls='res';resultLbl='W';}
-          else if(p===3){rowCls='drew';resultLbl='D';}
-          else{rowCls='lost';resultLbl='L';}
+          var ms=parseFloat(myShots), os=parseFloat(oppShots);
+          // Shots are the primary decider; points used only when shots data absent
+          if(!isNaN(ms)&&!isNaN(os)){
+            if(ms>os){rowCls='res';resultLbl='W';}
+            else if(ms<os){rowCls='lost';resultLbl='L';}
+            else{rowCls='drew';resultLbl='D';}
+          } else {
+            var p=parseInt(myPts,10);
+            if(p>=4){rowCls='res';resultLbl='W';}
+            else if(p===3){rowCls='drew';resultLbl='D';}
+            else{rowCls='lost';resultLbl='L';}
+          }
         }
         var scRowId='sc-row-'+m.homeTeam.replace(/[^a-z0-9]/gi,'_')+'-'+m.awayTeam.replace(/[^a-z0-9]/gi,'_');
         var scAttrs=m.played
@@ -572,6 +583,63 @@
     }
   }
 
+
+  // ── Build form map: last 5 results per team ───────────────────────────────
+  function buildFormMap(groups){
+    // Collect all played matches in chronological order (groups are date-ordered)
+    var byTeam={};
+    groups.forEach(function(g){
+      g.matches.forEach(function(m){
+        if(!m.played) return;
+        var ms=parseFloat(m.shotsHome), os=parseFloat(m.shotsAway);
+        function result(isMine){
+          var my=isMine?ms:os, opp=isMine?os:ms;
+          if(!isNaN(my)&&!isNaN(opp)){
+            if(my>opp) return 'W';
+            if(my<opp) return 'L';
+            return 'D';
+          }
+          // fallback to points
+          var p=parseInt(isMine?m.ptsHome:m.ptsAway,10);
+          if(p>=4) return 'W';
+          if(p===3) return 'D';
+          return 'L';
+        }
+        function tip(isMine){
+          var opp=isMine?m.awayTeam:m.homeTeam;
+          var sh=isMine?m.shotsHome:m.shotsAway;
+          var sa=isMine?m.shotsAway:m.shotsHome;
+          return result(isMine)+' v '+opp+' ('+sh+'-'+sa+') '+g.date;
+        }
+        function push(team,isMine){
+          var k=team.toUpperCase();
+          if(!byTeam[k]) byTeam[k]=[];
+          byTeam[k].push({r:result(isMine),tip:tip(isMine)});
+        }
+        push(m.homeTeam,true);
+        push(m.awayTeam,false);
+      });
+    });
+    // Keep only last 5
+    var out={};
+    Object.keys(byTeam).forEach(function(k){
+      var arr=byTeam[k];
+      out[k]=arr.slice(Math.max(0,arr.length-5));
+    });
+    return out;
+  }
+
+  function formPips(formArr){
+    if(!formArr||!formArr.length) return '';
+    var html='<span class="lgw-form">';
+    formArr.forEach(function(f){
+      var cls=f.r==='W'?'lgw-pip-w':f.r==='L'?'lgw-pip-l':'lgw-pip-d';
+      html+='<span class="lgw-form-pip '+cls+'" title="'+f.tip.replace(/"/g,'&quot;')+'">'+f.r+'</span>';
+    });
+    html+='</span>';
+    return html;
+  }
+
   // ── Render table ──────────────────────────────────────────────────────────────
   function renderTable(rows, promote, relegate, parseFn, maxPtsOverride){
     parseFn = parseFn || parseFixtureGroups;
@@ -617,9 +685,11 @@
       return (safe.pts-myPts)>((gamesLeft[teams[idx].team.toUpperCase()]||0)*MAX_PTS);
     }
 
+    var formMap=buildFormMap(parseFn(rows));
     var h='<div class="tbl-wrap"><table class="lg"><thead><tr>'
       +'<th class="cp">Pos</th><th class="ct">Team</th>'
       +'<th>Pl</th><th>Pts</th><th>+/-</th><th>W</th><th>L</th><th>D</th><th>For</th><th>Agn</th>'
+      +'<th class="cf">Form</th>'
       +'</tr></thead><tbody>';
 
     teams.forEach(function(t,idx){
@@ -636,7 +706,8 @@
         +'<td class="ct"><span class="lgw-team-link">'+badgeImg(t.team)+t.team+'</span></td>'
         +'<td>'+t.pl+'</td><td class="ck">'+t.pts+'</td><td>'+t.diff+'</td>'
         +'<td>'+t.w+'</td><td>'+t.l+'</td><td>'+t.d+'</td>'
-        +'<td>'+t.f+'</td><td>'+t.a+'</td></tr>';
+        +'<td>'+t.f+'</td><td>'+t.a+'</td>'
+        +'<td class="cf">'+formPips(formMap[t.team.toUpperCase()])+'</td></tr>';
     });
 
     h+='</tbody></table></div>';
