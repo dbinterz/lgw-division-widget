@@ -1,0 +1,3202 @@
+<?php
+/**
+ * LGW Player Tracking
+ * Records player appearances from confirmed/admin-resolved scorecards.
+ * Groups by club, tracks which teams played for, supports season date ranges.
+ */
+
+// ── DB table setup ────────────────────────────────────────────────────────────
+function lgw_players_table()     { global $wpdb; return $wpdb->prefix . 'lgw_players'; }
+function lgw_appearances_table() { global $wpdb; return $wpdb->prefix . 'lgw_appearances'; }
+
+register_activation_hook(LGW_PLUGIN_FILE, 'lgw_create_player_tables');
+function lgw_create_player_tables() {
+    global $wpdb;
+    $charset = $wpdb->get_charset_collate();
+
+    $sql1 = "CREATE TABLE IF NOT EXISTS " . lgw_players_table() . " (
+        id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        club        VARCHAR(100) NOT NULL,
+        name        VARCHAR(150) NOT NULL,
+        starred     TINYINT(1)   NOT NULL DEFAULT 0,
+        female      TINYINT(1)   NOT NULL DEFAULT 0,
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY club_name (club(100), name(150))
+    ) $charset;";
+
+    $sql2 = "CREATE TABLE IF NOT EXISTS " . lgw_appearances_table() . " (
+        id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        player_id    INT UNSIGNED NOT NULL,
+        team         VARCHAR(150) NOT NULL,
+        match_title  VARCHAR(255) NOT NULL,
+        match_date   VARCHAR(50)  NOT NULL,
+        rink         TINYINT      NOT NULL DEFAULT 0,
+        scorecard_id INT UNSIGNED NOT NULL DEFAULT 0,
+        played_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        shots_for    SMALLINT     NULL DEFAULT NULL,
+        shots_against SMALLINT    NULL DEFAULT NULL,
+        result       CHAR(1)      NULL DEFAULT NULL COMMENT 'W, D, or L',
+        game_type    VARCHAR(20)  NOT NULL DEFAULT 'league' COMMENT 'league, cup, or champ',
+        champ_id     VARCHAR(100) NULL DEFAULT NULL COMMENT 'Championship ID for champ game_type',
+        match_key    VARCHAR(100) NULL DEFAULT NULL COMMENT 'Positional key section:round:match for champ rows',
+        PRIMARY KEY (id),
+        KEY player_id (player_id),
+        KEY scorecard_id (scorecard_id)
+    ) $charset;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta($sql1);
+    dbDelta($sql2);
+}
+
+// Run table creation on every load in case tables are missing (e.g. after plugin update)
+add_action('plugins_loaded', 'lgw_maybe_create_player_tables');
+function lgw_maybe_create_player_tables() {
+    global $wpdb;
+    $tbl = lgw_players_table();
+    if ($wpdb->get_var("SHOW TABLES LIKE '$tbl'") !== $tbl) {
+        lgw_create_player_tables();
+        return;
+    }
+    // Migrate: add starred + female columns if missing (upgrade from pre-5.11.0)
+    $cols = $wpdb->get_col("SHOW COLUMNS FROM $tbl");
+    if (!in_array('starred', $cols)) {
+        $wpdb->query("ALTER TABLE $tbl ADD COLUMN starred TINYINT(1) NOT NULL DEFAULT 0");
+    }
+    if (!in_array('female', $cols)) {
+        $wpdb->query("ALTER TABLE $tbl ADD COLUMN female TINYINT(1) NOT NULL DEFAULT 0");
+    }
+    // Migrate appearances table: add stats columns if missing
+    $at    = lgw_appearances_table();
+    $acols = $wpdb->get_col("SHOW COLUMNS FROM $at");
+    if (!in_array('shots_for', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN shots_for SMALLINT NULL DEFAULT NULL");
+    }
+    if (!in_array('shots_against', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN shots_against SMALLINT NULL DEFAULT NULL");
+    }
+    if (!in_array('result', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN result CHAR(1) NULL DEFAULT NULL COMMENT 'W D L'");
+    }
+    if (!in_array('game_type', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN game_type VARCHAR(20) NOT NULL DEFAULT 'league'");
+        // Back-fill game_type for existing rows from scorecard context meta
+        $wpdb->query("
+            UPDATE {$at} a
+            JOIN {$wpdb->postmeta} pm ON pm.post_id = a.scorecard_id AND pm.meta_key = 'lgw_sc_context'
+            SET a.game_type = pm.meta_value
+            WHERE a.scorecard_id > 0
+        ");
+    }
+    // Migrate appearances table: add champ_id column for championship appearance attribution
+    if (!in_array('champ_id', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN champ_id VARCHAR(100) NULL DEFAULT NULL");
+    }
+    // Migrate appearances table: add match_key column for stable positional delete on champ rows
+    if (!in_array('match_key', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN match_key VARCHAR(100) NULL DEFAULT NULL");
+    }
+}
+
+// ── Season helpers ────────────────────────────────────────────────────────────
+/**
+ * Returns the current season date range and label.
+ * Reads from the active season in lgw_seasons (managed via Seasons admin).
+ * Falls back to the legacy lgw_season option for backwards compatibility.
+ */
+function lgw_get_season() {
+    $active = lgw_get_active_season();
+    if ($active) {
+        return array(
+            'start' => $active['start'] ?? '',
+            'end'   => $active['end']   ?? '',
+            'label' => $active['label'] ?? '',
+        );
+    }
+    // Legacy fallback — pre-seasons-integration installs
+    return get_option('lgw_season', array(
+        'start' => '',
+        'end'   => '',
+        'label' => '',
+    ));
+}
+
+function lgw_season_where() {
+    global $wpdb;
+    $season = lgw_get_season();
+    if (!empty($season['start']) && !empty($season['end'])) {
+        // match_date is stored as dd/mm/yyyy — convert via STR_TO_DATE for comparison
+        return $wpdb->prepare(
+            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
+            $season['start'],
+            $season['end']
+        );
+    }
+    return ''; // no filter — show all time
+}
+
+/**
+ * Normalise an arbitrary date string to dd/mm/yyyy for consistent storage.
+ *
+ * Handles the common formats admins type into round-date fields:
+ *   01/05/2025   dd/mm/yyyy  → as-is
+ *   01/05/25     dd/mm/yy    → expand 2-digit year
+ *   2025-05-01   yyyy-mm-dd  → reformat
+ *   01-05-2025   dd-mm-yyyy  → reformat
+ *   1/5/2025     d/m/yyyy    → zero-pad
+ * Falls back to today's date if the string is empty or unrecognised.
+ */
+function lgw_normalise_date_dmy( $date_str ) {
+    $s = trim( $date_str );
+    if ( $s === '' ) return date( 'd/m/Y' );
+
+    // Already dd/mm/yyyy or d/m/yyyy (with optional 2-digit year)
+    if ( preg_match( '/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/', $s, $m ) ) {
+        $d = intval( $m[1] );
+        $mo = intval( $m[2] );
+        $y  = intval( $m[3] );
+        if ( $y < 100 ) $y += ( $y < 50 ) ? 2000 : 1900;
+        // Validate: if day > 12 it's definitely dd/mm, otherwise assume dd/mm too
+        if ( checkdate( $mo, $d, $y ) ) {
+            return sprintf( '%02d/%02d/%04d', $d, $mo, $y );
+        }
+    }
+
+    // yyyy-mm-dd
+    if ( preg_match( '/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/', $s, $m ) ) {
+        $y = intval( $m[1] ); $mo = intval( $m[2] ); $d = intval( $m[3] );
+        if ( checkdate( $mo, $d, $y ) ) {
+            return sprintf( '%02d/%02d/%04d', $d, $mo, $y );
+        }
+    }
+
+    // Try PHP's strtotime as a last resort (handles "1st May 2025" etc.)
+    $ts = strtotime( $s );
+    if ( $ts !== false ) return date( 'd/m/Y', $ts );
+
+    return date( 'd/m/Y' ); // unrecognised — use today
+}
+
+// ── Helper: midweek team-name qualifier ──────────────────────────────────────
+/**
+ * Returns the team name as it should be stored in player appearance records.
+ *
+ * For Midweek divisions (Midweek 1, Midweek 2, Midweek Cup, or any division
+ * whose name contains "midweek"), appends " MW" to the team name so that
+ * player records distinguish e.g. "Belmont A MW" from "Belmont A" (Saturday).
+ *
+ * @param string $team_name  Raw team name from the scorecard (e.g. "Belmont A").
+ * @param string $division   Division / cup name stored on the scorecard.
+ * @return string            Team name, with " MW" appended for midweek fixtures.
+ */
+function lgw_team_name_for_appearances( $team_name, $division ) {
+    if ( $team_name === '' ) return $team_name;
+    if ( stripos( $division, 'midweek' ) !== false ) {
+        // Avoid double-appending if already tagged (idempotent re-log safety)
+        if ( substr( $team_name, -3 ) !== ' MW' ) {
+            return $team_name . ' MW';
+        }
+    }
+    return $team_name;
+}
+
+// ── Core: log appearances from a scorecard ────────────────────────────────────
+function lgw_log_appearances($scorecard_post_id) {
+    global $wpdb;
+    $sc = get_post_meta($scorecard_post_id, 'lgw_scorecard_data', true);
+    if (!$sc || empty($sc['rinks'])) return;
+
+    $home_team  = $sc['home_team'] ?? '';
+    $away_team  = $sc['away_team'] ?? '';
+    $match_date = $sc['date']      ?? '';
+    $division   = $sc['division']  ?? '';
+    $match_title = $home_team . ' v ' . $away_team;
+
+    // Determine game type from scorecard context meta
+    $game_type = get_post_meta($scorecard_post_id, 'lgw_sc_context', true) ?: 'league';
+
+    // For Midweek divisions (league or cup), append " MW" to team names in
+    // player appearance records so midweek players are tracked separately.
+    $home_team_rec = lgw_team_name_for_appearances( $home_team, $division );
+    $away_team_rec = lgw_team_name_for_appearances( $away_team, $division );
+
+    // Resolve clubs from team names using existing prefix-matching
+    $home_club = lgw_team_to_club($home_team);
+    $away_club = lgw_team_to_club($away_team);
+
+    // Clear any existing appearances for this scorecard (idempotent re-log)
+    $wpdb->delete(lgw_appearances_table(), array('scorecard_id' => $scorecard_post_id), array('%d'));
+
+    // Guard against legacy scorecards where empty rink scores were stored as 0 by floatval().
+    // A scorecard has real scores if: at least one rink has a non-zero score, OR the match totals
+    // are non-zero. If everything is 0/null we treat scores as absent.
+    $has_real_scores = false;
+    $home_total = floatval($sc['home_total'] ?? 0);
+    $away_total = floatval($sc['away_total'] ?? 0);
+    if ($home_total > 0 || $away_total > 0) {
+        $has_real_scores = true;
+    } else {
+        foreach ($sc['rinks'] as $rk) {
+            if (floatval($rk['home_score'] ?? 0) > 0 || floatval($rk['away_score'] ?? 0) > 0) {
+                $has_real_scores = true;
+                break;
+            }
+        }
+    }
+
+    foreach ($sc['rinks'] as $rink) {
+        $rink_num    = intval($rink['rink'] ?? 0);
+        // Only store scores/result if this scorecard has real score data
+        if ($has_real_scores && isset($rink['home_score']) && is_numeric($rink['home_score'])
+                             && isset($rink['away_score']) && is_numeric($rink['away_score'])) {
+            $home_shots = intval($rink['home_score']);
+            $away_shots = intval($rink['away_score']);
+        } else {
+            $home_shots = null;
+            $away_shots = null;
+        }
+
+        // Determine per-rink result
+        $home_result = null;
+        $away_result = null;
+        if ($home_shots !== null && $away_shots !== null) {
+            if ($home_shots > $away_shots)      { $home_result = 'W'; $away_result = 'L'; }
+            elseif ($home_shots < $away_shots)  { $home_result = 'L'; $away_result = 'W'; }
+            else                                { $home_result = 'D'; $away_result = 'D'; }
+        }
+
+        // Home players
+        foreach (($rink['home_players'] ?? array()) as $raw_name) {
+            $is_female = (strpos($raw_name, '*') !== false);
+            $name = lgw_clean_player_name($raw_name);
+            if (!$name) continue;
+            $player_id = lgw_get_or_create_player($home_club ?: $home_team, $name);
+            if ($is_female) lgw_ensure_female_flag($player_id);
+            $wpdb->insert(lgw_appearances_table(), array(
+                'player_id'    => $player_id,
+                'team'         => $home_team_rec,
+                'match_title'  => $match_title,
+                'match_date'   => $match_date,
+                'rink'         => $rink_num,
+                'scorecard_id' => $scorecard_post_id,
+                'played_at'    => current_time('mysql'),
+                'shots_for'    => $home_shots,
+                'shots_against'=> $away_shots,
+                'result'       => $home_result,
+                'game_type'    => $game_type,
+            ), array('%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s'));
+        }
+
+        // Away players
+        foreach (($rink['away_players'] ?? array()) as $raw_name) {
+            $is_female = (strpos($raw_name, '*') !== false);
+            $name = lgw_clean_player_name($raw_name);
+            if (!$name) continue;
+            $player_id = lgw_get_or_create_player($away_club ?: $away_team, $name);
+            if ($is_female) lgw_ensure_female_flag($player_id);
+            $wpdb->insert(lgw_appearances_table(), array(
+                'player_id'    => $player_id,
+                'team'         => $away_team_rec,
+                'match_title'  => $match_title,
+                'match_date'   => $match_date,
+                'rink'         => $rink_num,
+                'scorecard_id' => $scorecard_post_id,
+                'played_at'    => current_time('mysql'),
+                'shots_for'    => $away_shots,
+                'shots_against'=> $home_shots,
+                'result'       => $away_result,
+                'game_type'    => $game_type,
+            ), array('%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s'));
+        }
+    }
+}
+
+/**
+ * Log a single championship match appearance for W/L tracking.
+ *
+ * @param string   $match_key  Positional key "section:round:match" — used for idempotent deletes.
+ */
+function lgw_log_champ_appearance( $champ_id, $entry, $result, $match_date = '', $match_title = '', $shots_for = null, $shots_against = null, $match_key = '' ) {
+    global $wpdb;
+    $comma       = strrpos( $entry, ',' );
+    $players_str = $comma !== false ? substr( $entry, 0, $comma ) : $entry;
+    $club_raw    = $comma !== false ? trim( substr( $entry, $comma + 1 ) ) : '';
+    $club        = $club_raw ?: $entry;
+    $player_names = array_filter( array_map( 'trim', explode( '/', $players_str ) ) );
+    if ( empty( $player_names ) ) return;
+
+    // Normalise date to dd/mm/yyyy — fallback to today if empty or unparseable
+    $stored_date = lgw_normalise_date_dmy( $match_date );
+
+    $at = lgw_appearances_table();
+
+    foreach ( $player_names as $raw_name ) {
+        $name = lgw_clean_player_name( $raw_name );
+        if ( !$name ) continue;
+        $player_id = lgw_get_or_create_player( $club, $name );
+
+        // Delete any existing champ row for this player at this specific match position.
+        // Scoped to match_key so earlier rounds (different positions) are preserved.
+        // Falls back to match_title if match_key is absent (legacy rows).
+        if ( $match_key ) {
+            $wpdb->query( $wpdb->prepare(
+                "DELETE FROM $at WHERE player_id = %d AND game_type = 'champ'
+                  AND (champ_id = %s OR champ_id IS NULL) AND match_key = %s",
+                $player_id, $champ_id, $match_key
+            ) );
+        } elseif ( $match_title ) {
+            $wpdb->query( $wpdb->prepare(
+                "DELETE FROM $at WHERE player_id = %d AND game_type = 'champ'
+                  AND (champ_id = %s OR champ_id IS NULL) AND match_title = %s",
+                $player_id, $champ_id, $match_title
+            ) );
+        }
+
+        $wpdb->insert( $at, array(
+            'player_id'    => $player_id,
+            'team'         => $club,
+            'match_title'  => $match_title,
+            'match_date'   => $stored_date,
+            'rink'         => 0,
+            'scorecard_id' => 0,
+            'played_at'    => current_time( 'mysql' ),
+            'shots_for'    => $shots_for,
+            'shots_against'=> $shots_against,
+            'result'       => $result,
+            'game_type'    => 'champ',
+            'champ_id'     => $champ_id,
+            'match_key'    => $match_key ?: null,
+        ), array( '%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s','%s' ) );
+    }
+}
+
+/**
+ * Remove all championship appearance records for a given champ_id + match_title.
+ */
+function lgw_clear_champ_appearances( $champ_id, $match_title ) {
+    global $wpdb;
+    $at = lgw_appearances_table();
+    $wpdb->query( $wpdb->prepare(
+        "DELETE FROM $at WHERE champ_id = %s AND match_title = %s AND game_type = 'champ'",
+        $champ_id, $match_title
+    ) );
+}
+
+/**
+ * Remove all championship appearance records for a given champ_id + positional match_key.
+ * Preferred over lgw_clear_champ_appearances — key is stable across entry renames.
+ */
+function lgw_clear_champ_appearances_by_key( $champ_id, $match_key, $match_title = '' ) {
+    global $wpdb;
+    $at = lgw_appearances_table();
+    // Only delete if we have a match_title — a match with no title has no appearance
+    // rows yet, so there is nothing to clear. The old fallback of deleting everything
+    // for the championship was a bug that wiped all other matches' records.
+    if ( $match_title === '' ) return;
+    $wpdb->query( $wpdb->prepare(
+        "DELETE FROM $at WHERE (champ_id = %s OR champ_id IS NULL) AND game_type = 'champ' AND match_title = %s",
+        $champ_id, $match_title
+    ) );
+}
+
+/**
+ * Remove ALL championship appearance records for an entire championship.
+ * Used when a full draw reset occurs.
+ */
+function lgw_clear_all_champ_appearances( $champ_id ) {
+    global $wpdb;
+    $at = lgw_appearances_table();
+    $wpdb->query( $wpdb->prepare(
+        "DELETE FROM $at WHERE champ_id = %s AND game_type = 'champ'",
+        $champ_id
+    ) );
+}
+
+
+function lgw_clean_player_name($name) {
+    // Strip trailing asterisks (e.g. "SJ Curran*") and extra whitespace
+    return trim(rtrim(trim($name), '*'));
+}
+
+function lgw_team_to_club($team) {
+    // Match team name to a configured club using existing prefix logic
+    $clubs = lgw_get_clubs();
+    foreach ($clubs as $club) {
+        if (lgw_club_matches_team($club['name'], $team)) return $club['name'];
+    }
+    return ''; // unknown club — caller falls back to team name
+}
+
+/**
+ * Normalise a player name for consistent storage.
+ * Strips trailing dots from initials so "D. Bintley" and "D Bintley" are treated as the same person.
+ * Rule: a dot is removed only when it immediately follows a single letter (the initial), optionally
+ * preceded/followed by a space — so "St. Helens" (multi-char prefix) is left alone.
+ * Examples: "D. Bintley" → "D Bintley", "J.P. Smith" → "JP Smith", "D Bintley" → "D Bintley" (no-op)
+ */
+function lgw_normalise_player_name($name) {
+    // Remove dots that follow a single capital/lowercase letter at a word boundary
+    // e.g. "D." → "D", "J.P." → "JP"
+    $name = preg_replace('/\b([A-Za-z])\./', '$1', trim($name));
+    // Collapse any double spaces that may result
+    $name = preg_replace('/ {2,}/', ' ', $name);
+    return trim($name);
+}
+
+function lgw_get_or_create_player($club, $name) {
+    global $wpdb;
+    $name = lgw_normalise_player_name($name);
+    $tbl = lgw_players_table();
+    $existing = $wpdb->get_var($wpdb->prepare(
+        "SELECT id FROM $tbl WHERE club = %s AND name = %s",
+        $club, $name
+    ));
+    if ($existing) return intval($existing);
+    $wpdb->insert($tbl, array('club' => $club, 'name' => $name), array('%s','%s'));
+    return intval($wpdb->insert_id);
+}
+
+// ── Ensure female flag is set (only ever upgrades false→true, never resets) ──
+function lgw_ensure_female_flag($player_id) {
+    global $wpdb;
+    $wpdb->update(
+        lgw_players_table(),
+        array('female' => 1),
+        array('id' => $player_id, 'female' => 0),
+        array('%d'), array('%d','%d')
+    );
+}
+
+// ── Clean up appearances when a scorecard is deleted or trashed ───────────────
+add_action('before_delete_post', 'lgw_on_scorecard_deleted');
+add_action('wp_trash_post',      'lgw_on_scorecard_deleted');
+function lgw_on_scorecard_deleted($post_id) {
+    if (get_post_type($post_id) !== 'lgw_scorecard') return;
+    global $wpdb;
+    $wpdb->delete(lgw_appearances_table(), array('scorecard_id' => $post_id), array('%d'));
+    lgw_prune_orphaned_players();
+}
+function lgw_prune_orphaned_players() {
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+    $wpdb->query(
+        "DELETE p FROM $pt p
+         LEFT JOIN $at a ON a.player_id = p.id
+         WHERE a.id IS NULL AND p.starred = 0"
+    );
+}
+
+/**
+ * Find all player pairs within the same club where one name is a dotted-initial
+ * variant of the other (e.g. "D. Bintley" vs "D Bintley").
+ * Returns array of ['keep_id', 'keep_name', 'remove_id', 'remove_name', 'club', 'appearances_moved']
+ * Keep rule: prefer the record with more appearances; on a tie, keep the one without dots (normalised form).
+ */
+function lgw_find_dotted_initial_duplicates() {
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    $players = $wpdb->get_results(
+        "SELECT p.id, p.club, p.name,
+                COUNT(a.id) AS appearances
+         FROM $pt p
+         LEFT JOIN $at a ON a.player_id = p.id
+         GROUP BY p.id
+         ORDER BY p.club, p.name"
+    );
+
+    // Build a lookup: club -> normalised_name -> [player rows]
+    $by_club_norm = array();
+    foreach ($players as $pl) {
+        $norm = lgw_normalise_player_name($pl->name);
+        $by_club_norm[$pl->club][$norm][] = $pl;
+    }
+
+    $pairs = array();
+    foreach ($by_club_norm as $club => $norm_groups) {
+        foreach ($norm_groups as $norm => $group) {
+            if (count($group) < 2) continue;
+            // Sort: most appearances first; on tie, normalised (no-dot) name first
+            usort($group, function($a, $b) use ($norm) {
+                if ($b->appearances !== $a->appearances) return $b->appearances - $a->appearances;
+                // Prefer already-normalised name (no dots) as canonical
+                $a_is_norm = (lgw_normalise_player_name($a->name) === $a->name) ? 0 : 1;
+                $b_is_norm = (lgw_normalise_player_name($b->name) === $b->name) ? 0 : 1;
+                return $a_is_norm - $b_is_norm;
+            });
+            $keep = $group[0];
+            // All others in the group are duplicates to remove
+            for ($i = 1; $i < count($group); $i++) {
+                $remove = $group[$i];
+                $pairs[] = array(
+                    'keep_id'         => intval($keep->id),
+                    'keep_name'       => $keep->name,
+                    'remove_id'       => intval($remove->id),
+                    'remove_name'     => $remove->name,
+                    'club'            => $club,
+                    'appearances_moved' => intval($remove->appearances),
+                );
+            }
+        }
+    }
+    return $pairs;
+}
+
+// ── AJAX: Get player game history ────────────────────────────────────────────
+add_action('wp_ajax_lgw_get_player_history', 'lgw_ajax_get_player_history');
+add_action('wp_ajax_lgw_check_player_name', 'lgw_ajax_check_player_name');
+function lgw_ajax_check_player_name() {
+    check_ajax_referer('lgw_players_nonce', 'nonce');
+    if (!current_user_can('manage_options') && !current_user_can('edit_others_posts'))
+        wp_send_json_error('Not authorised');
+    global $wpdb;
+    $pt      = $wpdb->prefix . 'lgw_players';
+    $club    = sanitize_text_field(wp_unslash($_POST['club']    ?? ''));
+    $name    = sanitize_text_field(wp_unslash($_POST['name']    ?? ''));
+    $exclude = intval($_POST['exclude_id'] ?? 0);
+    if (!$club || !$name) wp_send_json_error('Missing parameters');
+    $existing = $wpdb->get_row($wpdb->prepare(
+        "SELECT id, name FROM $pt WHERE club = %s AND name = %s AND id != %d LIMIT 1",
+        $club, $name, $exclude
+    ));
+    wp_send_json_success(array('exists' => !empty($existing), 'id' => $existing->id ?? null));
+}
+function lgw_ajax_get_player_history() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    check_ajax_referer('lgw_players_nonce', 'nonce');
+
+    $player_id = intval($_POST['player_id'] ?? 0);
+    if (!$player_id) wp_send_json_error('Missing player ID');
+
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    $player = $wpdb->get_row($wpdb->prepare("SELECT * FROM $pt WHERE id = %d", $player_id));
+    if (!$player) wp_send_json_error('Player not found');
+
+    $appearances = $wpdb->get_results($wpdb->prepare(
+        "SELECT a.id, a.team, a.match_title, a.match_date, a.rink, a.scorecard_id, a.played_at,
+                a.shots_for, a.shots_against, a.result, a.game_type, a.champ_id
+         FROM $at a
+         WHERE a.player_id = %d
+         ORDER BY STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') DESC, a.played_at DESC",
+        $player_id
+    ));
+
+    // Pre-load championship titles for any champ appearances
+    $champ_titles = array();
+    foreach ( $appearances as $app ) {
+        if ( $app->game_type === 'champ' && $app->champ_id && !isset( $champ_titles[$app->champ_id] ) ) {
+            $champ_data = get_option( 'lgw_champ_' . $app->champ_id, array() );
+            $champ_titles[$app->champ_id] = $champ_data['title'] ?? $app->champ_id;
+        }
+    }
+
+    // Enrich with scorecard status/competition where available
+    $enriched = array();
+    foreach ($appearances as $app) {
+        $sc_data   = $app->scorecard_id ? get_post_meta($app->scorecard_id, 'lgw_scorecard_data', true) : null;
+        $sc_status = $app->scorecard_id ? get_post_meta($app->scorecard_id, 'lgw_sc_status', true) : '';
+
+        // Build competition label: championship title for champ type, division for league/cup
+        if ( $app->game_type === 'champ' ) {
+            $competition = $champ_titles[$app->champ_id] ?? '';
+        } else {
+            $competition = $sc_data['division'] ?? '';
+        }
+
+        $enriched[] = array(
+            'match_title'   => $app->match_title,
+            'match_date'    => $app->match_date,
+            'team'          => $app->team,
+            'rink'          => $app->rink,
+            'competition'   => $competition,
+            'home_score'    => $sc_data['home_total'] ?? '',
+            'away_score'    => $sc_data['away_total'] ?? '',
+            'shots_for'     => $app->shots_for,
+            'shots_against' => $app->shots_against,
+            'result'        => $app->result,
+            'game_type'     => $app->game_type ?: 'league',
+            'status'        => $sc_status,
+            'scorecard_id'  => $app->scorecard_id,
+            'champ_id'      => $app->champ_id,
+        );
+    }
+
+    wp_send_json_success(array(
+        'player'      => array('name' => $player->name, 'club' => $player->club),
+        'appearances' => $enriched,
+    ));
+}
+
+// ── AJAX: Check which players are new (not yet in DB) for preview highlighting ─
+add_action('wp_ajax_nopriv_lgw_check_new_players', 'lgw_ajax_check_new_players');
+add_action('wp_ajax_lgw_check_new_players',        'lgw_ajax_check_new_players');
+function lgw_ajax_check_new_players() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+
+    // players: JSON array of {name, club} objects
+    $raw = json_decode(stripslashes($_POST['players'] ?? '[]'), true);
+    if (!is_array($raw)) wp_send_json_success(array());
+
+    global $wpdb;
+    $tbl    = lgw_players_table();
+    $at     = lgw_appearances_table();
+    $new    = array();
+
+    // Active season date range for appearances check
+    $season = lgw_get_season();
+    $season_where = '';
+    if (!empty($season['start']) && !empty($season['end'])) {
+        $season_where = $wpdb->prepare(
+            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
+            $season['start'], $season['end']
+        );
+    }
+
+    foreach ($raw as $entry) {
+        $name = lgw_clean_player_name(sanitize_text_field($entry['name'] ?? ''));
+        $club = sanitize_text_field($entry['club'] ?? '');
+        if (!$name || !$club) continue;
+
+        // Check if player exists at all
+        $player_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $tbl WHERE club = %s AND name = %s",
+            $club, $name
+        ));
+
+        if (!$player_id) {
+            // Brand new player — never seen before
+            $new[] = array('name' => $name, 'club' => $club, 'reason' => 'new_player');
+            continue;
+        }
+
+        // Player exists — check if they have any appearances this season
+        if ($season_where) {
+            $count = $wpdb->get_var(
+                "SELECT COUNT(*) FROM " . lgw_appearances_table() . " a
+                 WHERE a.player_id = " . intval($player_id) . " $season_where"
+            );
+            if (!$count) {
+                $new[] = array('name' => $name, 'club' => $club, 'reason' => 'new_this_season');
+            }
+        }
+    }
+
+    wp_send_json_success($new);
+}
+
+// ── AJAX: Backfill player appearances for a given season ─────────────────────
+add_action('wp_ajax_lgw_backfill_season_players', 'lgw_ajax_backfill_season_players');
+function lgw_ajax_backfill_season_players() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    $season_id = sanitize_text_field($_POST['season_id'] ?? '');
+    if (!$season_id) wp_send_json_error('Missing season ID');
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'lgw_backfill_players_' . $season_id)) {
+        wp_send_json_error('Nonce invalid');
+    }
+
+    // Strategy 1: scorecards explicitly tagged with this season ID
+    $posts_by_tag = get_posts(array(
+        'post_type'      => 'lgw_scorecard',
+        'posts_per_page' => -1,
+        'post_status'    => array('publish', 'draft'),
+        'fields'         => 'ids',
+        'meta_query'     => array(
+            array(
+                'key'   => 'lgw_sc_season',
+                'value' => $season_id,
+            ),
+        ),
+    ));
+
+    // Strategy 2: match ALL scorecards by date range (catches tagged-to-wrong-season and untagged)
+    $posts_by_date = array();
+    $season_obj = lgw_get_season_by_id($season_id);
+    if ($season_obj && !empty($season_obj['start']) && !empty($season_obj['end'])) {
+        $start = $season_obj['start']; // Y-m-d
+        $end   = $season_obj['end'];
+        $all_scorecards = get_posts(array(
+            'post_type'      => 'lgw_scorecard',
+            'posts_per_page' => -1,
+            'post_status'    => array('publish', 'draft'),
+            'fields'         => 'ids',
+        ));
+        foreach ($all_scorecards as $pid) {
+            // Skip if already found by tag — avoid redundant meta reads
+            if (in_array($pid, $posts_by_tag)) continue;
+            $sc_data  = get_post_meta($pid, 'lgw_scorecard_data', true);
+            $raw_date = $sc_data['date'] ?? '';
+            if (!$raw_date) continue;
+            $parts = explode('/', $raw_date);
+            if (count($parts) === 3) {
+                $ymd = $parts[2] . '-' . $parts[1] . '-' . $parts[0];
+                if ($ymd >= $start && $ymd <= $end) {
+                    $posts_by_date[] = $pid;
+                }
+            }
+        }
+    }
+
+    // Merge, dedupe
+    $all_ids = array_unique(array_merge($posts_by_tag, $posts_by_date));
+
+    $count = 0;
+    foreach ($all_ids as $pid) {
+        $status = get_post_meta($pid, 'lgw_sc_status', true);
+        if (in_array($status, array('confirmed', 'admin_resolved', 'auto_confirmed'), true)) {
+            lgw_log_appearances($pid);
+            $count++;
+        }
+    }
+
+    wp_send_json_success(array(
+        'count'     => $count,
+        'total'     => count($all_ids),
+        'season_id' => $season_id,
+    ));
+}
+
+// ── AJAX: Public player stats (current season) ───────────────────────────────
+// Returns W/D/L summary and teams played for in the current season.
+// Keyed by player name + club (no auth required — public scorecard context).
+add_action('wp_ajax_nopriv_lgw_get_player_stats', 'lgw_ajax_get_player_stats');
+add_action('wp_ajax_lgw_get_player_stats',        'lgw_ajax_get_player_stats');
+function lgw_ajax_get_player_stats() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+
+    $name = lgw_clean_player_name(sanitize_text_field(wp_unslash($_POST['player_name'] ?? '')));
+    $club = sanitize_text_field(wp_unslash($_POST['club'] ?? ''));
+    if (!$name) wp_send_json_error('Missing player name');
+
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    // Look up player — match by name (normalised), optionally scoped to club
+    $norm = lgw_normalise_player_name($name);
+    if ($club) {
+        $player = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $pt WHERE name = %s AND club = %s LIMIT 1",
+            $norm, $club
+        ));
+        // Fallback: exact original name
+        if (!$player) {
+            $player = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM $pt WHERE name = %s AND club = %s LIMIT 1",
+                $name, $club
+            ));
+        }
+    }
+    // Fallback: name only (pick first match)
+    if (!$player) {
+        $player = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $pt WHERE name = %s LIMIT 1", $norm
+        ));
+    }
+    if (!$player) {
+        $player = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $pt WHERE name = %s LIMIT 1", $name
+        ));
+    }
+    if (!$player) wp_send_json_error('Player not found');
+
+    // Current-season WHERE clause
+    $sw = lgw_season_where();
+
+    // Per-type W/D/L counts for current season
+    $results_raw = $wpdb->get_results($wpdb->prepare(
+        "SELECT game_type, result, COUNT(*) AS cnt
+         FROM $at a
+         WHERE a.player_id = %d AND a.result IS NOT NULL $sw
+         GROUP BY a.game_type, a.result",
+        $player->id
+    ));
+
+    $stats = array(
+        'total'  => array( 'w' => 0, 'd' => 0, 'l' => 0, 'sf' => 0, 'sa' => 0 ),
+        'league' => array( 'w' => 0, 'd' => 0, 'l' => 0, 'sf' => 0, 'sa' => 0 ),
+        'cup'    => array( 'w' => 0, 'd' => 0, 'l' => 0, 'sf' => 0, 'sa' => 0 ),
+        'champ'  => array( 'w' => 0, 'd' => 0, 'l' => 0, 'sf' => 0, 'sa' => 0 ),
+    );
+    foreach ( $results_raw as $r ) {
+        $gt = in_array( $r->game_type, array( 'league', 'cup', 'champ' ) ) ? $r->game_type : 'league';
+        $key = $r->result === 'W' ? 'w' : ( $r->result === 'D' ? 'd' : 'l' );
+        $stats[$gt][$key]   += (int)$r->cnt;
+        $stats['total'][$key] += (int)$r->cnt;
+    }
+
+    // Shots for/against breakdown
+    $shots_raw = $wpdb->get_results($wpdb->prepare(
+        "SELECT game_type,
+                SUM(CASE WHEN shots_for IS NOT NULL THEN shots_for ELSE 0 END) as sf,
+                SUM(CASE WHEN shots_against IS NOT NULL THEN shots_against ELSE 0 END) as sa
+         FROM $at a
+         WHERE a.player_id = %d $sw
+         GROUP BY a.game_type",
+        $player->id
+    ));
+    foreach ( $shots_raw as $sr ) {
+        $gt = in_array( $sr->game_type, array( 'league', 'cup', 'champ' ) ) ? $sr->game_type : 'league';
+        $stats[$gt]['sf'] += (int)$sr->sf;
+        $stats[$gt]['sa'] += (int)$sr->sa;
+        $stats['total']['sf'] += (int)$sr->sf;
+        $stats['total']['sa'] += (int)$sr->sa;
+    }
+
+    $w = $stats['total']['w'];
+    $d = $stats['total']['d'];
+    $l = $stats['total']['l'];
+    $played = $w + $d + $l;
+
+    // Distinct teams played for this season (non-champ only)
+    $teams = $wpdb->get_col($wpdb->prepare(
+        "SELECT DISTINCT a.team
+         FROM $at a
+         WHERE a.player_id = %d AND a.game_type != 'champ' $sw
+         ORDER BY a.team ASC",
+        $player->id
+    ));
+
+    // Individual game records for this season, newest first
+    $games_raw = $wpdb->get_results($wpdb->prepare(
+        "SELECT a.match_title, a.match_date, a.team, a.rink, a.scorecard_id,
+                a.shots_for, a.shots_against, a.result, a.game_type, a.champ_id
+         FROM $at a
+         WHERE a.player_id = %d $sw
+         ORDER BY STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') DESC, a.id DESC",
+        $player->id
+    ));
+
+    // Pre-load championship titles for champ-type games
+    $champ_titles_g = array();
+    foreach ( $games_raw as $g ) {
+        if ( $g->game_type === 'champ' && $g->champ_id && !isset( $champ_titles_g[$g->champ_id] ) ) {
+            $champ_data = get_option( 'lgw_champ_' . $g->champ_id, array() );
+            $champ_titles_g[$g->champ_id] = $champ_data['title'] ?? $g->champ_id;
+        }
+    }
+
+    $games = array();
+    foreach ($games_raw as $g) {
+        if ( $g->game_type === 'champ' ) {
+            $competition = $champ_titles_g[$g->champ_id] ?? '';
+        } else {
+            $sc_data     = $g->scorecard_id ? get_post_meta( (int)$g->scorecard_id, 'lgw_scorecard_data', true ) : null;
+            $competition = $sc_data['division'] ?? '';
+        }
+        $games[] = array(
+            'match'       => $g->match_title,
+            'date'        => $g->match_date,
+            'team'        => $g->team,
+            'rink'        => (int)$g->rink,
+            'competition' => $competition,
+            'for'         => $g->shots_for !== null ? (int)$g->shots_for : null,
+            'against'     => $g->shots_against !== null ? (int)$g->shots_against : null,
+            'result'      => $g->result,
+            'type'        => $g->game_type ?: 'league',
+            'champ_id'    => $g->champ_id ?: null,
+        );
+    }
+
+    wp_send_json_success(array(
+        'name'     => $player->name,
+        'club'     => $player->club,
+        'played'   => $played,
+        'won'      => $w,
+        'drawn'    => $d,
+        'lost'     => $l,
+        'teams'    => array_values($teams),
+        'games'    => $games,
+        'stats_by_type' => $stats,
+    ));
+}
+
+// ── Admin menu ────────────────────────────────────────────────────────────────
+
+// ── Early POST handler — fires on admin_init before any output ────────────────
+// Handles rename_player, update_flags, and delete_player so wp_safe_redirect()
+// can run before headers are sent.
+add_action('admin_init', 'lgw_players_admin_init');
+function lgw_players_admin_init() {
+    if (!is_admin()) return;
+    if (empty($_POST['lgw_players_action'])) return;
+    if (empty($_GET['page']) || $_GET['page'] !== 'lgw-players') return;
+    if (!current_user_can('manage_options')) return;
+    if (!check_admin_referer('lgw_players_nonce', 'lgw_players_nonce_field')) return;
+
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    $action = sanitize_text_field($_POST['lgw_players_action']);
+
+    // Only handle redirect-based actions here
+    if (!in_array($action, array('rename_player', 'update_flags', 'delete_player'))) return;
+
+    // Build redirect base, preserving season context
+    $base = admin_url('admin.php?page=lgw-players');
+    $season_id = sanitize_text_field($_GET['season'] ?? '');
+    if ($season_id) {
+        $season_obj = lgw_get_season_by_id($season_id);
+        if ($season_obj && empty($season_obj['active'])) {
+            $base = add_query_arg('season', $season_id, $base);
+        }
+    }
+
+    // Restore filter params from POST into redirect URL
+    $fc = sanitize_text_field(wp_unslash($_POST['lgw_filter_club'] ?? ''));
+    $ft = sanitize_text_field(wp_unslash($_POST['lgw_filter_team'] ?? ''));
+    $fn = sanitize_text_field(wp_unslash($_POST['lgw_filter_name'] ?? ''));
+    if ($fc) $base = add_query_arg('lgw_fc', rawurlencode($fc), $base);
+    if ($ft) $base = add_query_arg('lgw_ft', rawurlencode($ft), $base);
+    if ($fn) $base = add_query_arg('lgw_fn', rawurlencode($fn), $base);
+
+    if ($action === 'rename_player') {
+        $pid  = intval($_POST['player_id'] ?? 0);
+        $name = sanitize_text_field(wp_unslash($_POST['new_name'] ?? ''));
+        if ($pid && $name) {
+            $old_name = $wpdb->get_var($wpdb->prepare("SELECT name FROM $pt WHERE id = %d", $pid));
+            $club     = $wpdb->get_var($wpdb->prepare("SELECT club FROM $pt WHERE id = %d", $pid));
+            if ($old_name && $old_name !== $name) {
+                $existing_id = $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM $pt WHERE club = %s AND name = %s AND id != %d LIMIT 1",
+                    $club, $name, $pid
+                ));
+                if ($existing_id) {
+                    $wpdb->update($at, array('player_id' => $existing_id), array('player_id' => $pid), array('%d'), array('%d'));
+                    $wpdb->delete($pt, array('id' => $pid), array('%d'));
+                } else {
+                    $wpdb->update($pt, array('name' => $name), array('id' => $pid), array('%s'), array('%d'));
+                }
+            }
+        }
+    }
+
+    if ($action === 'update_flags') {
+        $pid     = intval($_POST['player_id'] ?? 0);
+        $starred = intval($_POST['starred'] ?? 0) ? 1 : 0;
+        $female  = intval($_POST['female']  ?? 0) ? 1 : 0;
+        if ($pid) {
+            $wpdb->update($pt,
+                array('starred' => $starred, 'female' => $female),
+                array('id' => $pid),
+                array('%d', '%d'), array('%d')
+            );
+        }
+    }
+
+    if ($action === 'delete_player') {
+        $pid = intval($_POST['player_id'] ?? 0);
+        if ($pid) {
+            $wpdb->delete($at, array('player_id' => $pid), array('%d'));
+            $wpdb->delete($pt, array('id' => $pid),        array('%d'));
+        }
+    }
+
+    wp_safe_redirect($base);
+    exit;
+}
+
+// ── Admin page ────────────────────────────────────────────────────────────────
+function lgw_players_admin_page() {
+    global $wpdb;
+    $pt  = lgw_players_table();
+    $at  = lgw_appearances_table();
+    $nonce  = wp_create_nonce('lgw_players_nonce');
+
+    // ── Season context: URL param ?season=ID overrides active season ─────────
+    $all_seasons    = lgw_get_seasons();
+    $viewing_season_id = sanitize_text_field($_GET['season'] ?? '');
+    if ($viewing_season_id) {
+        $viewing_season = lgw_get_season_by_id($viewing_season_id);
+    } else {
+        $viewing_season = lgw_get_active_season();
+        $viewing_season_id = $viewing_season ? $viewing_season['id'] : '';
+    }
+
+    if ($viewing_season) {
+        $season = array(
+            'start' => $viewing_season['start'] ?? '',
+            'end'   => $viewing_season['end']   ?? '',
+            'label' => $viewing_season['label'] ?? '',
+        );
+    } else {
+        $season = lgw_get_season(); // fallback
+    }
+
+    // Build season_where from the resolved season
+    $season_where = '';
+    if (!empty($season['start']) && !empty($season['end'])) {
+        $season_where = $wpdb->prepare(
+            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
+            $season['start'],
+            $season['end']
+        );
+    }
+
+    // Handle POST actions
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['lgw_players_action'])) {
+        check_admin_referer('lgw_players_nonce', 'lgw_players_nonce_field');
+        $action = $_POST['lgw_players_action'];
+
+        // save_season action removed — season dates now managed via Seasons admin (lgw-seasons.php)
+
+        if ($action === 'save_paid_counts') {
+            $paid_data = get_option('lgw_club_paid_counts', array());
+            $season_key = sanitize_key($season['label'] ?? 'default');
+            if (!isset($paid_data[$season_key])) $paid_data[$season_key] = array();
+            $posted = $_POST['paid'] ?? array();
+            foreach ($posted as $club_enc => $count) {
+                $club_name = sanitize_text_field(base64_decode($club_enc));
+                $paid_data[$season_key][$club_name] = max(0, intval($count));
+            }
+            update_option('lgw_club_paid_counts', $paid_data);
+            echo '<div class="notice notice-success"><p>Paid player counts saved.</p></div>';
+        }
+
+        if ($action === 'merge') {
+            $keep_id    = intval($_POST['keep_id']   ?? 0);
+            $remove_id  = intval($_POST['remove_id'] ?? 0);
+            if ($keep_id && $remove_id && $keep_id !== $remove_id) {
+                $wpdb->update($at, array('player_id' => $keep_id), array('player_id' => $remove_id), array('%d'), array('%d'));
+                $wpdb->delete($pt, array('id' => $remove_id), array('%d'));
+                echo '<div class="notice notice-success"><p>Players merged.</p></div>';
+            }
+        }
+
+        if ($action === 'auto_merge_initials') {
+            $pairs  = lgw_find_dotted_initial_duplicates();
+            $merged = 0;
+            foreach ($pairs as $pair) {
+                $keep_id   = $pair['keep_id'];
+                $remove_id = $pair['remove_id'];
+                $wpdb->update($at, array('player_id' => $keep_id), array('player_id' => $remove_id), array('%d'), array('%d'));
+                $wpdb->delete($pt, array('id' => $remove_id), array('%d'));
+                $merged++;
+            }
+            lgw_prune_orphaned_players();
+            $msg = $merged > 0 ? "Auto-merged $merged duplicate player" . ($merged !== 1 ? 's' : '') . '.' : 'No dotted-initial duplicates found.';
+            echo '<div class="notice notice-success"><p>' . esc_html($msg) . '</p></div>';
+        }
+
+        if ($action === 'add_player') {
+            $club = sanitize_text_field(wp_unslash($_POST['new_club'] ?? ''));
+            $name = sanitize_text_field(wp_unslash($_POST['new_name'] ?? ''));
+            if ($club && $name) {
+                lgw_get_or_create_player($club, $name);
+                echo '<div class="notice notice-success"><p>Player added.</p></div>';
+            }
+        }
+
+        // delete_player handled in lgw_players_admin_init
+
+        // rename_player, update_flags, and delete_player are handled in
+        // lgw_players_admin_init (hooked to admin_init) so the redirect fires
+        // before any output — avoids headers-already-sent errors.
+    }
+
+    // Fetch all players with appearance counts and aggregated stats
+    $players = $wpdb->get_results("
+        SELECT p.id, p.club, p.name, p.starred, p.female,
+               COUNT(DISTINCT a.id) as appearances,
+               GROUP_CONCAT(DISTINCT a.team ORDER BY a.team SEPARATOR ', ') as teams,
+               SUM(CASE WHEN a.result='W' THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN a.result='D' THEN 1 ELSE 0 END) as draws,
+               SUM(CASE WHEN a.result='L' THEN 1 ELSE 0 END) as losses,
+               SUM(CASE WHEN a.shots_for IS NOT NULL THEN a.shots_for ELSE 0 END) as shots_for,
+               SUM(CASE WHEN a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as shots_against,
+               SUM(CASE WHEN a.game_type='league' AND a.result='W' THEN 1 ELSE 0 END) as lge_wins,
+               SUM(CASE WHEN a.game_type='league' AND a.result='D' THEN 1 ELSE 0 END) as lge_draws,
+               SUM(CASE WHEN a.game_type='league' AND a.result='L' THEN 1 ELSE 0 END) as lge_losses,
+               SUM(CASE WHEN a.game_type='league' AND a.shots_for IS NOT NULL THEN a.shots_for ELSE 0 END) as lge_sf,
+               SUM(CASE WHEN a.game_type='league' AND a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as lge_sa,
+               SUM(CASE WHEN a.game_type='cup' AND a.result='W' THEN 1 ELSE 0 END) as cup_wins,
+               SUM(CASE WHEN a.game_type='cup' AND a.result='D' THEN 1 ELSE 0 END) as cup_draws,
+               SUM(CASE WHEN a.game_type='cup' AND a.result='L' THEN 1 ELSE 0 END) as cup_losses,
+               SUM(CASE WHEN a.game_type='cup' AND a.shots_for IS NOT NULL THEN a.shots_for ELSE 0 END) as cup_sf,
+               SUM(CASE WHEN a.game_type='cup' AND a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as cup_sa
+        FROM $pt p
+        LEFT JOIN $at a ON a.player_id = p.id " .
+        ($season_where ? "WHERE 1=1 $season_where " : "") . "
+        GROUP BY p.id
+        ORDER BY p.club, p.name
+    ");
+
+    // Per-player, per-team league stats (for the expandable breakdown in the admin table)
+    $team_stats_raw = $wpdb->get_results(
+        "SELECT a.player_id, a.team,
+                SUM(CASE WHEN a.result='W' THEN 1 ELSE 0 END) as w,
+                SUM(CASE WHEN a.result='D' THEN 1 ELSE 0 END) as d,
+                SUM(CASE WHEN a.result='L' THEN 1 ELSE 0 END) as l,
+                SUM(CASE WHEN a.shots_for     IS NOT NULL THEN a.shots_for     ELSE 0 END) as sf,
+                SUM(CASE WHEN a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as sa,
+                COUNT(DISTINCT a.id) as apps
+         FROM $at a
+         WHERE a.game_type = 'league' AND a.team IS NOT NULL AND a.team != '' " .
+        ($season_where ? "AND 1=1 $season_where " : "") . "
+         GROUP BY a.player_id, a.team
+         ORDER BY a.player_id, a.team ASC"
+    );
+    // Index by player_id → array of team rows
+    $team_stats_by_player = array();
+    foreach ($team_stats_raw as $tr) {
+        $team_stats_by_player[$tr->player_id][] = $tr;
+    }
+
+    // Group by club
+    $by_club = array();
+    foreach ($players as $pl) {
+        $pl->team_stats = $team_stats_by_player[$pl->id] ?? array();
+        $by_club[$pl->club][] = $pl;
+    }
+
+    // Get clubs list for dropdowns
+    $clubs = array_merge(
+        array_map(function($c){ return $c['name']; }, lgw_get_clubs()),
+        array_keys($by_club)
+    );
+    $clubs = array_unique($clubs);
+    sort($clubs);
+
+    // ── Club summary data ─────────────────────────────────────────────────────
+    // Load paid counts for this season
+    $paid_data   = get_option('lgw_club_paid_counts', array());
+    $season_key  = sanitize_key($season['label'] ?? 'default');
+    $paid_counts = $paid_data[$season_key] ?? array();
+
+    // Build per-club appearance counts (season-filtered)
+    $club_summary = array();
+    foreach ($clubs as $cname) {
+        $club_players = $by_club[$cname] ?? array();
+        $unique_players = count($club_players);
+        $total_apps = 0;
+        foreach ($club_players as $pl) {
+            $total_apps += intval($pl->appearances);
+        }
+        $ladies = count(array_filter($club_players, function($p){ return $p->female; }));
+        $club_summary[$cname] = array(
+            'players'  => $unique_players,
+            'apps'     => $total_apps,
+            'ladies'   => $ladies,
+            'paid'     => $paid_counts[$cname] ?? 0,
+        );
+    }
+
+    ?>
+    <div class="wrap">
+    <?php
+    $page_title = 'Player Tracking';
+    if ($viewing_season && empty($viewing_season['active'])) {
+        $page_title .= ' â ' . $viewing_season['label'];
+    }
+    lgw_page_header($page_title);
+    ?>
+
+    <style>
+    .lgw-pt-tabs{display:flex;gap:0;margin-bottom:0;border-bottom:2px solid #1a2e5a}
+    .lgw-pt-tab{padding:8px 18px;cursor:pointer;background:#f0f2f8;border:1px solid #ccc;border-bottom:none;font-weight:600;font-size:13px}
+    .lgw-pt-tab.active{background:#1a2e5a;color:#fff;border-color:#1a2e5a}
+    .lgw-pt-panel{display:none;padding:16px 0}
+    .lgw-pt-panel.active{display:block}
+    .lgw-club-section{margin-bottom:24px}
+    .lgw-club-section h3{background:#1a2e5a;color:#fff;padding:8px 12px;margin:0 0 0;font-size:14px;border-radius:4px 4px 0 0}
+    .lgw-club-section table{margin:0;border-radius:0 0 4px 4px;border-top:none}
+    .lgw-player-actions{display:flex;gap:6px;align-items:center}
+    .lgw-merge-form{background:#f6f7f7;border:1px solid #ddd;padding:16px;border-radius:4px;margin-bottom:16px}
+    .lgw-merge-form select{min-width:220px}
+    .lgw-season-form{background:#f6f7f7;border:1px solid #ddd;padding:16px;border-radius:4px;margin-bottom:16px;max-width:500px}
+    .lgw-season-form label{display:block;margin-bottom:4px;font-weight:600;font-size:13px}
+    .lgw-season-form input[type=date],.lgw-season-form input[type=text]{width:100%;margin-bottom:12px}
+    .lgw-add-form{background:#f6f7f7;border:1px solid #ddd;padding:16px;border-radius:4px;margin-bottom:16px;max-width:500px}
+    .lgw-add-form label{display:block;margin-bottom:4px;font-weight:600;font-size:13px}
+    .lgw-add-form input,.lgw-add-form select{width:100%;margin-bottom:12px}
+    .lgw-appearances-zero{color:#999}
+    .lgw-highlight{background:#fff3cd}
+    .lgw-player-link{cursor:pointer;color:#1a2e5a;text-decoration:underline dotted;border:none;background:none;padding:0;font:inherit;font-weight:600}
+    .lgw-player-link:hover{color:#0073aa}
+    /* History modal */
+    #lgw-history-modal{display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.5);align-items:flex-start;justify-content:center;padding:40px 16px}
+    #lgw-history-modal.open{display:flex}
+    #lgw-history-inner{background:#fff;border-radius:8px;width:100%;max-width:720px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+    #lgw-history-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:2px solid #1a2e5a;position:sticky;top:0;background:#fff;z-index:1}
+    #lgw-history-header h2{margin:0;font-size:16px;color:#1a2e5a}
+    #lgw-history-close{background:none;border:none;font-size:22px;cursor:pointer;color:#666;line-height:1}
+    #lgw-history-body{padding:16px 20px}
+    .lgw-history-table{width:100%;border-collapse:collapse;font-size:13px}
+    .lgw-history-table th{background:#1a2e5a;color:#fff;padding:7px 10px;text-align:left}
+    .lgw-history-table td{padding:7px 10px;border-bottom:1px solid #eee;vertical-align:middle}
+    .lgw-history-table tr:last-child td{border-bottom:none}
+    .lgw-history-table tr:hover td{background:#f0f4ff}
+    .lgw-sc-status{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:700}
+    .lgw-sc-confirmed{background:#d4edda;color:#155724}
+    .lgw-sc-pending{background:#fff3cd;color:#856404}
+    .lgw-sc-disputed{background:#f8d7da;color:#721c24}
+    /* Player filter bar */
+    .lgw-player-filters{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#f0f2f8;border:1px solid #ddd;border-radius:6px;padding:10px 14px;margin-bottom:16px}
+    .lgw-player-filters label{font-weight:600;font-size:13px;margin:0;white-space:nowrap}
+    .lgw-player-filters select,.lgw-player-filters input[type=text]{padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;min-width:160px}
+    .lgw-filter-count{font-size:12px;color:#666;margin-left:auto;white-space:nowrap}
+    .lgw-filter-clear{font-size:12px;cursor:pointer;color:#0073aa;background:none;border:none;padding:0;text-decoration:underline}
+    /* ── Club Summary table ───────────────────────────────────────────────── */
+    /* Totals bar */
+    .lgw-cs-totals-bar{
+        display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;
+        background:#1a2e5a;color:#fff;border-radius:6px 6px 0 0;
+        padding:9px 14px;font-size:13px;margin-bottom:0
+    }
+    .lgw-cs-totals-label{font-size:12px;opacity:.8}
+    .lgw-cs-totals-sep{opacity:.4}
+    .lgw-cs-totals-item{display:flex;gap:4px;align-items:center}
+    .lgw-cs-totals-key{opacity:.75;font-size:12px}
+    .lgw-cs-totals-bar strong{font-size:14px}
+    .lgw-cs-totals-clear{
+        margin-left:auto;background:none;border:1px solid rgba(255,255,255,.4);
+        color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px;
+        white-space:nowrap;transition:background .12s
+    }
+    .lgw-cs-totals-clear:hover{background:rgba(255,255,255,.15)}
+    /* Table */
+    #lgw-cs-table{border-radius:0 0 4px 4px;border-top:none;margin-top:0}
+    #lgw-cs-table thead tr.lgw-cs-sort-row th{
+        background:#e8edf8;border-bottom:1px solid #c0cde8;
+        cursor:pointer;user-select:none;white-space:nowrap;
+        padding:8px 10px;font-size:13px;transition:background .12s
+    }
+    #lgw-cs-table thead tr.lgw-cs-sort-row th:hover{background:#d4dcf0}
+    #lgw-cs-table thead tr.lgw-cs-sort-row th.lgw-cs-sort-asc,
+    #lgw-cs-table thead tr.lgw-cs-sort-row th.lgw-cs-sort-desc{background:#c8d4ee}
+    .lgw-cs-sort-icon{font-size:10px;opacity:.5;margin-left:4px}
+    .lgw-cs-sort-asc .lgw-cs-sort-icon::after{content:'▲';opacity:1}
+    .lgw-cs-sort-desc .lgw-cs-sort-icon::after{content:'▼';opacity:1}
+    /* Filter row */
+    #lgw-cs-table thead tr.lgw-cs-filter-row th{
+        background:#f6f8fc;padding:4px 6px;border-bottom:2px solid #c0cde8
+    }
+    .lgw-cs-filter-cell{vertical-align:middle}
+    .lgw-cs-filter,.lgw-cs-filter-min,.lgw-cs-filter-max{
+        width:100%;box-sizing:border-box;padding:4px 6px;
+        border:1px solid #ccc;border-radius:4px;font-size:12px;
+        font-family:inherit;background:#fff
+    }
+    .lgw-cs-filter-min,.lgw-cs-filter-max{width:calc(50% - 2px)}
+    .lgw-cs-range{display:flex;gap:4px}
+    /* Body */
+    #lgw-cs-table tbody tr:nth-child(odd){background:#fff}
+    #lgw-cs-table tbody tr:nth-child(even){background:#f6f7f7}
+    #lgw-cs-table tbody tr:hover{background:#eef2ff}
+    #lgw-cs-table tbody tr[data-hidden="1"]{display:none}
+    .lgw-cs-num{text-align:center;white-space:nowrap}
+    .lgw-cs-balance[data-raw^="-"]{color:#c0392b;font-weight:700}
+    .lgw-cs-balance:not([data-raw^="-"])[data-raw!="0"]{color:#1a6e1a;font-weight:700}
+    .lgw-cs-paid-input{width:70px;text-align:center}
+    /* Tfoot */
+    .lgw-cs-tfoot-total td{
+        background:#1a2e5a;color:#fff;font-weight:700;
+        padding:8px 10px;text-align:center
+    }
+    .lgw-cs-tfoot-total td:first-child{text-align:left}
+    .lgw-cs-tfoot-note{font-size:11px;font-weight:400;opacity:.75;margin-left:6px}
+    /* No-results row */
+    #lgw-cs-no-results{display:none;color:#888;font-style:italic;padding:10px 14px;text-align:center}
+    /* ── Per-team league stats breakdown ────────────────────────────────────── */
+    .lgw-pts-cell{font-size:12px;min-width:180px}
+    .lgw-pts-summary{display:flex;align-items:center;gap:6px;white-space:nowrap}
+    .lgw-pts-toggle{
+        background:none;border:none;padding:0 2px;cursor:pointer;
+        font-size:.85em;color:#888;line-height:1;vertical-align:middle;
+        transition:color .12s
+    }
+    .lgw-pts-toggle:hover,.lgw-pts-toggle:focus-visible{color:#1a2e5a;outline:none}
+    .lgw-pts-toggle[aria-expanded="true"]{transform:rotate(180deg)}
+    .lgw-pts-detail{margin-top:4px;border-top:1px solid #e0e0e0;padding-top:4px}
+    .lgw-pts-row{display:flex;align-items:baseline;gap:6px;padding:2px 0;white-space:nowrap}
+    .lgw-pts-total-row{border-top:1px solid #ccc;margin-top:2px;padding-top:3px;font-weight:700}
+    .lgw-pts-team-name{color:#1a2e5a;font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+    .lgw-pts-wdl{color:#333;font-variant-numeric:tabular-nums}
+    .lgw-pts-sfsa{color:#666;font-size:11px;font-variant-numeric:tabular-nums}
+    </style>
+
+    <?php
+    // ── Season switcher bar ───────────────────────────────────────────────────
+    $base_url = admin_url('admin.php?page=lgw-players');
+    if (!empty($all_seasons)):
+    ?>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <label style="font-weight:600;font-size:13px;margin:0">Viewing season:</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <?php foreach ($all_seasons as $sw_s):
+            $is_active_s = !empty($sw_s['active']);
+            $is_viewing  = ($sw_s['id'] === $viewing_season_id);
+            $sw_url = $is_active_s
+                ? $base_url
+                : esc_url(add_query_arg('season', $sw_s['id'], $base_url));
+            $btn_style = $is_viewing
+                ? 'background:#1a2e5a;color:#fff;border-color:#1a2e5a'
+                : 'background:#f0f2f8;color:#1a2e5a;border-color:#ccc';
+        ?>
+        <a href="<?php echo $sw_url; ?>"
+           class="button button-small"
+           style="<?php echo $btn_style; ?>;font-weight:600">
+            <?php echo esc_html($sw_s['label']); ?>
+            <?php if ($is_active_s): ?><span style="font-size:10px;opacity:.8"> ●</span><?php endif; ?>
+        </a>
+        <?php endforeach; ?>
+        </div>
+        <?php if (!empty($season['start']) || !empty($season['end'])): ?>
+        <span style="font-size:12px;color:#666;margin-left:4px">
+            <?php echo esc_html(($season['start'] ?: '?') . ' – ' . ($season['end'] ?: '?')); ?>
+        </span>
+        <?php elseif ($viewing_season): ?>
+        <span style="font-size:12px;color:#aaa;margin-left:4px">no date range — all-time</span>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <div class="lgw-pt-tabs">
+        <div class="lgw-pt-tab active" onclick="lgwTab('players')">Players</div>
+        <div class="lgw-pt-tab" onclick="lgwTab('clubs')">Club Summary</div>
+        <div class="lgw-pt-tab" onclick="lgwTab('merge')">Merge Duplicates</div>
+        <div class="lgw-pt-tab" onclick="lgwTab('add')">Add Player</div>
+        <div class="lgw-pt-tab" onclick="lgwTab('season')">Season Settings</div>
+    </div>
+
+    <script>
+    function lgwTab(tab) {
+        document.querySelectorAll('.lgw-pt-tab').forEach(function(t,i){
+            t.classList.toggle('active', ['players','clubs','merge','add','season'][i]===tab);
+        });
+        document.querySelectorAll('.lgw-pt-panel').forEach(function(p){
+            p.classList.toggle('active', p.id==='lgw-panel-'+tab);
+        });
+    }
+    function lgwConfirmDelete(name) {
+        return confirm('Delete player "' + name + '" and all their appearance records? This cannot be undone.');
+    }
+    // Rename inline form toggling handled via event delegation in DOMContentLoaded
+    // Populate merge dropdowns when club changes
+    function lgwMergeClub(val) {
+        var selA = document.getElementById('merge-keep');
+        var selB = document.getElementById('merge-remove');
+        [selA, selB].forEach(function(sel) {
+            Array.from(sel.options).forEach(function(opt) {
+                opt.style.display = (!val || opt.dataset.club === val || opt.value === '') ? '' : 'none';
+            });
+            sel.value = '';
+        });
+    }
+
+    // ── Player filters (cascading) ────────────────────────────────────────────
+    //
+    // Strategy: after every change, compute the set of clubs/teams reachable
+    // given the OTHER two filters, then disable options that are no longer
+    // reachable. If the current selection has been disabled, reset it to "All".
+    // This ensures the dropdowns never point at an empty result set.
+
+    function lgwRowTeams(row) {
+        // Returns array of trimmed team strings for this row
+        var raw = row.dataset.teams || '';
+        if (!raw) return [];
+        return raw.split(',').map(function(t){ return t.trim(); }).filter(Boolean);
+    }
+
+    function lgwRowMatches(row, clubVal, teamVal, nameVal) {
+        var sectionClub = row.closest('.lgw-club-section').dataset.club || '';
+        var rowName     = (row.dataset.name || '').toLowerCase();
+        var teams       = lgwRowTeams(row);
+        var clubOk  = !clubVal || sectionClub === clubVal;
+        var teamOk  = !teamVal || teams.some(function(t){ return t === teamVal; });
+        var nameOk  = !nameVal || rowName.indexOf(nameVal) !== -1;
+        return clubOk && teamOk && nameOk;
+    }
+
+    function lgwApplyFilters() {
+        var fcSel = document.getElementById('lgw-filter-club');
+        var ftSel = document.getElementById('lgw-filter-team');
+        var fnIn  = document.getElementById('lgw-filter-name');
+
+        var clubVal = fcSel ? fcSel.value : '';
+        var teamVal = ftSel ? ftSel.value : '';
+        var nameVal = fnIn  ? fnIn.value.toLowerCase().trim() : '';
+
+        // ── Compute reachable clubs (ignoring club filter itself) ─────────────
+        var reachableClubs = {};
+        var reachableTeams = {};
+        document.querySelectorAll('.lgw-club-section').forEach(function(section) {
+            var sectionClub = section.dataset.club || '';
+            section.querySelectorAll('tbody tr').forEach(function(row) {
+                // For club options: apply team + name filters only
+                if (lgwRowMatches(row, '', teamVal, nameVal)) {
+                    reachableClubs[sectionClub] = true;
+                }
+                // For team options: apply club + name filters only
+                if (lgwRowMatches(row, clubVal, '', nameVal)) {
+                    lgwRowTeams(row).forEach(function(t){ reachableTeams[t] = true; });
+                }
+            });
+        });
+
+        // ── Update Club dropdown ──────────────────────────────────────────────
+        if (fcSel) {
+            Array.from(fcSel.options).forEach(function(opt) {
+                if (opt.value === '') return; // keep "All Clubs"
+                var reachable = !!reachableClubs[opt.value];
+                opt.disabled = !reachable;
+                opt.style.color = reachable ? '' : '#bbb';
+            });
+            // If current selection is now unreachable, reset to All
+            if (clubVal && !reachableClubs[clubVal]) {
+                fcSel.value = '';
+                clubVal = '';
+            }
+        }
+
+        // ── Update Team dropdown ──────────────────────────────────────────────
+        if (ftSel) {
+            Array.from(ftSel.options).forEach(function(opt) {
+                if (opt.value === '') return; // keep "All Teams"
+                var reachable = !!reachableTeams[opt.value];
+                opt.disabled = !reachable;
+                opt.style.color = reachable ? '' : '#bbb';
+            });
+            // If current selection is now unreachable, reset to All
+            if (teamVal && !reachableTeams[teamVal]) {
+                ftSel.value = '';
+                teamVal = '';
+            }
+        }
+
+        // ── Apply row/section visibility ──────────────────────────────────────
+        var hasFilter  = clubVal || teamVal || nameVal;
+        var totalVisible = 0;
+
+        document.querySelectorAll('.lgw-club-section').forEach(function(section) {
+            var sectionClub = section.dataset.club || '';
+            if (clubVal && sectionClub !== clubVal) {
+                section.style.display = 'none';
+                return;
+            }
+            var rows = section.querySelectorAll('tbody tr');
+            var visibleInSection = 0;
+            rows.forEach(function(row) {
+                var show = lgwRowMatches(row, clubVal, teamVal, nameVal);
+                row.style.display = show ? '' : 'none';
+                if (show) visibleInSection++;
+            });
+            section.style.display = visibleInSection > 0 ? '' : 'none';
+            var countEl = section.querySelector('.lgw-club-count');
+            if (countEl) countEl.textContent = visibleInSection;
+            totalVisible += visibleInSection;
+        });
+
+        // ── Status bar ────────────────────────────────────────────────────────
+        var countEl = document.getElementById('lgw-filter-count');
+        if (countEl) countEl.textContent = hasFilter
+            ? totalVisible + ' player' + (totalVisible !== 1 ? 's' : '') + ' shown' : '';
+
+        var noResults = document.getElementById('lgw-no-filter-results');
+        if (noResults) noResults.style.display = (hasFilter && totalVisible === 0) ? '' : 'none';
+
+        var clearBtn = document.getElementById('lgw-filter-clear');
+        if (clearBtn) clearBtn.style.display = hasFilter ? '' : 'none';
+    }
+
+    function lgwClearFilters() {
+        var fc = document.getElementById('lgw-filter-club');
+        var ft = document.getElementById('lgw-filter-team');
+        var fn = document.getElementById('lgw-filter-name');
+        if (fc) { fc.value = ''; Array.from(fc.options).forEach(function(o){ o.disabled=false; o.style.color=''; }); }
+        if (ft) { ft.value = ''; Array.from(ft.options).forEach(function(o){ o.disabled=false; o.style.color=''; }); }
+        if (fn) fn.value = '';
+        // Restore section counts
+        document.querySelectorAll('.lgw-club-section').forEach(function(section) {
+            var rows = section.querySelectorAll('tbody tr');
+            var countEl = section.querySelector('.lgw-club-count');
+            if (countEl) countEl.textContent = rows.length;
+            section.style.display = '';
+            rows.forEach(function(r){ r.style.display=''; });
+        });
+        var countEl = document.getElementById('lgw-filter-count');
+        if (countEl) countEl.textContent = '';
+        var noResults = document.getElementById('lgw-no-filter-results');
+        if (noResults) noResults.style.display = 'none';
+        var clearBtn = document.getElementById('lgw-filter-clear');
+        if (clearBtn) clearBtn.style.display = 'none';
+    }
+
+
+    var lgwPlayersNonce = '<?php echo wp_create_nonce('lgw_players_nonce'); ?>';
+    var lgwAjaxUrl      = '<?php echo admin_url('admin-ajax.php'); ?>';
+    var lgwAdminUrl     = '<?php echo admin_url(); ?>';
+
+    function lgwShowPlayerHistory(playerId) {
+        var modal = document.getElementById('lgw-history-modal');
+        var body  = document.getElementById('lgw-history-body');
+        body.innerHTML = '<p>Loading…</p>';
+        modal.classList.add('open');
+
+        var fd = new FormData();
+        fd.append('action',    'lgw_get_player_history');
+        fd.append('nonce',     lgwPlayersNonce);
+        fd.append('player_id', playerId);
+
+        fetch(lgwAjaxUrl, { method: 'POST', body: fd })
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+                if (!data.success) { body.innerHTML = '<p style="color:red">'+data.data+'</p>'; return; }
+                var pl   = data.data.player;
+                var apps = data.data.appearances;
+                document.getElementById('lgw-history-title').textContent =
+                    pl.name + ' \u2014 ' + pl.club;
+
+                if (!apps.length) {
+                    body.innerHTML = '<p>No game appearances recorded yet.</p>';
+                    return;
+                }
+
+                // Calculate stats summary broken down by game type
+                var stats = {
+                    all:   {apps:0,w:0,d:0,l:0,sf:0,sa:0},
+                    league:{apps:0,w:0,d:0,l:0,sf:0,sa:0},
+                    cup:   {apps:0,w:0,d:0,l:0,sf:0,sa:0},
+                    champ: {apps:0,w:0,d:0,l:0,sf:0,sa:0}
+                };
+                apps.forEach(function(a) {
+                    var gt = (a.game_type === 'cup') ? 'cup' : (a.game_type === 'champ') ? 'champ' : 'league';
+                    stats.all.apps++;
+                    stats[gt].apps++;
+                    if (a.result === 'W') { stats.all.w++; stats[gt].w++; }
+                    else if (a.result === 'D') { stats.all.d++; stats[gt].d++; }
+                    else if (a.result === 'L') { stats.all.l++; stats[gt].l++; }
+                    if (a.shots_for !== null && a.shots_for !== '') { stats.all.sf += parseInt(a.shots_for)||0; stats[gt].sf += parseInt(a.shots_for)||0; }
+                    if (a.shots_against !== null && a.shots_against !== '') { stats.all.sa += parseInt(a.shots_against)||0; stats[gt].sa += parseInt(a.shots_against)||0; }
+                });
+
+                function statRow(label, s) {
+                    if (!s.apps) return '';
+                    var diff = s.sf - s.sa;
+                    var diffStr = diff >= 0 ? '+' + diff : String(diff);
+                    return '<tr><td><strong>' + label + '</strong></td>'
+                        + '<td style="text-align:center">' + s.apps + '</td>'
+                        + '<td style="text-align:center">' + s.w + '</td>'
+                        + '<td style="text-align:center">' + s.d + '</td>'
+                        + '<td style="text-align:center">' + s.l + '</td>'
+                        + '<td style="text-align:center">' + s.sf + '</td>'
+                        + '<td style="text-align:center">' + s.sa + '</td>'
+                        + '<td style="text-align:center">' + diffStr + '</td>'
+                        + '</tr>';
+                }
+
+                var hasStats = (stats.all.w + stats.all.d + stats.all.l) > 0;
+                var statsHtml = '';
+                if (hasStats) {
+                    statsHtml = '<table class="lgw-history-table" style="margin-bottom:18px">'
+                        + '<thead><tr><th>Competition</th><th style="text-align:center">Apps</th>'
+                        + '<th style="text-align:center">W</th><th style="text-align:center">D</th><th style="text-align:center">L</th>'
+                        + '<th style="text-align:center">SF</th><th style="text-align:center">SA</th><th style="text-align:center">+/−</th></tr></thead><tbody>'
+                        + statRow('Total', stats.all)
+                        + statRow('League', stats.league)
+                        + statRow('Cup', stats.cup)
+                        + statRow('Championships', stats.champ)
+                        + '</tbody></table>';
+                }
+
+                var html = statsHtml
+                    + '<p style="margin:0 0 10px;color:#555;font-size:13px">'
+                    + apps.length + ' appearance' + (apps.length !== 1 ? 's' : '') + ' recorded</p>'
+                    + '<table class="lgw-history-table">'
+                    + '<thead><tr><th>Date</th><th>Match</th><th>Competition</th>'
+                    + '<th style="text-align:center">Rink</th><th>Team</th>'
+                    + '<th style="text-align:center">Rink Score</th>'
+                    + '<th style="text-align:center">Result</th>'
+                    + '<th style="text-align:center">Match</th><th>Status</th>'
+                    + '<th style="text-align:center">SC</th></tr></thead><tbody>';
+
+                apps.forEach(function(a) {
+                    var rinkScoreTxt = (a.shots_for !== null && a.shots_for !== '' && a.shots_against !== null && a.shots_against !== '')
+                        ? a.shots_for + '\u2013' + a.shots_against : '\u2014';
+                    var matchScoreTxt = (a.home_score !== '' && a.away_score !== '' && a.home_score !== null && a.away_score !== null)
+                        ? a.home_score + '\u2013' + a.away_score : '\u2014';
+                    var resultHtml = '\u2014';
+                    if (a.result === 'W') resultHtml = '<span style="color:#138211;font-weight:700">W</span>';
+                    else if (a.result === 'L') resultHtml = '<span style="color:#c0392b;font-weight:700">L</span>';
+                    else if (a.result === 'D') resultHtml = '<span style="color:#e67e22;font-weight:700">D</span>';
+                    var statusHtml = '';
+                    if (a.status) {
+                        var cls = 'lgw-sc-' + ({'confirmed':'confirmed','pending':'pending','disputed':'disputed'}[a.status] || 'pending');
+                        statusHtml = '<span class="lgw-sc-status ' + cls + '">'
+                            + a.status.charAt(0).toUpperCase() + a.status.slice(1) + '</span>';
+                    }
+                    var typeLabel = a.game_type === 'cup'
+                        ? '<span style="font-size:10px;background:#072a82;color:#fff;border-radius:3px;padding:1px 5px;margin-left:4px">CUP</span>'
+                        : a.game_type === 'champ'
+                        ? '<span style="font-size:10px;background:#138211;color:#fff;border-radius:3px;padding:1px 5px;margin-left:4px">CHAMP</span>'
+                        : '';
+                    var scLink = a.scorecard_id
+                        ? '<a href="' + lgwAdminUrl + 'post.php?post=' + a.scorecard_id + '&action=edit" target="_blank" title="Edit scorecard #' + a.scorecard_id + '" style="font-size:11px;color:#072a82;text-decoration:none;white-space:nowrap">#' + a.scorecard_id + ' &#8599;</a>'
+                        : '\u2014';
+                    html += '<tr>'
+                        + '<td style="white-space:nowrap">' + lgwEsc(a.match_date) + '</td>'
+                        + '<td>' + lgwEsc(a.match_title) + typeLabel + '</td>'
+                        + '<td>' + lgwEsc(a.competition) + '</td>'
+                        + '<td style="text-align:center">' + (a.rink || '\u2014') + '</td>'
+                        + '<td>' + lgwEsc(a.team) + '</td>'
+                        + '<td style="text-align:center;white-space:nowrap">' + lgwEsc(rinkScoreTxt) + '</td>'
+                        + '<td style="text-align:center">' + resultHtml + '</td>'
+                        + '<td style="text-align:center;white-space:nowrap">' + lgwEsc(matchScoreTxt) + '</td>'
+                        + '<td>' + statusHtml + '</td>'
+                        + '<td style="text-align:center">' + scLink + '</td>'
+                        + '</tr>';
+                });
+                html += '</tbody></table>';
+                body.innerHTML = html;
+            })
+            .catch(function(){ body.innerHTML = '<p style="color:red">Request failed.</p>'; });
+    }
+
+    function lgwEsc(str) {
+        return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+
+        // ── Restore filter state from URL params (after rename/flags/delete redirect) ──
+        (function() {
+            var params = new URLSearchParams(window.location.search);
+            var fc = params.get('lgw_fc') || '';
+            var ft = params.get('lgw_ft') || '';
+            var fn = params.get('lgw_fn') || '';
+            var fcEl = document.getElementById('lgw-filter-club');
+            var ftEl = document.getElementById('lgw-filter-team');
+            var fnEl = document.getElementById('lgw-filter-name');
+            if (fc && fcEl) fcEl.value = fc;
+            if (ft && ftEl) ftEl.value = ft;
+            if (fn && fnEl) fnEl.value = fn;
+            if (fc || ft || fn) {
+                if (typeof lgwApplyFilters === 'function') lgwApplyFilters();
+                // Clean the URL so a manual reload doesn't re-apply stale filters
+                var clean = new URL(window.location.href);
+                clean.searchParams.delete('lgw_fc');
+                clean.searchParams.delete('lgw_ft');
+                clean.searchParams.delete('lgw_fn');
+                window.history.replaceState({}, '', clean.toString());
+            }
+        })();
+
+        // ── Inject current filter values into any form before it submits ─────
+        // Covers rename_player, update_flags, and delete_player forms so the
+        // PHP redirect can echo them back as URL params.
+        // NOTE: flag checkboxes use a change handler (below) because native
+        // form.submit() does not fire the submit event.
+        function lgwInjectFilters(form) {
+            var fcEl = document.getElementById('lgw-filter-club');
+            var ftEl = document.getElementById('lgw-filter-team');
+            var fnEl = document.getElementById('lgw-filter-name');
+            function injectHidden(name, value) {
+                if (form.querySelector('input[name="' + name + '"]')) return;
+                var inp = document.createElement('input');
+                inp.type = 'hidden'; inp.name = name; inp.value = value || '';
+                form.appendChild(inp);
+            }
+            injectHidden('lgw_filter_club', fcEl ? fcEl.value : '');
+            injectHidden('lgw_filter_team', ftEl ? ftEl.value : '');
+            injectHidden('lgw_filter_name', fnEl ? fnEl.value : '');
+        }
+        document.addEventListener('submit', function(e) {
+            var form = e.target;
+            if (!form.closest('#lgw-panel-players')) return;
+            lgwInjectFilters(form);
+        }, true); // capture phase so it runs before form.submit() calls
+
+        // Flag checkboxes (★/♀) call native form.submit() via onchange which does
+        // NOT fire the submit event — handle via change delegation instead.
+        document.addEventListener('change', function(e) {
+            var cb = e.target.closest('.lgw-flag-checkbox');
+            if (!cb) return;
+            var form = cb.closest('form');
+            if (!form) return;
+            lgwInjectFilters(form);
+            form.submit();
+        });
+
+        document.getElementById('lgw-history-close').addEventListener('click', function(){
+            document.getElementById('lgw-history-modal').classList.remove('open');
+        });
+        document.getElementById('lgw-history-modal').addEventListener('click', function(e){
+            if (e.target === this) this.classList.remove('open');
+        });
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape') {
+                document.getElementById('lgw-history-modal').classList.remove('open');
+                document.getElementById('lgw-rename-modal').style.display = 'none';
+            }
+        });
+
+        // ── Player name link via event delegation ────────────────────────────
+        document.addEventListener('click', function(e) {
+            var histBtn = e.target.closest('.lgw-player-link[data-pid]');
+            if (histBtn) { lgwShowPlayerHistory(histBtn.dataset.pid); return; }
+
+            // Per-team league stats expand/collapse toggle
+            var toggle = e.target.closest('.lgw-pts-toggle');
+            if (toggle) {
+                var isOpen = toggle.getAttribute('aria-expanded') === 'true';
+                var cell = toggle.closest('.lgw-pts-cell');
+                if (cell) {
+                    var detail = cell.querySelector('.lgw-pts-detail');
+                    if (detail) {
+                        detail.hidden = isOpen;
+                        toggle.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+                        toggle.title = isOpen ? 'Show per-team breakdown' : 'Hide per-team breakdown';
+                    }
+                }
+                return;
+            }
+
+            // Rename trigger: show inline input
+            var trigger = e.target.closest('.lgw-rename-trigger');
+            if (trigger) {
+                var form = trigger.closest('.lgw-rename-form');
+                form.querySelector('.lgw-rename-static').style.display = 'none';
+                var active = form.querySelector('.lgw-rename-active');
+                active.style.display = '';
+                var inp = active.querySelector('.lgw-rename-input');
+                inp.focus(); inp.select();
+                return;
+            }
+
+            // Rename cancel
+            var cancelBtn = e.target.closest('.lgw-rename-cancel');
+            if (cancelBtn) {
+                var form = cancelBtn.closest('.lgw-rename-form');
+                form.querySelector('.lgw-rename-active').style.display = 'none';
+                form.querySelector('.lgw-rename-static').style.display = '';
+                return;
+            }
+        });
+
+        // Rename form submit: check for duplicate name before allowing
+        document.querySelectorAll('.lgw-rename-form').forEach(function(form) {
+            form.addEventListener('submit', function(e) {
+                var inp     = form.querySelector('.lgw-rename-input');
+                var newName = inp.value.trim();
+                var pid     = form.querySelector('[name="player_id"]').value;
+                if (!newName) { e.preventDefault(); return; }
+
+                // Check for existing player with same name in same club via AJAX
+                // We store the club on the form's trigger button
+                var club = form.querySelector('.lgw-rename-trigger') 
+                    ? form.querySelector('.lgw-rename-trigger').dataset.club 
+                    : '';
+
+                if (!club || form.dataset.mergeConfirmed === '1') return; // allow submit
+
+                e.preventDefault();
+                var fd = new FormData();
+                fd.append('action',     'lgw_check_player_name');
+                fd.append('nonce',      lgwPlayersNonce);
+                fd.append('club',       club);
+                fd.append('name',       newName);
+                fd.append('exclude_id', pid);
+
+                fetch(lgwAjaxUrl, { method: 'POST', body: fd })
+                    .then(function(r){ return r.json(); })
+                    .then(function(res){
+                        if (res.success && res.data.exists) {
+                            if (confirm('⚠️ "' + newName + '" already exists for this club. Renaming will merge these two players. Continue?')) {
+                                form.dataset.mergeConfirmed = '1';
+                                form.submit();
+                            }
+                        } else {
+                            form.dataset.mergeConfirmed = '1';
+                            form.submit();
+                        }
+                    })
+                    .catch(function(){
+                        if (confirm('Could not check for duplicates. Submit anyway?')) {
+                            form.dataset.mergeConfirmed = '1';
+                            form.submit();
+                        }
+                    });
+            });
+        });
+
+
+
+        // ── Club Summary: sort + filter + live totals ────────────────────────
+        var csTable  = document.getElementById('lgw-cs-table');
+        if (!csTable) return;
+
+        var csTbody  = document.getElementById('lgw-cs-tbody');
+        var totalRows = csTbody ? csTbody.rows.length : 0;
+
+        var csSort = { col: -1, dir: 1 }; // dir: 1=asc, -1=desc
+
+        // Paid input changes update the row's data-paid and recalc totals
+        csTable.querySelectorAll('.lgw-cs-paid-input').forEach(function(inp) {
+            inp.addEventListener('input', function() {
+                var row = inp.closest('tr');
+                if (!row) return;
+                var paid = parseInt(inp.value, 10) || 0;
+                var players = parseInt(row.getAttribute('data-players'), 10) || 0;
+                var bal = paid - players;
+                row.setAttribute('data-paid', paid);
+                row.setAttribute('data-balance', bal);
+                var balCell = row.querySelector('.lgw-cs-balance');
+                if (balCell) {
+                    balCell.setAttribute('data-raw', bal);
+                    balCell.textContent = (bal > 0 ? '+' : '') + bal;
+                }
+                lgwCsUpdateTotals();
+            });
+        });
+
+        // Sort on header click
+        csTable.querySelectorAll('.lgw-cs-sortable').forEach(function(th) {
+            th.addEventListener('click', function() {
+                var col  = parseInt(th.getAttribute('data-col'), 10);
+                var type = th.getAttribute('data-type') || 'text';
+                if (csSort.col === col) {
+                    csSort.dir *= -1;
+                } else {
+                    csSort.col = col;
+                    csSort.dir = (type === 'num') ? -1 : 1; // nums default desc, text asc
+                }
+                // Update icons
+                csTable.querySelectorAll('.lgw-cs-sortable').forEach(function(h) {
+                    h.classList.remove('lgw-cs-sort-asc', 'lgw-cs-sort-desc');
+                });
+                th.classList.add(csSort.dir === 1 ? 'lgw-cs-sort-asc' : 'lgw-cs-sort-desc');
+
+                // Sort rows
+                var rows = Array.from(csTbody.rows);
+                rows.sort(function(a, b) {
+                    var av = lgwCsCellVal(a, col, type);
+                    var bv = lgwCsCellVal(b, col, type);
+                    if (type === 'num') return csSort.dir * (av - bv);
+                    return csSort.dir * av.localeCompare(bv);
+                });
+                rows.forEach(function(r) { csTbody.appendChild(r); });
+                lgwCsUpdateTotals();
+            });
+        });
+
+        // Filter inputs
+        csTable.querySelectorAll('.lgw-cs-filter, .lgw-cs-filter-min, .lgw-cs-filter-max').forEach(function(inp) {
+            inp.addEventListener('input', lgwCsApplyFilters);
+        });
+
+        function lgwCsCellVal(row, col, type) {
+            var dataMap = ['','players','apps','ladies','paid','balance'];
+            if (col >= 1 && col <= 5) {
+                var v = parseFloat(row.getAttribute('data-' + dataMap[col]));
+                return isNaN(v) ? 0 : v;
+            }
+            // col 0: text from first cell
+            var cell = row.cells[0];
+            return cell ? cell.textContent.trim().toLowerCase() : '';
+        }
+
+        function lgwCsApplyFilters() {
+            var textFilter = '';
+            var colFilters = {}; // col → {min, max}
+
+            csTable.querySelectorAll('.lgw-cs-filter').forEach(function(inp) {
+                var col = inp.getAttribute('data-col');
+                textFilter = inp.value.trim().toLowerCase();
+            });
+            csTable.querySelectorAll('.lgw-cs-filter-min').forEach(function(inp) {
+                var col = inp.getAttribute('data-col');
+                if (!colFilters[col]) colFilters[col] = {};
+                colFilters[col].min = inp.value !== '' ? parseFloat(inp.value) : null;
+            });
+            csTable.querySelectorAll('.lgw-cs-filter-max').forEach(function(inp) {
+                var col = inp.getAttribute('data-col');
+                if (!colFilters[col]) colFilters[col] = {};
+                colFilters[col].max = inp.value !== '' ? parseFloat(inp.value) : null;
+            });
+
+            var hasFilter = textFilter || Object.values(colFilters).some(function(f) {
+                return f.min !== null || f.max !== null;
+            });
+
+            var dataMap = ['','players','apps','ladies','paid','balance'];
+            Array.from(csTbody.rows).forEach(function(row) {
+                // Text filter on col 0
+                var nameText = (row.cells[0] ? row.cells[0].textContent.trim().toLowerCase() : '');
+                var show = !textFilter || nameText.indexOf(textFilter) !== -1;
+
+                if (show) {
+                    Object.keys(colFilters).forEach(function(col) {
+                        if (!show) return;
+                        var ci = parseInt(col, 10);
+                        if (ci < 1 || ci > 5) return;
+                        var val = parseFloat(row.getAttribute('data-' + dataMap[ci]));
+                        var f   = colFilters[col];
+                        if (f.min !== null && val < f.min) show = false;
+                        if (f.max !== null && val > f.max) show = false;
+                    });
+                }
+
+                row.setAttribute('data-hidden', show ? '0' : '1');
+                row.style.display = show ? '' : 'none';
+            });
+
+            var clearBtn = document.getElementById('lgw-cs-clear');
+            if (clearBtn) clearBtn.style.display = hasFilter ? '' : 'none';
+
+            lgwCsUpdateTotals();
+        }
+
+        window.lgwCsResetFilters = function() {
+            csTable.querySelectorAll('.lgw-cs-filter, .lgw-cs-filter-min, .lgw-cs-filter-max').forEach(function(inp){
+                inp.value = '';
+            });
+            Array.from(csTbody.rows).forEach(function(row) {
+                row.setAttribute('data-hidden', '0');
+                row.style.display = '';
+            });
+            var clearBtn = document.getElementById('lgw-cs-clear');
+            if (clearBtn) clearBtn.style.display = 'none';
+            lgwCsUpdateTotals();
+        };
+
+        window.lgwCsUpdateTotals = function() {
+            var totals = { players:0, apps:0, ladies:0, paid:0, balance:0 };
+            var vis = 0;
+            Array.from(csTbody.rows).forEach(function(row) {
+                if (row.getAttribute('data-hidden') === '1' || row.style.display === 'none') return;
+                vis++;
+                totals.players += parseInt(row.getAttribute('data-players'), 10) || 0;
+                totals.apps    += parseInt(row.getAttribute('data-apps'),    10) || 0;
+                totals.ladies  += parseInt(row.getAttribute('data-ladies'),  10) || 0;
+                totals.paid    += parseInt(row.getAttribute('data-paid'),    10) || 0;
+                totals.balance += parseInt(row.getAttribute('data-balance'), 10) || 0;
+            });
+
+            var fmt = function(n) { return (n > 0 ? '+' : '') + n; };
+
+            // Update totals bar
+            var el = function(id) { return document.getElementById(id); };
+            if (el('lgw-cs-vis-count')) el('lgw-cs-vis-count').textContent = vis;
+            if (el('lgw-cst-players')) el('lgw-cst-players').textContent = totals.players;
+            if (el('lgw-cst-apps'))    el('lgw-cst-apps').textContent    = totals.apps;
+            if (el('lgw-cst-ladies'))  el('lgw-cst-ladies').textContent  = totals.ladies;
+            if (el('lgw-cst-paid'))    el('lgw-cst-paid').textContent    = totals.paid;
+            if (el('lgw-cst-balance')) {
+                el('lgw-cst-balance').textContent = fmt(totals.balance);
+                el('lgw-cst-balance').style.color = totals.balance < 0 ? '#ffaaaa' : totals.balance > 0 ? '#aaffaa' : '';
+            }
+
+            // Update tfoot
+            if (el('lgw-csf-players')) el('lgw-csf-players').textContent = totals.players;
+            if (el('lgw-csf-apps'))    el('lgw-csf-apps').textContent    = totals.apps;
+            if (el('lgw-csf-ladies'))  el('lgw-csf-ladies').textContent  = totals.ladies;
+            if (el('lgw-csf-paid'))    el('lgw-csf-paid').textContent    = totals.paid;
+            if (el('lgw-csf-balance')) el('lgw-csf-balance').textContent = fmt(totals.balance);
+
+            var note = el('lgw-cs-tfoot')
+                ? el('lgw-cs-tfoot').querySelector('.lgw-cs-tfoot-note') : null;
+            if (note) note.textContent = (vis < totalRows) ? '(' + vis + ' of ' + totalRows + ' clubs)' : '';
+        };
+
+        // Initial totals
+        lgwCsUpdateTotals();
+    });
+    </script>
+
+    <!-- Player rename modal -->
+    <div id="lgw-rename-modal" role="dialog" aria-modal="true" style="display:none;position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.5);align-items:flex-start;justify-content:center;padding:40px 16px">
+        <div style="background:#fff;border-radius:8px;box-shadow:0 4px 32px rgba(0,0,0,.25);width:100%;max-width:420px;padding:24px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <h2 id="lgw-rename-title" style="margin:0;font-size:16px;color:#1a2e5a">Rename player</h2>
+                <button id="lgw-rename-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#555;line-height:1">&times;</button>
+            </div>
+            <label style="display:block;font-size:13px;margin-bottom:6px;font-weight:600">New name</label>
+            <input type="text" id="lgw-rename-input" style="width:100%;padding:8px 10px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px;box-sizing:border-box">
+            <p id="lgw-rename-warning" style="display:none;margin:10px 0 0;padding:8px 12px;background:#fff8e1;border:1px solid #f0c040;border-radius:5px;font-size:13px;color:#7a5800"></p>
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+                <button id="lgw-rename-cancel" class="button button-secondary">Cancel</button>
+                <button id="lgw-rename-confirm" class="button button-primary">Rename</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Player history modal -->
+    <div id="lgw-history-modal" role="dialog" aria-modal="true" aria-labelledby="lgw-history-title">
+        <div id="lgw-history-inner">
+            <div id="lgw-history-header">
+                <h2 id="lgw-history-title">Player History</h2>
+                <button id="lgw-history-close" title="Close">&times;</button>
+            </div>
+            <div id="lgw-history-body"></div>
+        </div>
+    </div>
+
+    <?php // ── Tab 1: Players ── ?>
+    <div class="lgw-pt-panel active" id="lgw-panel-players">
+        <?php if (!empty($season['label'])): ?>
+            <p><strong>Season:</strong> <?php echo esc_html($season['label']); ?>
+            <?php if ($season['start'] && $season['end']): ?>
+                (<?php echo esc_html($season['start']); ?> – <?php echo esc_html($season['end']); ?>)
+            <?php endif; ?>
+            </p>
+        <?php endif; ?>
+
+        <?php if (empty($by_club)): ?>
+            <p>No players recorded yet. Players are logged automatically when scorecards are confirmed.</p>
+        <?php else: ?>
+
+            <?php
+            // Build distinct team list for team filter dropdown
+            $all_teams_set = array();
+            foreach ($by_club as $_cp_list) {
+                foreach ($_cp_list as $_cp) {
+                    if (!empty($_cp->teams)) {
+                        foreach (explode(', ', $_cp->teams) as $_t) {
+                            $t_trim = trim($_t);
+                            if ($t_trim) $all_teams_set[$t_trim] = true;
+                        }
+                    }
+                }
+            }
+            ksort($all_teams_set);
+            ?>
+
+            <!-- Player filter bar -->
+            <div class="lgw-player-filters" id="lgw-player-filters">
+                <label for="lgw-filter-club">Club:</label>
+                <select id="lgw-filter-club" onchange="lgwApplyFilters()">
+                    <option value="">All Clubs</option>
+                    <?php foreach (array_keys($by_club) as $_fc): ?>
+                    <option value="<?php echo esc_attr($_fc); ?>"><?php echo esc_html($_fc); ?></option>
+                    <?php endforeach; ?>
+                </select>
+
+                <label for="lgw-filter-team">Team:</label>
+                <select id="lgw-filter-team" onchange="lgwApplyFilters()">
+                    <option value="">All Teams</option>
+                    <?php foreach (array_keys($all_teams_set) as $_ft): ?>
+                    <option value="<?php echo esc_attr($_ft); ?>"><?php echo esc_html($_ft); ?></option>
+                    <?php endforeach; ?>
+                </select>
+
+                <label for="lgw-filter-name" style="margin-left:4px">Name:</label>
+                <input type="text" id="lgw-filter-name" placeholder="Search name…" oninput="lgwApplyFilters()" autocomplete="off" style="min-width:140px">
+
+                <span class="lgw-filter-count" id="lgw-filter-count"></span>
+                <button type="button" class="lgw-filter-clear" id="lgw-filter-clear" onclick="lgwClearFilters()" style="display:none">✕ Clear filters</button>
+            </div>
+
+            <div id="lgw-no-filter-results" style="display:none;color:#888;font-style:italic;margin-bottom:12px">No players match the selected filters.</div>
+
+            <?php foreach ($by_club as $club => $club_players): ?>
+            <div class="lgw-club-section" data-club="<?php echo esc_attr($club); ?>">
+                <h3><?php echo esc_html($club); ?> — <span class="lgw-club-count"><?php echo count($club_players); ?></span> player<?php echo count($club_players)!==1?'s':''; ?></h3>
+                <table class="widefat striped">
+                <thead><tr>
+                    <th>Name</th>
+                    <th style="text-align:center">Apps<?php echo $season_where ? ' (season)' : ''; ?></th>
+                    <th style="text-align:center" title="Wins / Draws / Losses (all games)">W/D/L</th>
+                    <th style="text-align:center" title="Shots For – Shots Against (all games)">SF–SA</th>
+                    <th title="League stats per team — click ▾ to expand">League (by team)</th>
+                    <th style="text-align:center" title="Cup: Wins / Draws / Losses">Cup W/D/L</th>
+                    <th style="text-align:center" title="Starred player">⭐</th>
+                    <th style="text-align:center" title="Female player">♀</th>
+                    <th>Actions</th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ($club_players as $pl):
+                    $has_stats = ($pl->wins + $pl->draws + $pl->losses) > 0;
+                    $wdl_all   = $has_stats
+                        ? intval($pl->wins).'/'.intval($pl->draws).'/'.intval($pl->losses)
+                        : '—';
+                    $sfsa_all  = $has_stats
+                        ? intval($pl->shots_for).'–'.intval($pl->shots_against)
+                        : '—';
+                    $lge_has   = ($pl->lge_wins + $pl->lge_draws + $pl->lge_losses) > 0;
+                    $wdl_lge   = $lge_has
+                        ? intval($pl->lge_wins).'/'.intval($pl->lge_draws).'/'.intval($pl->lge_losses)
+                        : '—';
+                    $cup_has   = ($pl->cup_wins + $pl->cup_draws + $pl->cup_losses) > 0;
+                    $wdl_cup   = $cup_has
+                        ? intval($pl->cup_wins).'/'.intval($pl->cup_draws).'/'.intval($pl->cup_losses)
+                        : '—';
+                ?>
+                <?php
+                    // Build per-team league breakdown HTML
+                    $ts = $pl->team_stats; // array of {team,w,d,l,sf,sa,apps}
+                    $multi_team = count($ts) > 1;
+                    $lge_team_html = '';
+                    if (empty($ts)) {
+                        $lge_team_html = '<span style="color:#bbb">—</span>';
+                    } elseif (!$multi_team) {
+                        // Single team — show inline, no toggle needed
+                        $tr0 = $ts[0];
+                        $lge_team_html = '<span class="lgw-pts-team-name">' . esc_html($tr0->team) . '</span>'
+                            . ' <span class="lgw-pts-wdl">' . intval($tr0->w).'/'.intval($tr0->d).'/'.intval($tr0->l) . '</span>'
+                            . ' <span class="lgw-pts-sfsa">' . intval($tr0->sf).'–'.intval($tr0->sa) . '</span>';
+                    } else {
+                        // Multiple teams — summary + expandable per-team rows
+                        $lge_team_html = '<div class="lgw-pts-summary">'
+                            . '<span class="lgw-pts-wdl">' . esc_html($wdl_lge) . '</span>'
+                            . ' <span class="lgw-pts-sfsa">'
+                                . intval($pl->lge_sf) . '–' . intval($pl->lge_sa)
+                            . '</span>'
+                            . ' <button type="button" class="lgw-pts-toggle" title="Show per-team breakdown" aria-expanded="false">&#x25be;</button>'
+                            . '</div>'
+                            . '<div class="lgw-pts-detail" hidden>';
+                        foreach ($ts as $tr) {
+                            $lge_team_html .= '<div class="lgw-pts-row">'
+                                . '<span class="lgw-pts-team-name">' . esc_html($tr->team) . '</span>'
+                                . ' <span class="lgw-pts-wdl">' . intval($tr->w).'/'.intval($tr->d).'/'.intval($tr->l) . '</span>'
+                                . ' <span class="lgw-pts-sfsa">' . intval($tr->sf).'–'.intval($tr->sa) . '</span>'
+                                . '</div>';
+                        }
+                        $lge_team_html .= '<div class="lgw-pts-row lgw-pts-total-row">'
+                            . '<span class="lgw-pts-team-name">Total</span>'
+                            . ' <span class="lgw-pts-wdl">' . esc_html($wdl_lge) . '</span>'
+                            . ' <span class="lgw-pts-sfsa">' . intval($pl->lge_sf).'–'.intval($pl->lge_sa) . '</span>'
+                            . '</div>'
+                            . '</div>';
+                    }
+                ?>
+                <tr<?php echo $pl->appearances == 0 ? ' class="lgw-appearances-zero"' : ''; ?>
+                    data-teams="<?php echo esc_attr($pl->teams ?: ''); ?>"
+                    data-name="<?php echo esc_attr(strtolower($pl->name)); ?>">
+                    <td>
+                        <button type="button" class="lgw-player-link" data-pid="<?php echo $pl->id; ?>"
+                            title="View game history"><?php echo esc_html($pl->name); ?></button>
+                    </td>
+                    <td style="text-align:center"><?php echo intval($pl->appearances); ?></td>
+                    <td style="text-align:center;white-space:nowrap"><?php echo esc_html($wdl_all); ?></td>
+                    <td style="text-align:center;white-space:nowrap"><?php echo esc_html($sfsa_all); ?></td>
+                    <td class="lgw-pts-cell"><?php echo $lge_team_html; ?></td>
+                    <td style="text-align:center;white-space:nowrap"><?php echo esc_html($wdl_cup); ?></td>
+                    <td style="text-align:center">
+                        <form method="post" style="display:inline">
+                            <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+                            <input type="hidden" name="lgw_players_action" value="update_flags">
+                            <input type="hidden" name="player_id" value="<?php echo $pl->id; ?>">
+                            <input type="hidden" name="female" value="<?php echo $pl->female ? '1' : '0'; ?>">
+                            <input type="checkbox" name="starred" value="1"
+                                <?php checked($pl->starred, 1); ?>
+                                class="lgw-flag-checkbox"
+                                title="Mark as starred player">
+                        </form>
+                    </td>
+                    <td style="text-align:center">
+                        <form method="post" style="display:inline">
+                            <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+                            <input type="hidden" name="lgw_players_action" value="update_flags">
+                            <input type="hidden" name="player_id" value="<?php echo $pl->id; ?>">
+                            <input type="hidden" name="starred" value="<?php echo $pl->starred ? '1' : '0'; ?>">
+                            <input type="checkbox" name="female" value="1"
+                                <?php checked($pl->female, 1); ?>
+                                class="lgw-flag-checkbox"
+                                title="Mark as female player">
+                        </form>
+                    </td>
+                    <td>
+                        <div class="lgw-player-actions">
+                            <form method="post" class="lgw-rename-form" id="lgw-rename-form-<?php echo $pl->id; ?>" style="display:inline">
+                                <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+                                <input type="hidden" name="lgw_players_action" value="rename_player">
+                                <input type="hidden" name="player_id" value="<?php echo $pl->id; ?>">
+                                <span class="lgw-rename-static">
+                                    <button type="button" class="button button-small lgw-rename-trigger">Rename</button>
+                                </span>
+                                <span class="lgw-rename-active" style="display:none">
+                                    <input type="text" name="new_name" class="lgw-rename-input" value="<?php echo esc_attr($pl->name); ?>" style="width:140px;padding:2px 6px;font-size:12px">
+                                    <button type="submit" class="button button-small button-primary">Save</button>
+                                    <button type="button" class="button button-small lgw-rename-cancel">✕</button>
+                                </span>
+                            </form>
+                            <form method="post" style="display:inline" onsubmit="return confirm('Delete player &quot;<?php echo esc_js($pl->name); ?>&quot; and all their appearance records? This cannot be undone.')">
+                                <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+                                <input type="hidden" name="lgw_players_action" value="delete_player">
+                                <input type="hidden" name="player_id" value="<?php echo $pl->id; ?>">
+                                <button type="submit" class="button button-small button-link-delete">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+                </table>
+            </div>
+            <?php endforeach; ?>
+
+            <p style="margin-top:16px">
+                <?php
+                $export_url = admin_url('admin-post.php?action=lgw_export_players&_wpnonce=' . wp_create_nonce('lgw_export_players'));
+                if ($viewing_season_id && $viewing_season && empty($viewing_season['active'])) {
+                    $export_url = add_query_arg('season', $viewing_season_id, $export_url);
+                }
+                ?>
+                <a href="<?php echo esc_url($export_url); ?>" class="button button-primary">⬇ Export to Excel</a>
+            </p>
+        <?php endif; ?>
+    </div>
+
+    <?php // ── Tab 2: Club Summary ── ?>
+    <div class="lgw-pt-panel" id="lgw-panel-clubs">
+        <h2>Club Summary<?php echo $season_key !== 'default' ? ' — ' . esc_html($season['label'] ?? '') : ''; ?></h2>
+
+        <?php if (empty($clubs)): ?>
+        <p>No player data available yet.</p>
+        <?php else: ?>
+
+        <form method="post" id="lgw-paid-form">
+            <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+            <input type="hidden" name="lgw_players_action" value="save_paid_counts">
+
+        <!-- Live totals bar -->
+        <div class="lgw-cs-totals-bar" id="lgw-cs-totals-bar">
+            <span class="lgw-cs-totals-label">Showing <strong id="lgw-cs-vis-count"><?php echo count($club_summary); ?></strong> of <?php echo count($club_summary); ?> clubs</span>
+            <span class="lgw-cs-totals-sep">|</span>
+            <span class="lgw-cs-totals-item"><span class="lgw-cs-totals-key">Players:</span> <strong id="lgw-cst-players"></strong></span>
+            <span class="lgw-cs-totals-item"><span class="lgw-cs-totals-key">Apps:</span> <strong id="lgw-cst-apps"></strong></span>
+            <span class="lgw-cs-totals-item"><span class="lgw-cs-totals-key">Ladies:</span> <strong id="lgw-cst-ladies"></strong></span>
+            <span class="lgw-cs-totals-item"><span class="lgw-cs-totals-key">Paid:</span> <strong id="lgw-cst-paid"></strong></span>
+            <span class="lgw-cs-totals-item"><span class="lgw-cs-totals-key">Balance:</span> <strong id="lgw-cst-balance"></strong></span>
+            <button type="button" class="lgw-cs-totals-clear" id="lgw-cs-clear" onclick="lgwCsResetFilters()" style="display:none">✕ Clear filters</button>
+        </div>
+
+        <table class="widefat" id="lgw-cs-table" style="margin-bottom:16px">
+            <thead>
+                <!-- Sort row -->
+                <tr class="lgw-cs-sort-row">
+                    <th class="lgw-cs-th lgw-cs-sortable" data-col="0" data-type="text">
+                        Club <span class="lgw-cs-sort-icon"></span>
+                    </th>
+                    <th class="lgw-cs-th lgw-cs-sortable" data-col="1" data-type="num" style="text-align:center">
+                        Players<br><small style="font-weight:400">in tracker</small>
+                        <span class="lgw-cs-sort-icon"></span>
+                    </th>
+                    <th class="lgw-cs-th lgw-cs-sortable" data-col="2" data-type="num" style="text-align:center">
+                        Appearances<br><small style="font-weight:400"><?php echo $season_where ? 'this season' : 'all-time'; ?></small>
+                        <span class="lgw-cs-sort-icon"></span>
+                    </th>
+                    <th class="lgw-cs-th lgw-cs-sortable" data-col="3" data-type="num" style="text-align:center">
+                        Ladies <span class="lgw-cs-sort-icon"></span>
+                    </th>
+                    <th class="lgw-cs-th lgw-cs-sortable" data-col="4" data-type="num" style="text-align:center"
+                        title="Number of players the club has paid for">
+                        Players Paid<br><small style="font-weight:400">enter below</small>
+                        <span class="lgw-cs-sort-icon"></span>
+                    </th>
+                    <th class="lgw-cs-th lgw-cs-sortable" data-col="5" data-type="num" style="text-align:center">
+                        Balance<br><small style="font-weight:400">paid − played</small>
+                        <span class="lgw-cs-sort-icon"></span>
+                    </th>
+                </tr>
+                <!-- Filter row -->
+                <tr class="lgw-cs-filter-row">
+                    <th class="lgw-cs-filter-cell">
+                        <input type="text" class="lgw-cs-filter" data-col="0" placeholder="Filter club…" autocomplete="off">
+                    </th>
+                    <th class="lgw-cs-filter-cell" colspan="1">
+                        <div class="lgw-cs-range">
+                            <input type="number" class="lgw-cs-filter-min" data-col="1" placeholder="≥" min="0">
+                            <input type="number" class="lgw-cs-filter-max" data-col="1" placeholder="≤" min="0">
+                        </div>
+                    </th>
+                    <th class="lgw-cs-filter-cell">
+                        <div class="lgw-cs-range">
+                            <input type="number" class="lgw-cs-filter-min" data-col="2" placeholder="≥" min="0">
+                            <input type="number" class="lgw-cs-filter-max" data-col="2" placeholder="≤" min="0">
+                        </div>
+                    </th>
+                    <th class="lgw-cs-filter-cell">
+                        <div class="lgw-cs-range">
+                            <input type="number" class="lgw-cs-filter-min" data-col="3" placeholder="≥" min="0">
+                            <input type="number" class="lgw-cs-filter-max" data-col="3" placeholder="≤" min="0">
+                        </div>
+                    </th>
+                    <th class="lgw-cs-filter-cell">
+                        <div class="lgw-cs-range">
+                            <input type="number" class="lgw-cs-filter-min" data-col="4" placeholder="≥" min="0">
+                            <input type="number" class="lgw-cs-filter-max" data-col="4" placeholder="≤" min="0">
+                        </div>
+                    </th>
+                    <th class="lgw-cs-filter-cell">
+                        <div class="lgw-cs-range">
+                            <input type="number" class="lgw-cs-filter-min" data-col="5" placeholder="≥">
+                            <input type="number" class="lgw-cs-filter-max" data-col="5" placeholder="≤">
+                        </div>
+                    </th>
+                </tr>
+            </thead>
+            <tbody id="lgw-cs-tbody">
+            <?php
+            $grand_players = 0; $grand_apps = 0; $grand_ladies = 0; $grand_paid = 0;
+            foreach ($club_summary as $cname => $cs):
+                $balance = $cs['paid'] - $cs['players'];
+                $grand_players += $cs['players']; $grand_apps += $cs['apps'];
+                $grand_ladies  += $cs['ladies'];  $grand_paid += $cs['paid'];
+                $enc = base64_encode($cname);
+            ?>
+                <tr data-players="<?php echo $cs['players']; ?>"
+                    data-apps="<?php echo $cs['apps']; ?>"
+                    data-ladies="<?php echo $cs['ladies']; ?>"
+                    data-paid="<?php echo intval($cs['paid']); ?>"
+                    data-balance="<?php echo $balance; ?>">
+                    <td><strong><?php echo esc_html($cname); ?></strong></td>
+                    <td class="lgw-cs-num"><?php echo $cs['players']; ?></td>
+                    <td class="lgw-cs-num"><?php echo $cs['apps']; ?></td>
+                    <td class="lgw-cs-num"><?php echo $cs['ladies']; ?></td>
+                    <td class="lgw-cs-num">
+                        <input type="number" name="paid[<?php echo esc_attr($enc); ?>]"
+                            value="<?php echo intval($cs['paid']); ?>"
+                            class="lgw-cs-paid-input"
+                            min="0">
+                    </td>
+                    <td class="lgw-cs-num lgw-cs-balance" data-raw="<?php echo $balance; ?>">
+                        <?php echo ($balance > 0 ? '+' : '') . $balance; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+            <tfoot>
+                <tr class="lgw-cs-tfoot-total" id="lgw-cs-tfoot">
+                    <td><strong>TOTAL</strong> <small class="lgw-cs-tfoot-note"></small></td>
+                    <td class="lgw-cs-num" id="lgw-csf-players"><?php echo $grand_players; ?></td>
+                    <td class="lgw-cs-num" id="lgw-csf-apps"><?php echo $grand_apps; ?></td>
+                    <td class="lgw-cs-num" id="lgw-csf-ladies"><?php echo $grand_ladies; ?></td>
+                    <td class="lgw-cs-num" id="lgw-csf-paid"><?php echo $grand_paid; ?></td>
+                    <td class="lgw-cs-num" id="lgw-csf-balance"><?php
+                        $grand_bal = $grand_paid - $grand_players;
+                        echo ($grand_bal > 0 ? '+' : '') . $grand_bal;
+                    ?></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <button type="submit" class="button button-primary">💾 Save Paid Counts</button>
+
+            <?php
+            $export_qs = '?action=lgw_export_club_summary&_wpnonce=' . wp_create_nonce('lgw_export_club_summary');
+            if (!empty($viewing_season['id'])) $export_qs .= '&season=' . urlencode($viewing_season['id']);
+            ?>
+            <a href="<?php echo esc_url(admin_url('admin-post.php') . $export_qs); ?>"
+               class="button button-secondary" title="Download as spreadsheet">
+                📊 Export as Spreadsheet
+            </a>
+            <a href="<?php echo esc_url(admin_url('admin-post.php') . str_replace('lgw_export_club_summary','lgw_export_club_summary_pdf', $export_qs) . '&_wpnonce=' . wp_create_nonce('lgw_export_club_summary_pdf')); ?>"
+               class="button button-secondary" title="Download as PDF">
+                🖨 Export as PDF
+            </a>
+        </div>
+        </form>
+        <?php endif; ?>
+    </div>
+
+    <?php // ── Tab 3: Merge ── ?>
+    <div class="lgw-pt-panel" id="lgw-panel-merge">
+        <h2>Merge Duplicate Players</h2>
+        <p>Use this when the same person appears under two different spellings (e.g. "J Smith" and "John Smith"). All appearances will be moved to the player you keep, and the other record deleted.</p>
+
+        <?php
+        // ── Auto-merge: dotted initial duplicates ──
+        $auto_pairs = lgw_find_dotted_initial_duplicates();
+        if (!empty($auto_pairs)): ?>
+        <div style="background:#fff8e1;border:1px solid #f0c040;border-radius:6px;padding:16px 20px;margin-bottom:20px">
+            <h3 style="margin:0 0 8px">⚡ Auto-merge: dotted initial variants found</h3>
+            <p style="margin:0 0 12px;font-size:13px">The following players appear to be the same person with/without dotted initials (e.g. "D. Bintley" vs "D Bintley"). The record with <em>more appearances</em> will be kept; all appearances from the other will be merged into it.</p>
+            <table class="widefat striped" style="max-width:700px;margin-bottom:12px;font-size:13px">
+                <thead><tr><th>Club</th><th>Keep (canonical)</th><th>Remove (duplicate)</th><th>Apps moved</th></tr></thead>
+                <tbody>
+                <?php foreach ($auto_pairs as $ap): ?>
+                <tr>
+                    <td><?php echo esc_html($ap['club']); ?></td>
+                    <td><strong><?php echo esc_html($ap['keep_name']); ?></strong></td>
+                    <td style="color:#a00"><?php echo esc_html($ap['remove_name']); ?></td>
+                    <td><?php echo intval($ap['appearances_moved']); ?></td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <form method="post" onsubmit="return confirm('Merge <?php echo count($auto_pairs); ?> duplicate pair(s)? This cannot be undone.')">
+                <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+                <input type="hidden" name="lgw_players_action" value="auto_merge_initials">
+                <button type="submit" class="button button-primary">⚡ Merge <?php echo count($auto_pairs); ?> duplicate<?php echo count($auto_pairs) !== 1 ? 's' : ''; ?></button>
+            </form>
+        </div>
+        <?php else: ?>
+        <p style="color:#0a5a0a;font-size:13px">✅ No dotted-initial duplicates detected.</p>
+        <?php endif; ?>
+
+
+        <?php if (count($players) < 2): ?>
+            <p>Not enough players to merge yet.</p>
+        <?php else: ?>
+        <form method="post" class="lgw-merge-form" onsubmit="return confirm('Merge these two players? The removed player record cannot be recovered.')">
+            <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+            <input type="hidden" name="lgw_players_action" value="merge">
+
+            <label>Filter by club:</label>
+            <select onchange="lgwMergeClub(this.value)" style="margin-bottom:12px;min-width:200px">
+                <option value="">— All clubs —</option>
+                <?php foreach ($clubs as $c): ?>
+                <option value="<?php echo esc_attr($c); ?>"><?php echo esc_html($c); ?></option>
+                <?php endforeach; ?>
+            </select><br>
+
+            <table style="width:100%;max-width:600px">
+            <tr>
+                <td style="padding-right:16px">
+                    <label><strong>Keep</strong> (canonical name)</label>
+                    <select name="keep_id" id="merge-keep" required style="width:100%;margin-top:4px">
+                        <option value="">— Select player —</option>
+                        <?php foreach ($players as $pl): ?>
+                        <option value="<?php echo $pl->id; ?>" data-club="<?php echo esc_attr($pl->club); ?>">
+                            <?php echo esc_html($pl->club . ' — ' . $pl->name . ' (' . $pl->appearances . ' apps)'); ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </td>
+                <td>
+                    <label><strong>Remove</strong> (duplicate to delete)</label>
+                    <select name="remove_id" id="merge-remove" required style="width:100%;margin-top:4px">
+                        <option value="">— Select player —</option>
+                        <?php foreach ($players as $pl): ?>
+                        <option value="<?php echo $pl->id; ?>" data-club="<?php echo esc_attr($pl->club); ?>">
+                            <?php echo esc_html($pl->club . ' — ' . $pl->name . ' (' . $pl->appearances . ' apps)'); ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </td>
+            </tr>
+            </table>
+            <br>
+            <button type="submit" class="button button-primary">Merge Players</button>
+        </form>
+        <?php endif; ?>
+    </div>
+
+    <?php // ── Tab 3: Add player ── ?>
+    <div class="lgw-pt-panel" id="lgw-panel-add">
+        <h2>Add Player Manually</h2>
+        <p>Players are added automatically from confirmed scorecards. Use this to add someone who hasn't appeared on a scorecard yet.</p>
+        <form method="post" class="lgw-add-form">
+            <?php wp_nonce_field('lgw_players_nonce','lgw_players_nonce_field'); ?>
+            <input type="hidden" name="lgw_players_action" value="add_player">
+            <label>Club</label>
+            <select name="new_club" required>
+                <option value="">— Select club —</option>
+                <?php foreach ($clubs as $c): ?>
+                <option value="<?php echo esc_attr($c); ?>"><?php echo esc_html($c); ?></option>
+                <?php endforeach; ?>
+            </select>
+            <label>Player name</label>
+            <input type="text" name="new_name" required placeholder="e.g. J. Smith">
+            <button type="submit" class="button button-primary">Add Player</button>
+        </form>
+    </div>
+
+    <?php // ── Tab 4: Season settings ── ?>
+    <div class="lgw-pt-panel" id="lgw-panel-season">
+        <h2>Season Settings</h2>
+        <?php $disp_s = $viewing_season ?: lgw_get_active_season(); ?>
+        <?php if ($disp_s): ?>
+        <div style="background:#f0f6fc;border:1px solid #b8d4f0;border-radius:6px;padding:16px 20px;margin-bottom:16px">
+            <p style="margin:0 0 8px;font-weight:600">
+                <?php echo !empty($disp_s['active']) ? 'Active season' : 'Archived season'; ?>:
+                <?php echo esc_html($disp_s['label']); ?>
+            </p>
+            <?php if (!empty($disp_s['start']) || !empty($disp_s['end'])): ?>
+            <p style="margin:0 0 4px;font-size:13px;color:#555">
+                <strong>Start:</strong> <?php echo esc_html($disp_s['start'] ?: '—'); ?>
+                &nbsp;&nbsp;
+                <strong>End:</strong> <?php echo esc_html($disp_s['end'] ?: '—'); ?>
+            </p>
+            <p style="margin:8px 0 0;font-size:13px;color:#555">Appearance counts are filtered to matches within this date range.</p>
+            <?php else: ?>
+            <p style="margin:0;font-size:13px;color:#888">No date range set — showing all-time totals. Add start/end dates in Seasons admin to filter by season.</p>
+            <?php endif; ?>
+        </div>
+        <?php else: ?>
+        <div style="background:#fff8e5;border:1px solid #e8b400;border-radius:6px;padding:16px 20px;margin-bottom:16px">
+            <p style="margin:0;font-size:13px;color:#555">No season configured — showing all-time totals.</p>
+        </div>
+        <?php endif; ?>
+        <p>Season dates are managed in the <strong>Seasons</strong> admin page alongside your divisions.</p>
+        <a href="<?php echo esc_url(admin_url('admin.php?page=lgw-seasons')); ?>" class="button button-primary">Go to Seasons Admin →</a>
+    </div>
+
+    </div><!-- .wrap -->
+    <?php
+}
+
+// ── Export to Excel ───────────────────────────────────────────────────────────
+add_action('admin_post_lgw_export_players', 'lgw_export_players_xlsx');
+function lgw_export_players_xlsx() {
+    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+    check_admin_referer('lgw_export_players');
+
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    // Respect ?season=ID param so export matches what user is viewing
+    $export_season_id = sanitize_text_field($_GET['season'] ?? '');
+    if ($export_season_id) {
+        $export_season_obj = lgw_get_season_by_id($export_season_id);
+    } else {
+        $export_season_obj = lgw_get_active_season();
+    }
+    if ($export_season_obj) {
+        $season = array(
+            'start' => $export_season_obj['start'] ?? '',
+            'end'   => $export_season_obj['end']   ?? '',
+            'label' => $export_season_obj['label'] ?? '',
+        );
+    } else {
+        $season = lgw_get_season();
+    }
+    $season_where = '';
+    if (!empty($season['start']) && !empty($season['end'])) {
+        $season_where = $wpdb->prepare(
+            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
+            $season['start'], $season['end']
+        );
+    }
+    $label  = !empty($season['label']) ? ' - ' . $season['label'] : '';
+    $filename = 'lgw-players' . str_replace('/', '-', $label) . '.xls';
+
+    // ── Fetch all players ─────────────────────────────────────────────────────
+    $all_players = $wpdb->get_results(
+        "SELECT id, club, name, starred, female FROM $pt ORDER BY club, name"
+    );
+
+    // ── Fetch all appearances within season ───────────────────────────────────
+    $app_rows = $wpdb->get_results(
+        "SELECT a.player_id, a.team, a.match_date, a.match_title, a.scorecard_id
+         FROM $at a
+         " . ($season_where ? "WHERE 1=1 $season_where" : "") . "
+         ORDER BY a.match_date, a.match_title"
+    );
+
+    // ── Build per-player appearance index ─────────────────────────────────────
+    // $player_apps[player_id][match_key] = team_label (A/B/MW etc.)
+    $player_apps = array();
+    foreach ($all_players as $pl) {
+        $player_apps[$pl->id] = array();
+    }
+
+    // ── Collect match column metadata ─────────────────────────────────────────
+    // $match_meta[match_key] = [date, home_team, away_team, comp, venue]
+    $match_meta  = array();
+    $match_order = array(); // ordered list of match keys
+
+    // We need scorecard data for comp/venue — fetch all relevant scorecards
+    $sc_ids = array_unique(array_column($app_rows, 'scorecard_id'));
+    $sc_data = array();
+    foreach ($sc_ids as $sid) {
+        if (!$sid) continue;
+        $d = get_post_meta($sid, 'lgw_scorecard_data', true);
+        if ($d) $sc_data[$sid] = $d;
+    }
+
+    foreach ($app_rows as $row) {
+        $match_key = $row->match_date . '||' . $row->match_title;
+        if (!isset($match_meta[$match_key])) {
+            // Parse home/away from title "Home v Away"
+            $parts = explode(' v ', $row->match_title, 2);
+            $home  = trim($parts[0] ?? $row->match_title);
+            $away  = trim($parts[1] ?? '');
+            $sc    = $sc_data[$row->scorecard_id] ?? array();
+            $match_meta[$match_key] = array(
+                'date'  => $row->match_date,
+                'home'  => $home,
+                'away'  => $away,
+                'comp'  => $sc['competition'] ?? '',
+                'venue' => $sc['venue'] ?? '',
+            );
+            $match_order[] = $match_key;
+        }
+
+        // Determine team label for this player in this match
+        // Compare team name suffix to get A/B/MW etc.
+        $team_label = lgw_team_suffix($row->team);
+        $player_apps[$row->player_id][$match_key] = $team_label;
+    }
+    $match_order = array_unique($match_order);
+
+    // ── Fetch per-player aggregate stats ─────────────────────────────────────
+    $stats_rows = $wpdb->get_results(
+        "SELECT a.player_id,
+                SUM(CASE WHEN a.result='W' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN a.result='D' THEN 1 ELSE 0 END) as draws,
+                SUM(CASE WHEN a.result='L' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN a.shots_for IS NOT NULL THEN a.shots_for ELSE 0 END) as shots_for,
+                SUM(CASE WHEN a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as shots_against,
+                SUM(CASE WHEN a.game_type='league' AND a.result='W' THEN 1 ELSE 0 END) as lge_w,
+                SUM(CASE WHEN a.game_type='league' AND a.result='D' THEN 1 ELSE 0 END) as lge_d,
+                SUM(CASE WHEN a.game_type='league' AND a.result='L' THEN 1 ELSE 0 END) as lge_l,
+                SUM(CASE WHEN a.game_type='league' AND a.shots_for IS NOT NULL THEN a.shots_for ELSE 0 END) as lge_sf,
+                SUM(CASE WHEN a.game_type='league' AND a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as lge_sa,
+                SUM(CASE WHEN a.game_type='cup' AND a.result='W' THEN 1 ELSE 0 END) as cup_w,
+                SUM(CASE WHEN a.game_type='cup' AND a.result='D' THEN 1 ELSE 0 END) as cup_d,
+                SUM(CASE WHEN a.game_type='cup' AND a.result='L' THEN 1 ELSE 0 END) as cup_l,
+                SUM(CASE WHEN a.game_type='cup' AND a.shots_for IS NOT NULL THEN a.shots_for ELSE 0 END) as cup_sf,
+                SUM(CASE WHEN a.game_type='cup' AND a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as cup_sa
+         FROM $at a
+         " . ($season_where ? "WHERE 1=1 $season_where" : "") . "
+         GROUP BY a.player_id"
+    );
+    $player_stats = array();
+    foreach ($stats_rows as $sr) {
+        $player_stats[$sr->player_id] = $sr;
+    }
+
+    // ── Group players by club ─────────────────────────────────────────────────
+    $by_club = array();
+    foreach ($all_players as $pl) {
+        $by_club[$pl->club][] = $pl;
+    }
+
+    // ── Build sheet names ─────────────────────────────────────────────────────
+    $sheet_names = array('Summary', 'Stats');
+    foreach (array_keys($by_club) as $club) {
+        $sheet_names[] = lgw_safe_sheet_name($club);
+    }
+    $sheet_names = array_values(array_unique($sheet_names));
+
+    // ── Output headers ────────────────────────────────────────────────────────
+    header('Content-Type: application/vnd.ms-excel');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: max-age=0');
+
+    echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">';
+    echo '<head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>';
+    foreach ($sheet_names as $sn) {
+        echo '<x:ExcelWorksheet><x:Name>' . esc_html($sn) . '</x:Name>'
+           . '<x:WorksheetSource HRef="#' . esc_attr($sn) . '"/></x:ExcelWorksheet>';
+    }
+    echo '</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->';
+    echo '<style>
+        body{font-family:Arial;font-size:10pt}
+        td,th{font-family:Arial;font-size:10pt;border:1px solid #ccc;padding:3px 6px;white-space:nowrap}
+        .hdr1{background:#1a2e5a;color:#fff;font-weight:bold;text-align:center}
+        .hdr2{background:#2e4a8a;color:#fff;font-size:9pt;text-align:center}
+        .hdr3{background:#d0d8ee;font-weight:bold;font-size:9pt;text-align:center}
+        .total-hdr{background:#c8d4f0;font-weight:bold;text-align:center}
+        .flag-hdr{background:#e8eaf6;font-weight:bold;text-align:center;font-size:9pt}
+        .player-name{font-weight:600;text-align:left}
+        .app-cell{text-align:center;font-weight:700;font-size:10pt}
+        .app-a{background:#dff0d8;color:#155724}
+        .app-b{background:#d0e8ff;color:#003d7a}
+        .app-mw{background:#fff3cd;color:#856404}
+        .app-other{background:#f3e5f5;color:#4a235a}
+        .total-cell{text-align:center;font-weight:700;background:#eef2ff}
+        .starred{background:#fffde7}
+        .summary-hdr{background:#1a2e5a;color:#fff;font-weight:bold}
+        .summary-club{background:#f0f2f8;font-weight:bold}
+        .even{background:#f9f9f9}
+    </style></head><body>';
+
+    // ════════════════════════════════════════════════════════════════════════
+    // SUMMARY SHEET
+    // ════════════════════════════════════════════════════════════════════════
+    $total_players = count($all_players);
+    $total_ladies  = array_sum(array_column($all_players, 'female'));
+    $total_clubs   = count($by_club);
+
+    echo '<table id="Summary">';
+    echo '<tr><td class="hdr1" colspan="6">LGW Player Tracking' . esc_html($label) . '</td></tr>';
+    echo '<tr><td class="hdr3" colspan="6">&nbsp;</td></tr>';
+    echo '<tr>'
+       . '<td class="summary-hdr"></td>'
+       . '<td class="summary-hdr">No. of Teams</td>'
+       . '<td class="summary-hdr">Players Listed</td>'
+       . '<td class="summary-hdr">Ladies</td>'
+       . '<td class="summary-hdr">% of Total Players</td>'
+       . '<td class="summary-hdr">% Ladies</td>'
+       . '</tr>';
+
+    // TOTAL row
+    echo '<tr>'
+       . '<td class="player-name"><strong>TOTAL</strong></td>'
+       . '<td class="total-cell">' . $total_clubs . '</td>'
+       . '<td class="total-cell">' . $total_players . '</td>'
+       . '<td class="total-cell">' . $total_ladies . '</td>'
+       . '<td class="total-cell">100%</td>'
+       . '<td class="total-cell">' . ($total_players > 0 ? round($total_ladies / $total_players * 100, 2) . '%' : '0%') . '</td>'
+       . '</tr>';
+    echo '<tr><td colspan="6">&nbsp;</td></tr>';
+
+    $row_i = 0;
+    foreach ($by_club as $club => $players) {
+        $n_players = count($players);
+        $n_ladies  = count(array_filter($players, function($p){ return $p->female; }));
+        // Count distinct teams (suffix labels) this club has played
+        $teams_set = array();
+        foreach ($players as $pl) {
+            foreach (($player_apps[$pl->id] ?? array()) as $mk => $lbl) {
+                $teams_set[$lbl] = true;
+            }
+        }
+        $n_teams = count($teams_set) ?: 1;
+
+        $pct_total  = $total_players > 0 ? round($n_players / $total_players * 100, 2) . '%' : '0%';
+        $pct_ladies = $n_players > 0 ? round($n_ladies / $n_players * 100, 2) . '%' : '0%';
+        $row_cls    = ($row_i++ % 2 === 0) ? '' : ' class="even"';
+
+        echo '<tr' . $row_cls . '>'
+           . '<td class="summary-club">' . esc_html($club) . '</td>'
+           . '<td class="total-cell">' . $n_teams . '</td>'
+           . '<td class="total-cell">' . $n_players . '</td>'
+           . '<td class="total-cell">' . $n_ladies . '</td>'
+           . '<td class="total-cell">' . $pct_total . '</td>'
+           . '<td class="total-cell">' . $pct_ladies . '</td>'
+           . '</tr>';
+    }
+    echo '</table>';
+
+    // ════════════════════════════════════════════════════════════════════════
+    // STATS SHEET
+    // ════════════════════════════════════════════════════════════════════════
+    echo '<table id="Stats">';
+    echo '<tr><td class="hdr1" colspan="18">Player Statistics' . esc_html($label) . '</td></tr>';
+    echo '<tr>'
+       . '<td class="hdr2">Club</td>'
+       . '<td class="hdr2">Player</td>'
+       . '<td class="hdr2">Apps</td>'
+       . '<td class="total-hdr">W</td><td class="total-hdr">D</td><td class="total-hdr">L</td>'
+       . '<td class="total-hdr">SF</td><td class="total-hdr">SA</td><td class="total-hdr">+/−</td>'
+       . '<td class="hdr3">Lge W</td><td class="hdr3">Lge D</td><td class="hdr3">Lge L</td>'
+       . '<td class="hdr3">Lge SF</td><td class="hdr3">Lge SA</td>'
+       . '<td class="flag-hdr">Cup W</td><td class="flag-hdr">Cup D</td><td class="flag-hdr">Cup L</td>'
+       . '<td class="flag-hdr">Cup SF</td>'
+       . '</tr>';
+
+    foreach ($all_players as $pl) {
+        $st  = $player_stats[$pl->id] ?? null;
+        $apps = count($player_apps[$pl->id] ?? array());
+        $w   = $st ? intval($st->wins)         : 0;
+        $d   = $st ? intval($st->draws)        : 0;
+        $l   = $st ? intval($st->losses)       : 0;
+        $sf  = $st ? intval($st->shots_for)    : 0;
+        $sa  = $st ? intval($st->shots_against): 0;
+        $diff= $sf - $sa;
+        echo '<tr>'
+           . '<td class="player-name">' . esc_html($pl->club) . '</td>'
+           . '<td class="player-name">' . esc_html($pl->name) . '</td>'
+           . '<td class="total-cell">' . $apps . '</td>'
+           . '<td class="total-cell">' . ($w ?: '') . '</td>'
+           . '<td class="total-cell">' . ($d ?: '') . '</td>'
+           . '<td class="total-cell">' . ($l ?: '') . '</td>'
+           . '<td class="total-cell">' . ($sf ?: '') . '</td>'
+           . '<td class="total-cell">' . ($sa ?: '') . '</td>'
+           . '<td class="total-cell">' . ($w+$d+$l > 0 ? ($diff >= 0 ? '+':'').$diff : '') . '</td>'
+           . '<td class="app-a">'    . ($st ? ($st->lge_w ?: '') : '') . '</td>'
+           . '<td class="app-a">'    . ($st ? ($st->lge_d ?: '') : '') . '</td>'
+           . '<td class="app-a">'    . ($st ? ($st->lge_l ?: '') : '') . '</td>'
+           . '<td class="app-a">'    . ($st ? ($st->lge_sf ?: '') : '') . '</td>'
+           . '<td class="app-a">'    . ($st ? ($st->lge_sa ?: '') : '') . '</td>'
+           . '<td class="app-b">'    . ($st ? ($st->cup_w ?: '') : '') . '</td>'
+           . '<td class="app-b">'    . ($st ? ($st->cup_d ?: '') : '') . '</td>'
+           . '<td class="app-b">'    . ($st ? ($st->cup_l ?: '') : '') . '</td>'
+           . '<td class="app-b">'    . ($st ? ($st->cup_sf ?: '') : '') . '</td>'
+           . '</tr>';
+    }
+    echo '</table>';
+
+    // ════════════════════════════════════════════════════════════════════════
+    // PER-CLUB MATRIX SHEETS
+    // ════════════════════════════════════════════════════════════════════════
+    foreach ($by_club as $club => $players) {
+        $sn = lgw_safe_sheet_name($club);
+
+        // Get match keys relevant to this club
+        $club_match_keys = array();
+        foreach ($players as $pl) {
+            foreach (array_keys($player_apps[$pl->id] ?? array()) as $mk) {
+                $club_match_keys[$mk] = true;
+            }
+        }
+        // Keep original chronological order, filtered to this club
+        $club_matches = array_values(array_filter($match_order, function($mk) use ($club_match_keys) {
+            return isset($club_match_keys[$mk]);
+        }));
+
+        $n_matches  = count($club_matches);
+        $fixed_cols = 12; // Name, T, A, B, MW, W, D, L, SF, SA, Starred, Female
+        $total_cols = $fixed_cols + $n_matches;
+
+        echo '<table id="' . esc_attr($sn) . '">';
+
+        // Row 1: Club name header spanning all columns
+        echo '<tr><td class="hdr1" colspan="' . $total_cols . '">' . esc_html($club) . esc_html($label) . '</td></tr>';
+
+        // Row 2: match dates
+        echo '<tr>'
+           . '<td class="hdr2">Player</td>'
+           . '<td class="total-hdr">T</td>'
+           . '<td class="total-hdr">A</td>'
+           . '<td class="total-hdr">B</td>'
+           . '<td class="total-hdr">MW</td>'
+           . '<td class="total-hdr">W</td>'
+           . '<td class="total-hdr">D</td>'
+           . '<td class="total-hdr">L</td>'
+           . '<td class="total-hdr">SF</td>'
+           . '<td class="total-hdr">SA</td>'
+           . '<td class="flag-hdr">⭐</td>'
+           . '<td class="flag-hdr">♀</td>';
+        foreach ($club_matches as $mk) {
+            echo '<td class="hdr2">' . esc_html($match_meta[$mk]['date']) . '</td>';
+        }
+        echo '</tr>';
+
+        // Row 3: team playing (home/away label for this club)
+        echo '<tr>'
+           . '<td class="hdr3">Team</td>'
+           . '<td class="hdr3" colspan="9"></td>'
+           . '<td class="hdr3"></td>'
+           . '<td class="hdr3"></td>';
+        foreach ($club_matches as $mk) {
+            $m = $match_meta[$mk];
+            $club_team = lgw_club_team_in_match($club, $m['home'], $m['away']);
+            $label_t   = lgw_team_suffix($club_team);
+            echo '<td class="hdr3">' . esc_html($label_t) . '</td>';
+        }
+        echo '</tr>';
+
+        // Row 4: opposition
+        echo '<tr>'
+           . '<td class="hdr3">Opposition</td>'
+           . '<td class="hdr3" colspan="9"></td>'
+           . '<td class="hdr3"></td>'
+           . '<td class="hdr3"></td>';
+        foreach ($club_matches as $mk) {
+            $m   = $match_meta[$mk];
+            $opp = lgw_club_team_in_match($club, $m['home'], $m['away']) === $m['home']
+                 ? $m['away'] : $m['home'];
+            echo '<td class="hdr3">' . esc_html($opp) . '</td>';
+        }
+        echo '</tr>';
+
+        // Row 5: venue
+        echo '<tr>'
+           . '<td class="hdr3">Venue</td>'
+           . '<td class="hdr3" colspan="9"></td>'
+           . '<td class="hdr3"></td>'
+           . '<td class="hdr3"></td>';
+        foreach ($club_matches as $mk) {
+            $m     = $match_meta[$mk];
+            $is_home = lgw_club_matches_team($club, $m['home']);
+            $venue = $is_home ? 'Home' : 'Away';
+            echo '<td class="hdr3">' . esc_html($venue) . '</td>';
+        }
+        echo '</tr>';
+
+        // Row 6: competition
+        echo '<tr>'
+           . '<td class="hdr3">Comp</td>'
+           . '<td class="hdr3" colspan="9"></td>'
+           . '<td class="hdr3"></td>'
+           . '<td class="hdr3"></td>';
+        foreach ($club_matches as $mk) {
+            echo '<td class="hdr3">' . esc_html($match_meta[$mk]['comp'] ?? '') . '</td>';
+        }
+        echo '</tr>';
+
+        // Player rows
+        foreach ($players as $pl) {
+            $apps     = $player_apps[$pl->id] ?? array();
+            $t_total  = count($apps);
+            $t_a      = count(array_filter($apps, function($v){ return strtoupper($v)==='A'; }));
+            $t_b      = count(array_filter($apps, function($v){ return strtoupper($v)==='B'; }));
+            $t_mw     = count(array_filter($apps, function($v){ return strtoupper($v)==='MW'; }));
+            $row_cls  = $pl->starred ? ' class="starred"' : '';
+            $st       = $player_stats[$pl->id] ?? null;
+            $p_w      = $st ? intval($st->wins)         : 0;
+            $p_d      = $st ? intval($st->draws)        : 0;
+            $p_l      = $st ? intval($st->losses)       : 0;
+            $p_sf     = $st ? intval($st->shots_for)    : 0;
+            $p_sa     = $st ? intval($st->shots_against): 0;
+
+            echo '<tr' . $row_cls . '>'
+               . '<td class="player-name">' . esc_html($pl->name) . '</td>'
+               . '<td class="total-cell">' . ($t_total ?: '') . '</td>'
+               . '<td class="total-cell">' . ($t_a  ?: '') . '</td>'
+               . '<td class="total-cell">' . ($t_b  ?: '') . '</td>'
+               . '<td class="total-cell">' . ($t_mw ?: '') . '</td>'
+               . '<td class="total-cell">' . ($p_w  ?: '') . '</td>'
+               . '<td class="total-cell">' . ($p_d  ?: '') . '</td>'
+               . '<td class="total-cell">' . ($p_l  ?: '') . '</td>'
+               . '<td class="total-cell">' . ($p_sf ?: '') . '</td>'
+               . '<td class="total-cell">' . ($p_sa ?: '') . '</td>'
+               . '<td style="text-align:center">' . ($pl->starred ? 'X' : '') . '</td>'
+               . '<td style="text-align:center">' . ($pl->female  ? 'X' : '') . '</td>';
+
+            foreach ($club_matches as $mk) {
+                $val = $apps[$mk] ?? '';
+                $cls = '';
+                switch (strtoupper($val)) {
+                    case 'A':  $cls = 'app-a';     break;
+                    case 'B':  $cls = 'app-b';     break;
+                    case 'MW': $cls = 'app-mw';    break;
+                    default:   $cls = $val ? 'app-other' : ''; break;
+                }
+                echo '<td class="app-cell ' . $cls . '">' . esc_html($val) . '</td>';
+            }
+            echo '</tr>';
+        }
+
+        echo '</table>';
+    }
+
+    echo '</body></html>';
+    exit;
+}
+
+// ── Club Summary: XLSX export ────────────────────────────────────────────────
+add_action('admin_post_lgw_export_club_summary', 'lgw_export_club_summary_xlsx');
+function lgw_export_club_summary_xlsx() {
+    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+    check_admin_referer('lgw_export_club_summary');
+
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    $sid = sanitize_text_field($_GET['season'] ?? '');
+    $season_obj = $sid ? lgw_get_season_by_id($sid) : lgw_get_active_season();
+    if ($season_obj) {
+        $season = array('start' => $season_obj['start'] ?? '', 'end' => $season_obj['end'] ?? '', 'label' => $season_obj['label'] ?? '');
+    } else {
+        $season = lgw_get_season();
+    }
+    $season_key = sanitize_key($season['label'] ?? 'default');
+    $label = !empty($season['label']) ? $season['label'] : 'All Time';
+
+    $season_where = '';
+    if (!empty($season['start']) && !empty($season['end'])) {
+        $season_where = $wpdb->prepare(
+            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
+            $season['start'], $season['end']
+        );
+    }
+
+    $players = $wpdb->get_results(
+        "SELECT p.id, p.club, p.name, p.female,
+                COUNT(DISTINCT a.id) as appearances
+         FROM $pt p
+         LEFT JOIN $at a ON a.player_id = p.id " .
+        ($season_where ? "WHERE 1=1 $season_where " : "") . "
+         GROUP BY p.id ORDER BY p.club, p.name"
+    );
+
+    $by_club = array();
+    foreach ($players as $pl) { $by_club[$pl->club][] = $pl; }
+
+    $paid_data   = get_option('lgw_club_paid_counts', array());
+    $paid_counts = $paid_data[$season_key] ?? array();
+
+    $all_clubs = array_unique(array_merge(
+        array_map(function($c){ return $c['name']; }, lgw_get_clubs()),
+        array_keys($by_club)
+    ));
+    sort($all_clubs);
+
+    $filename = 'lgw-club-summary-' . str_replace('/', '-', $label) . '.xls';
+    header('Content-Type: application/vnd.ms-excel');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-cache');
+
+    echo '<?xml version="1.0" encoding="UTF-8"?>' . "
+";
+    echo '<?mso-application progid="Excel.Sheet"?>' . "
+";
+    echo '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+                   xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+    <Styles>
+        <Style ss:ID="h1"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1A2E5A" ss:Pattern="Solid"/></Style>
+        <Style ss:ID="h2"><Font ss:Bold="1"/><Interior ss:Color="#D0D8EE" ss:Pattern="Solid"/></Style>
+        <Style ss:ID="bold"><Font ss:Bold="1"/></Style>
+        <Style ss:ID="ctr"><Alignment ss:Horizontal="Center"/></Style>
+        <Style ss:ID="ctr_bold"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1"/></Style>
+        <Style ss:ID="red"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#C0392B"/></Style>
+        <Style ss:ID="grn"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#1A6E1A"/></Style>
+        <Style ss:ID="tot"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1A2E5A" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center"/></Style>
+    </Styles>
+    <Worksheet ss:Name="Club Summary">
+    <Table>';
+
+    $row = function($cells) { echo '<Row>' . implode('', $cells) . '</Row>' . "
+"; };
+    $c   = function($val, $style='', $type='String') {
+        $s = $style ? ' ss:StyleID="'.$style.'"' : '';
+        return '<Cell'.$s.'><Data ss:Type="'.$type.'">'.esc_html($val).'</Data></Cell>';
+    };
+
+    $row(array($c('LGW Club Summary — ' . $label, 'h1'), '<Cell/><Cell/><Cell/><Cell/><Cell/>'));
+    $row(array($c('Club','h2'), $c('Players in Tracker','h2'), $c('Appearances','h2'), $c('Ladies','h2'), $c('Players Paid','h2'), $c('Balance','h2')));
+
+    $g_pl = $g_ap = $g_la = $g_pd = 0;
+    foreach ($all_clubs as $cname) {
+        $cps  = $by_club[$cname] ?? array();
+        $n_pl = count($cps);
+        $n_ap = array_sum(array_column($cps, 'appearances'));
+        $n_la = count(array_filter($cps, function($p){ return $p->female; }));
+        $n_pd = intval($paid_counts[$cname] ?? 0);
+        $bal  = $n_pd - $n_pl;
+        $bal_style = $bal < 0 ? 'red' : ($bal > 0 ? 'grn' : 'ctr_bold');
+        $g_pl += $n_pl; $g_ap += $n_ap; $g_la += $n_la; $g_pd += $n_pd;
+        $row(array($c($cname,'bold'), $c($n_pl,'ctr','Number'), $c($n_ap,'ctr','Number'), $c($n_la,'ctr','Number'), $c($n_pd,'ctr','Number'), $c(($bal>0?'+':'').$bal, $bal_style)));
+    }
+    $g_bal = $g_pd - $g_pl;
+    $row(array($c('TOTAL','tot'), $c($g_pl,'tot','Number'), $c($g_ap,'tot','Number'), $c($g_la,'tot','Number'), $c($g_pd,'tot','Number'), $c(($g_bal>0?'+':'').$g_bal,'tot')));
+
+    echo '</Table></Worksheet></Workbook>';
+    exit;
+}
+
+// ── Club Summary: PDF export ──────────────────────────────────────────────────
+add_action('admin_post_lgw_export_club_summary_pdf', 'lgw_export_club_summary_pdf');
+function lgw_export_club_summary_pdf() {
+    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+    check_admin_referer('lgw_export_club_summary_pdf');
+
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    $sid = sanitize_text_field($_GET['season'] ?? '');
+    $season_obj = $sid ? lgw_get_season_by_id($sid) : lgw_get_active_season();
+    if ($season_obj) {
+        $season = array('start' => $season_obj['start'] ?? '', 'end' => $season_obj['end'] ?? '', 'label' => $season_obj['label'] ?? '');
+    } else {
+        $season = lgw_get_season();
+    }
+    $season_key = sanitize_key($season['label'] ?? 'default');
+    $label = !empty($season['label']) ? $season['label'] : 'All Time';
+
+    $season_where = '';
+    if (!empty($season['start']) && !empty($season['end'])) {
+        $season_where = $wpdb->prepare(
+            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
+            $season['start'], $season['end']
+        );
+    }
+
+    $players = $wpdb->get_results(
+        "SELECT p.id, p.club, p.name, p.female,
+                COUNT(DISTINCT a.id) as appearances
+         FROM $pt p
+         LEFT JOIN $at a ON a.player_id = p.id " .
+        ($season_where ? "WHERE 1=1 $season_where " : "") . "
+         GROUP BY p.id ORDER BY p.club, p.name"
+    );
+
+    $by_club = array();
+    foreach ($players as $pl) { $by_club[$pl->club][] = $pl; }
+
+    $paid_data   = get_option('lgw_club_paid_counts', array());
+    $paid_counts = $paid_data[$season_key] ?? array();
+
+    $all_clubs = array_unique(array_merge(
+        array_map(function($c){ return $c['name']; }, lgw_get_clubs()),
+        array_keys($by_club)
+    ));
+    sort($all_clubs);
+
+    header('Content-Type: text/html; charset=utf-8');
+    header('Content-Disposition: attachment; filename="lgw-club-summary.html"');
+    // Print-ready HTML that opens as PDF via browser print dialog
+    echo '<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>LGW Club Summary — ' . esc_html($label) . '</title>
+    <style>
+        @media print { body { margin: 10mm; } .no-print { display:none; } }
+        body { font-family: Arial, sans-serif; font-size: 11pt; color: #222; }
+        h1 { color: #1a2e5a; font-size: 16pt; margin-bottom: 4px; }
+        h2 { color: #555; font-size: 11pt; font-weight: normal; margin-top: 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th { background: #1a2e5a; color: #fff; padding: 8px 10px; text-align: center; font-size: 10pt; }
+        th:first-child { text-align: left; }
+        td { padding: 7px 10px; border-bottom: 1px solid #ddd; font-size: 10pt; text-align: center; }
+        td:first-child { text-align: left; font-weight: 600; }
+        tr:nth-child(even) { background: #f5f7fb; }
+        .total-row { background: #1a2e5a !important; color: #fff; font-weight: 700; }
+        .total-row td { color: #fff; border: none; }
+        .neg { color: #c0392b; font-weight: 700; }
+        .pos { color: #1a6e1a; font-weight: 700; }
+        .btn { display:inline-block;margin-top:12px;padding:8px 18px;background:#1a2e5a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11pt; }
+    </style>
+    </head><body>
+    <button class="btn no-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+    <h1>LGW Club Summary</h1>
+    <h2>' . esc_html($label) . ($season_where ? ' &nbsp;|&nbsp; ' . esc_html($season['start'] . ' – ' . $season['end']) : '') . '</h2>
+    <table>
+        <thead><tr>
+            <th>Club</th>
+            <th>Players in Tracker</th>
+            <th>Appearances</th>
+            <th>Ladies</th>
+            <th>Players Paid</th>
+            <th>Balance</th>
+        </tr></thead><tbody>';
+
+    $g_pl = $g_ap = $g_la = $g_pd = 0;
+    foreach ($all_clubs as $cname) {
+        $cps  = $by_club[$cname] ?? array();
+        $n_pl = count($cps);
+        $n_ap = array_sum(array_column($cps, 'appearances'));
+        $n_la = count(array_filter($cps, function($p){ return $p->female; }));
+        $n_pd = intval($paid_counts[$cname] ?? 0);
+        $bal  = $n_pd - $n_pl;
+        $g_pl += $n_pl; $g_ap += $n_ap; $g_la += $n_la; $g_pd += $n_pd;
+        $bal_cls = $bal < 0 ? 'neg' : ($bal > 0 ? 'pos' : '');
+        echo '<tr>'
+           . '<td>' . esc_html($cname) . '</td>'
+           . '<td>' . $n_pl . '</td>'
+           . '<td>' . $n_ap . '</td>'
+           . '<td>' . $n_la . '</td>'
+           . '<td>' . $n_pd . '</td>'
+           . '<td class="' . $bal_cls . '">' . ($bal > 0 ? '+' : '') . $bal . '</td>'
+           . '</tr>';
+    }
+    $g_bal = $g_pd - $g_pl;
+    echo '<tr class="total-row">'
+       . '<td>TOTAL</td>'
+       . '<td>' . $g_pl . '</td>'
+       . '<td>' . $g_ap . '</td>'
+       . '<td>' . $g_la . '</td>'
+       . '<td>' . $g_pd . '</td>'
+       . '<td>' . ($g_bal > 0 ? '+' : '') . $g_bal . '</td>'
+       . '</tr>';
+    echo '</tbody></table>';
+    echo '<p style="margin-top:20px;font-size:9pt;color:#999">Generated by LGW v' . LGW_VERSION . ' on ' . date('d/m/Y H:i') . '</p>';
+    echo '</body></html>';
+    exit;
+}
+
+// ── Helper: extract team suffix label (A, B, MW, C etc.) ─────────────────────
+function lgw_team_suffix($team_name) {
+    $team_name = trim($team_name);
+    // Match trailing label: "Salisbury A" -> "A", "Salisbury MW" -> "MW", "Salisbury" -> "A"
+    if (preg_match('/\s+([A-Z]{1,3})$/', $team_name, $m)) {
+        return $m[1];
+    }
+    return 'A'; // default — single-team clubs
+}
+
+// ── Helper: which team in this match belongs to this club ────────────────────
+function lgw_club_team_in_match($club, $home, $away) {
+    if (lgw_club_matches_team($club, $home)) return $home;
+    if (lgw_club_matches_team($club, $away)) return $away;
+    return $home; // fallback
+}
+
+// ── Helper: safe Excel sheet name (max 31 chars, no special chars) ────────────
+function lgw_safe_sheet_name($name) {
+    return substr(preg_replace('/[^A-Za-z0-9 ]/', '', $name), 0, 31);
+}

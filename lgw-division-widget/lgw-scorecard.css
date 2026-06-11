@@ -1,0 +1,482 @@
+/* NIPGL Scorecard CSS - v5.1 */
+
+/* ── Shared notices ──────────────────────────────────────────────────────────── */
+.lgw-notice{font-size:13px;padding:8px 12px;border-radius:4px;margin:8px 0}
+.lgw-notice-ok   {background:#e8f5e9;color:#2a7a2a;border:1px solid #b2dfb2}
+.lgw-notice-error{background:#fff0f0;color:#c0202a;border:1px solid #f5b2b2}
+.lgw-notice-info {background:#e8edf8;color:#1a2e5a;border:1px solid #b2c0e0}
+.lgw-notice-warn {background:#fff8e0;color:#7a5a00;border:1px solid #e8d080}
+
+/* ── Submit page wrapper ─────────────────────────────────────────────────────── */
+.lgw-submit-wrap{font-family:'Saira',Arial,sans-serif;max-width:680px;margin:0 auto;padding:0 8px}
+.lgw-submit-wrap *{box-sizing:border-box}
+
+/* ── Cards ───────────────────────────────────────────────────────────────────── */
+.lgw-submit-card{background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.10);padding:24px;margin-bottom:20px}
+.lgw-submit-card h2{font-size:20px;font-weight:700;color:#1a2e5a;margin:0 0 16px}
+.lgw-submit-card h3{font-size:16px;font-weight:700;color:#1a2e5a;margin:0 0 14px}
+
+/* ── PIN gate ────────────────────────────────────────────────────────────────── */
+.lgw-pin-row{display:flex;gap:10px;margin:12px 0}
+.lgw-pin-row input{flex:1;padding:10px 12px;border:1px solid #d0d5e8;border-radius:6px;font-size:15px;font-family:inherit}
+.lgw-pin-row input:focus{outline:none;border-color:#1a2e5a}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────────── */
+.lgw-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:6px;border:none;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;transition:background .15s}
+.lgw-btn:disabled{opacity:.6;cursor:not-allowed}
+.lgw-btn-primary{background:#1a2e5a;color:#fff}
+.lgw-btn-primary:hover:not(:disabled){background:#243d78}
+.lgw-btn-secondary{background:#e8edf8;color:#1a2e5a}
+.lgw-btn-secondary:hover:not(:disabled){background:#d0d8f0}
+.lgw-btn-lg{padding:12px 28px;font-size:15px}
+
+/* ── Submission method tabs ──────────────────────────────────────────────────── */
+.lgw-submit-tabs{display:flex;gap:4px;margin-bottom:16px}
+.lgw-stab{flex:1;padding:9px 6px;font-size:12px;font-weight:700;background:#e8edf8;color:#1a2e5a;border:1px solid #d0d5e8;border-radius:6px;cursor:pointer;font-family:inherit;transition:background .15s}
+.lgw-stab.active{background:#1a2e5a;color:#fff;border-color:#1a2e5a}
+.lgw-stab-panel{display:none}
+.lgw-stab-panel.active{display:block}
+.lgw-hint{font-size:13px;color:#666;margin:0 0 12px}
+
+/* ── Upload areas ────────────────────────────────────────────────────────────── */
+.lgw-upload-area{border:2px dashed #d0d5e8;border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .15s;background:#fafbff}
+.lgw-upload-area:hover,.lgw-upload-area.drag-over{border-color:#1a2e5a;background:#f0f2f8}
+.lgw-upload-inner{display:flex;flex-direction:column;align-items:center;gap:6px;color:#666;font-size:13px;cursor:pointer}
+.lgw-upload-icon{font-size:28px}
+
+/* ── Form fields ─────────────────────────────────────────────────────────────── */
+.lgw-form-row{margin-bottom:14px}
+.lgw-form-row label{display:block;font-size:12px;font-weight:700;color:#1a2e5a;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.lgw-form-row input{width:100%;padding:9px 12px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px;font-family:inherit;color:#1a1a1a}
+.lgw-form-row input:focus{outline:none;border-color:#1a2e5a}
+.lgw-form-row-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+/* ── Rink blocks ─────────────────────────────────────────────────────────────── */
+.lgw-rink-block{border:1px solid #d0d5e8;border-radius:8px;margin-bottom:14px;overflow:hidden}
+.lgw-rink-header{background:#1a2e5a;color:#fff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:7px 14px}
+.lgw-rink-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.lgw-rink-col{padding:12px}
+.lgw-rink-col + .lgw-rink-col{border-left:1px solid #d0d5e8}
+.lgw-rink-col-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#666;margin-bottom:6px}
+.lgw-rink-home .lgw-rink-col-lbl{color:#1a2e5a}
+.lgw-rink-away .lgw-rink-col-lbl{color:#c0202a}
+.lgw-rink-col input[type=text]{width:100%;padding:6px 8px;border:1px solid #d0d5e8;border-radius:4px;font-size:13px;font-family:inherit;margin-bottom:5px}
+.lgw-rink-col input[type=text]:focus{outline:none;border-color:#1a2e5a}
+.lgw-score-row{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #e8edf8}
+.lgw-score-row label{font-size:11px;font-weight:700;color:#666;white-space:nowrap}
+.lgw-score-row input[type=number]{width:70px;padding:6px 8px;border:1px solid #d0d5e8;border-radius:4px;font-size:15px;font-weight:700;font-family:inherit;text-align:center;color:#1a2e5a}
+.lgw-score-row input[type=number]:focus{outline:none;border-color:#1a2e5a}
+
+/* ── Totals ──────────────────────────────────────────────────────────────────── */
+.lgw-totals-block{background:#f0f2f8;border-radius:8px;padding:14px 16px;margin:16px 0}
+.lgw-totals-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.lgw-totals-row:last-child{margin-bottom:0}
+.lgw-totals-row > span:first-child{font-size:12px;font-weight:700;text-transform:uppercase;color:#666;min-width:100px}
+.lgw-totals-row input{width:70px;padding:7px 8px;border:1px solid #d0d5e8;border-radius:4px;font-size:15px;font-weight:700;font-family:inherit;text-align:center;color:#1a2e5a;background:#fff}
+.lgw-totals-v{font-size:14px;color:#999;font-weight:700}
+
+/* ── Submit actions ──────────────────────────────────────────────────────────── */
+.lgw-submit-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+
+/* ── Scorecard display (in modal) ────────────────────────────────────────────── */
+.lgw-sc-full{font-family:'Saira',Arial,sans-serif}
+.lgw-sc-divider{border:none;border-top:2px solid var(--lgw-border, #d0d5e8);margin:16px 0 10px}
+.lgw-sc-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--lgw-navy,#1a2e5a);margin:0 0 10px}
+.lgw-sc-meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:#666}
+.lgw-sc-meta span{background:#f0f2f8;border-radius:3px;padding:2px 7px}
+.lgw-sc-rink{border:1px solid var(--lgw-border,#d0d5e8);border-radius:6px;margin-bottom:8px;overflow:hidden}
+.lgw-sc-rink-hdr{background:var(--lgw-navy,#1a2e5a);color:#fff;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:5px 12px}
+.lgw-sc-rink-body{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:10px 12px}
+.lgw-sc-players{font-size:12px;line-height:1.7;color:var(--lgw-text,#1a1a1a)}
+.lgw-sc-players-home{text-align:right}
+.lgw-sc-players-away{text-align:left}
+.lgw-sc-scores{display:flex;align-items:center;justify-content:center;gap:6px;min-width:70px}
+.lgw-sc-score{font-size:18px;font-weight:700;color:var(--lgw-navy,#1a2e5a);min-width:28px;text-align:center}
+.lgw-sc-score.lgw-sc-win{color:var(--lgw-promote,#2a7a2a)}
+.lgw-sc-sep{color:#999;font-size:14px}
+.lgw-sc-totals{background:var(--lgw-bg-alt,#f0f2f8);border-radius:6px;padding:10px 14px;margin-top:8px}
+.lgw-sc-total-row{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.lgw-sc-total-row:last-child{margin-bottom:0}
+.lgw-sc-total-lbl{font-size:11px;font-weight:700;text-transform:uppercase;color:#666;min-width:90px}
+.lgw-sc-total-val{font-size:16px;font-weight:700;color:var(--lgw-navy,#1a2e5a);min-width:28px;text-align:center}
+.lgw-sc-total-val.lgw-sc-win{color:var(--lgw-promote,#2a7a2a)}
+.lgw-sc-pts{font-size:18px}
+.lgw-sc-points-row .lgw-sc-total-lbl{color:#1a2e5a}
+.lgw-sc-loading,.lgw-sc-none{font-size:13px;color:#999;text-align:center;padding:10px 0}
+
+/* ── Dark mode overrides ─────────────────────────────────────────────────────── */
+@media(prefers-color-scheme:dark){
+  :root:not([data-lgw-theme]):not([data-lgw-theme="light"]) .lgw-submit-card{background:#1e1e2e;color:#e8e8f0}
+  :root:not([data-lgw-theme]):not([data-lgw-theme="light"]) .lgw-rink-col input,
+  :root:not([data-lgw-theme]):not([data-lgw-theme="light"]) .lgw-form-row input,
+  :root:not([data-lgw-theme]):not([data-lgw-theme="light"]) .lgw-totals-row input{background:#2a2a3e;border-color:#3a3a55;color:#e8e8f0}
+}
+:root[data-lgw-theme="dark"] .lgw-submit-card{background:#1e1e2e;color:#e8e8f0}
+:root[data-lgw-theme="dark"] .lgw-rink-col input,
+:root[data-lgw-theme="dark"] .lgw-form-row input,
+:root[data-lgw-theme="dark"] .lgw-totals-row input{background:#2a2a3e;border-color:#3a3a55;color:#e8e8f0}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────────── */
+@media(max-width:480px){
+  .lgw-submit-card{padding:16px}
+  .lgw-form-row-2{grid-template-columns:1fr}
+  .lgw-rink-col{padding:10px 8px}
+  .lgw-submit-tabs .lgw-stab{font-size:11px;padding:8px 4px}
+  .lgw-sc-rink-body{grid-template-columns:1fr auto 1fr;gap:4px;padding:8px}
+  .lgw-sc-players{font-size:11px}
+}
+
+/* ── Club login bar ──────────────────────────────────────────────────────────── */
+.lgw-club-bar{display:flex;align-items:center;justify-content:space-between;background:var(--lgw-navy,#1a2e5a);color:#fff;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-family:'Saira',Arial,sans-serif}
+.lgw-btn-sm{padding:5px 12px;font-size:12px}
+
+/* ── Pending card ────────────────────────────────────────────────────────────── */
+.lgw-pending-card{border-left:4px solid #e8b400}
+.lgw-pending-card h3{color:#7a5a00}
+.lgw-pending-item{border:1px solid #d0d5e8;border-radius:6px;padding:12px 14px;margin-bottom:10px;background:#fafbff}
+.lgw-pending-item:last-child{margin-bottom:0}
+.lgw-pending-match{font-size:14px;font-weight:600;color:#1a2e5a;margin-bottom:4px}
+.lgw-pending-date{font-size:12px;font-weight:400;color:#999;margin-left:8px}
+.lgw-pending-by{font-size:12px;color:#666;margin-bottom:8px}
+.lgw-pending-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.lgw-pending-detail{margin-top:12px;padding-top:12px;border-top:1px solid #e8edf8}
+.lgw-btn-view{background:#e8edf8;color:#1a2e5a;border:1px solid #d0d5e8}
+.lgw-btn-view:hover{background:#d0d8f0}
+
+/* ── Review actions ──────────────────────────────────────────────────────────── */
+.lgw-sc-review{padding:10px 0 0}
+.lgw-review-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #e8edf8}
+.lgw-review-status{margin-top:10px}
+
+/* ── Status badges ───────────────────────────────────────────────────────────── */
+.lgw-sc-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;margin-bottom:10px;letter-spacing:.02em}
+.lgw-sc-badge-pending  {background:#fff8e0;color:#7a5a00;border:1px solid #e8d080}
+.lgw-sc-badge-confirmed{background:#e8f5e9;color:#2a7a2a;border:1px solid #b2dfb2}
+.lgw-sc-badge-disputed {background:#fff0f0;color:#c0202a;border:1px solid #f5b2b2}
+
+/* ── Team name validation hints ──────────────────────────────────────────────── */
+.lgw-form-row input.team-valid   { border-color: #b2dfb2; }
+.lgw-form-row input.team-warn    { border-color: #e8d080; }
+.lgw-form-row input.team-invalid { border-color: #f5b2b2; }
+
+/* ── In-modal scorecard submission form ──────────────────────────────────────── */
+.lgw-modal-sc-form{font-family:'Saira',Arial,sans-serif}
+.lgw-modal-sc-form *{box-sizing:border-box}
+.lgw-modal-sc-label{display:block;font-size:11px;font-weight:700;color:#1a2e5a;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.lgw-modal-sc-field input{width:100%;padding:7px 10px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px;font-family:inherit;color:#1a1a1a}
+.lgw-modal-sc-field input[readonly]{background:#f6f7f7;color:#666;cursor:default}
+.lgw-modal-sc-field{margin-bottom:0}
+
+/* ── Rink table ── */
+.lgw-modal-rink-table{width:100%;border-collapse:collapse;font-size:12px;min-width:520px}
+.lgw-modal-rink-table th{padding:6px 8px;background:#1a2e5a;color:#fff;font-weight:700;text-align:left;white-space:nowrap}
+.lgw-modal-rink-table td{padding:5px 6px;border-bottom:1px solid #e8edf8;vertical-align:middle}
+.lgw-modal-rink-num{text-align:center;font-weight:700;color:#1a2e5a;width:36px}
+.lgw-modal-rink-table input[type=text]{width:100%;padding:5px 7px;border:1px solid #d0d5e8;border-radius:4px;font-size:12px;font-family:inherit}
+.lgw-modal-rink-table input[type=number]{width:60px;padding:5px 4px;border:1px solid #d0d5e8;border-radius:4px;font-size:13px;text-align:center;font-family:inherit}
+.lgw-modal-rink-table input:focus{outline:none;border-color:#1a2e5a}
+
+/* ── Club bar inside modal ── */
+.lgw-modal-sc-form .lgw-club-bar{background:#e8edf8;padding:8px 12px;border-radius:6px;display:flex;align-items:center;justify-content:space-between;font-size:13px}
+.lgw-sc-submitter{display:block;font-size:11px;color:#888;margin-top:3px}
+
+/* ── Auto-resize player name textareas ───────────────────────────────────────── */
+.lgw-autoresize{
+  width:100%;min-height:32px;padding:5px 7px;
+  border:1px solid #d0d5e8;border-radius:4px;
+  font-size:12px;font-family:inherit;line-height:1.4;
+  resize:none;overflow:hidden;box-sizing:border-box;
+  transition:border-color .15s
+}
+.lgw-autoresize:focus{outline:none;border-color:#1a2e5a}
+
+/* ── Confirmation preview overlay ────────────────────────────────────────────── */
+.lgw-prev-overlay{
+  position:fixed;inset:0;z-index:99999;
+  background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;
+  padding:16px;box-sizing:border-box
+}
+.lgw-prev-dialog{
+  background:#fff;border-radius:10px;
+  box-shadow:0 8px 40px rgba(0,0,0,.25);
+  width:100%;max-width:640px;max-height:90vh;
+  overflow-y:auto;padding:20px 22px;
+  font-family:'Saira',Arial,sans-serif;box-sizing:border-box
+}
+.lgw-prev-title{margin:0 0 12px;font-size:17px;color:#1a2e5a}
+.lgw-prev-match{font-size:15px;font-weight:700;color:#1a2e5a;margin-bottom:4px}
+.lgw-prev-meta{font-size:12px;font-weight:400;color:#888;margin-left:8px}
+.lgw-prev-legend{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0;font-size:12px;color:#444;align-items:center}
+
+/* ── Rink layout in preview ── */
+.lgw-prev-rinks{margin:12px 0}
+.lgw-prev-rink{margin-bottom:10px;border:1px solid #e8edf8;border-radius:6px;overflow:hidden}
+.lgw-prev-rink-hdr{background:#1a2e5a;color:#fff;font-size:11px;font-weight:700;padding:4px 10px}
+.lgw-prev-rink-body{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;padding:8px 10px}
+.lgw-prev-col{font-size:12px;line-height:1.6}
+.lgw-prev-col-away{text-align:right}
+.lgw-prev-scores{display:flex;align-items:center;gap:6px;justify-content:center;font-size:18px;font-weight:700;white-space:nowrap}
+.lgw-prev-score{min-width:32px;text-align:center;color:#555}
+.lgw-prev-score.lgw-prev-win{color:#1a2e5a}
+.lgw-prev-sep{color:#bbb;font-size:14px}
+
+/* ── Player name highlights ── */
+.lgw-prev-player{display:inline-flex;align-items:center;gap:3px}
+.lgw-prev-new{color:#0a5a0a;font-weight:600}
+.lgw-prev-lady{color:#8b0069}
+.lgw-prev-new.lgw-prev-lady{color:#5a006e}
+
+/* ── Highlight badges ── */
+.lgw-prev-badge{display:inline-block;font-size:9px;font-weight:800;padding:1px 4px;border-radius:3px;vertical-align:middle;margin-left:2px;letter-spacing:.03em}
+.lgw-prev-badge-new{background:#d1e7dd;color:#0a3622}
+.lgw-prev-badge-lady{background:#f5d0ef;color:#6b004f}
+
+/* ── Totals row ── */
+.lgw-prev-totals{margin-top:10px;padding:8px 10px;background:#f6f7f7;border-radius:5px;font-size:13px;color:#333}
+
+/* ── Actions row ── */
+.lgw-prev-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid #e8edf8}
+
+/* ── Inline confirm/amend in fixture modal ───────────────────────────────────── */
+.lgw-sc-review-inline{margin-top:14px;padding-top:12px;border-top:2px solid #e8edf8}
+.lgw-sc-review-prompt{font-size:13px;color:#444;margin:0 0 10px}
+.lgw-sc-review-actions{display:flex;gap:10px;flex-wrap:wrap}
+.lgw-prev-dup{color:#7a4000;font-weight:600}
+.lgw-prev-badge-dup{background:#fff3cd;color:#7a4000}
+
+/* ── Player name links in scorecard ── */
+.lgw-player-link{
+  background:none;border:none;padding:0;margin:0;cursor:pointer;
+  font:inherit;color:inherit;text-align:left;
+  text-decoration:underline;text-decoration-style:dotted;
+  text-underline-offset:2px;text-decoration-color:rgba(0,0,0,.3);
+  border-radius:3px;transition:color .15s,background .15s;
+  display:inline;line-height:inherit
+}
+.lgw-player-link:hover,.lgw-player-link:focus-visible{
+  color:#072a82;text-decoration-color:#072a82;
+  background:rgba(7,42,130,.07);outline:none
+}
+
+/* ── Player stats popover ── */
+.lgw-player-popover{
+  position:fixed;z-index:99999;
+  background:#fff;border-radius:10px;
+  box-shadow:0 6px 32px rgba(0,0,0,.18),0 1px 4px rgba(0,0,0,.10);
+  width:300px;
+  font-family:'Saira',Arial,sans-serif;font-size:13px;
+  display:none;box-sizing:border-box;
+  overflow:hidden;
+  /* max-height set dynamically by JS */
+}
+.lgw-player-popover.lgw-player-popover-visible{display:flex;flex-direction:column}
+.lgw-player-popover.lgw-player-popover-dragging{user-select:none;-webkit-user-select:none}
+/* Drag handle bar */
+.lgw-player-popover-drag{
+  display:flex;align-items:center;justify-content:center;
+  background:#f0f3fa;border-bottom:1px solid #e4e9f5;
+  padding:5px 10px;cursor:grab;flex-shrink:0;position:relative;
+  border-radius:10px 10px 0 0
+}
+.lgw-player-popover-drag:active,.lgw-player-popover-dragging .lgw-player-popover-drag{cursor:grabbing}
+.lgw-player-popover-drag-handle{
+  width:32px;height:4px;border-radius:2px;
+  background:rgba(0,0,0,.18);pointer-events:none
+}
+/* Close button sits in the drag bar */
+.lgw-player-popover-close{
+  position:absolute;top:50%;right:10px;transform:translateY(-50%);
+  background:none;border:none;cursor:pointer;
+  font-size:18px;color:#aaa;line-height:1;padding:0;
+  transition:color .15s
+}
+.lgw-player-popover-close:hover{color:#333}
+/* Scrollable inner body */
+.lgw-player-popover-body{
+  overflow-y:auto;overflow-x:hidden;
+  padding:12px 16px;
+  flex:1;min-height:0
+}
+.lgw-player-popover-header{
+  display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-right:18px
+}
+.lgw-player-popover-badge{
+  width:36px;height:36px;object-fit:contain;flex-shrink:0;border-radius:3px
+}
+.lgw-player-popover-name{
+  font-weight:700;font-size:14px;color:#1a2e5a;line-height:1.2
+}
+.lgw-player-popover-club{
+  font-size:11px;color:#888;margin-top:2px
+}
+/* W / D / L / P tiles */
+.lgw-player-popover-stats{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px
+}
+.lgw-player-popover-stat{
+  display:flex;flex-direction:column;align-items:center;
+  border-radius:6px;padding:6px 4px
+}
+.lgw-pps-val{font-size:20px;font-weight:800;line-height:1}
+.lgw-pps-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:2px;opacity:.8}
+.lgw-pps-w{background:#d1f5d8;color:#145a1c}
+.lgw-pps-d{background:#fff3cd;color:#7a5000}
+.lgw-pps-l{background:#fde8e8;color:#7a1010}
+.lgw-pps-p{background:#e8edf8;color:#1a2e5a}
+/* Teams section */
+.lgw-player-popover-teams{
+  border-top:1px solid #e8edf8;padding-top:8px;
+  display:flex;flex-wrap:wrap;gap:4px;align-items:center;
+  margin-bottom:10px
+}
+.lgw-ppt-label{
+  font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;color:#888;width:100%;margin-bottom:2px
+}
+.lgw-ppt-team{
+  background:#e8edf8;color:#1a2e5a;font-size:11px;font-weight:600;
+  border-radius:4px;padding:2px 7px;
+  border:none;font-family:inherit;cursor:pointer;
+  transition:background .12s,color .12s
+}
+.lgw-ppt-team:hover{background:#c8d4f0}
+.lgw-ppt-team-active{background:#1a2e5a;color:#fff}
+.lgw-ppt-team-active:hover{background:#1a2e5a;color:#fff}
+/* "All" chip — slightly distinct baseline */
+.lgw-ppt-team-all{background:#d4daf0}
+/* Games list */
+.lgw-player-popover-games{
+  border-top:1px solid #e8edf8;padding-top:8px
+}
+.lgw-ppg-heading{
+  font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;color:#888;margin-bottom:6px
+}
+.lgw-ppg-row{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:8px;padding:6px 0;border-bottom:1px solid #f0f3fa
+}
+.lgw-ppg-row:last-child{border-bottom:none}
+.lgw-ppg-left{flex:1;min-width:0}
+.lgw-ppg-match{
+  font-size:12px;font-weight:600;color:#1a2e5a;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.lgw-ppg-meta{
+  display:flex;flex-wrap:wrap;gap:4px;margin-top:2px
+}
+.lgw-ppg-meta span{
+  font-size:10px;color:#888
+}
+.lgw-ppg-meta span+span::before{content:'·';margin-right:4px}
+.lgw-ppg-type{
+  font-size:9px;font-weight:700;text-transform:uppercase;
+  background:#e8edf8;color:#1a2e5a;border-radius:3px;padding:1px 4px;
+  letter-spacing:.04em
+}
+.lgw-ppg-comp{
+  font-size:10px;color:#555;font-style:italic
+}
+.lgw-ppg-right{
+  display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0
+}
+.lgw-ppg-score{
+  font-size:13px;font-weight:700;color:#333;white-space:nowrap
+}
+.lgw-ppg-result{
+  font-size:11px;font-weight:800;border-radius:4px;
+  padding:1px 6px;text-align:center;min-width:22px;
+  display:inline-block
+}
+.lgw-ppg-w{background:#d1f5d8;color:#145a1c}
+.lgw-ppg-d{background:#fff3cd;color:#7a5000}
+.lgw-ppg-l{background:#fde8e8;color:#7a1010}
+.lgw-ppg-u{background:#e8edf8;color:#888}
+.lgw-player-popover-loading{
+  color:#888;font-size:12px;text-align:center;padding:8px 0
+}
+.lgw-player-popover-none{
+  color:#888;font-size:12px;text-align:center;padding:4px 0;margin:0
+}
+
+/* Dark mode overrides */
+[data-lgw-theme="dark"] .lgw-player-popover{background:#1e2a42;box-shadow:0 6px 32px rgba(0,0,0,.5)}
+[data-lgw-theme="dark"] .lgw-player-popover-drag{background:#16213a;border-bottom-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-player-popover-drag-handle{background:rgba(255,255,255,.2)}
+[data-lgw-theme="dark"] .lgw-player-popover-name{color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-player-popover-club{color:#7a8eb0}
+[data-lgw-theme="dark"] .lgw-player-popover-close{color:#7a8eb0}
+[data-lgw-theme="dark"] .lgw-player-popover-close:hover{color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-pps-p{background:#2a3a5a;color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-ppt-team{background:#2a3a5a;color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-ppt-team:hover{background:#3a4e72}
+[data-lgw-theme="dark"] .lgw-ppt-team-active{background:#5577aa;color:#fff}
+[data-lgw-theme="dark"] .lgw-ppt-team-active:hover{background:#5577aa}
+[data-lgw-theme="dark"] .lgw-ppt-team-all{background:#243350}
+[data-lgw-theme="dark"] .lgw-player-popover-teams{border-top-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-player-popover-games{border-top-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-ppg-match{color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-ppg-row{border-bottom-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-ppg-score{color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-ppg-type{background:#2a3a5a;color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-ppg-comp{color:#9aabcc}
+[data-lgw-theme="dark"] .lgw-player-link{text-decoration-color:rgba(200,214,248,.3)}
+[data-lgw-theme="dark"] .lgw-player-link:hover,[data-lgw-theme="dark"] .lgw-player-link:focus-visible{
+  color:#7ab0ff;text-decoration-color:#7ab0ff;background:rgba(122,176,255,.1)
+}
+
+/* ── Stats popover tab switcher ───────────────────────────────────────────────── */
+.lgw-pp-tabs{display:flex;gap:0;border-bottom:2px solid #e0e4f0;margin:10px 0 0;overflow:hidden;border-radius:4px 4px 0 0}
+.lgw-pp-tab{flex:1;padding:6px 4px;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;border:none;background:#f0f2f8;color:#555;text-transform:uppercase;letter-spacing:.04em;transition:background .12s,color .12s}
+.lgw-pp-tab:hover{background:#e0e4f0;color:#1a2e5a}
+.lgw-pp-tab-active{background:#1a2e5a;color:#fff}
+.lgw-pp-panel{padding-top:2px}
+
+/* ── Champ bracket player name links ─────────────────────────────────────────── */
+.lgw-champ-player-link{
+  display:inline;
+  background:none;
+  border:none;
+  padding:0;
+  font:inherit;
+  cursor:pointer;
+  color:inherit;
+  text-decoration:underline dotted rgba(0,0,0,.25);
+  transition:color .12s,text-decoration-color .12s
+}
+.lgw-champ-player-link:hover,.lgw-champ-player-link:focus-visible{
+  color:var(--lgw-navy,#1a2e5a);
+  text-decoration-color:var(--lgw-navy,#1a2e5a);
+  outline:none
+}
+.lgw-champ-name-links{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0}
+.lgw-champ-entry-sep{color:#aaa;font-size:.85em;padding:0 1px}
+.lgw-champ-entry-club{color:var(--lgw-text-muted,#888);font-size:.88em}
+/* ── Triples/fours skip-only display with expand toggle ────────────────────── */
+.lgw-champ-multi-entry{display:inline-flex;flex-direction:column;align-items:flex-start}
+.lgw-champ-team-collapsed,.lgw-champ-team-expanded{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0}
+.lgw-champ-team-collapsed[hidden],.lgw-champ-team-expanded[hidden]{display:none}
+.lgw-champ-expand-toggle{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:none;border:none;padding:0 0 0 3px;margin:0;
+  cursor:pointer;font-size:.8em;color:var(--lgw-text-muted,#888);
+  line-height:1;vertical-align:middle;transition:color .12s
+}
+.lgw-champ-expand-toggle:hover,.lgw-champ-expand-toggle:focus-visible{
+  color:var(--lgw-navy,#1a2e5a);outline:none
+}
+[data-lgw-theme="dark"] .lgw-champ-expand-toggle{color:rgba(200,214,248,.5)}
+[data-lgw-theme="dark"] .lgw-champ-expand-toggle:hover{color:#7ab0ff}
+
+/* ── Dark mode: tab switcher ─────────────────────────────────────────────────── */
+[data-lgw-theme="dark"] .lgw-pp-tabs{border-bottom-color:#2a3a5a}
+[data-lgw-theme="dark"] .lgw-pp-tab{background:#1e2a42;color:#7a8eb0}
+[data-lgw-theme="dark"] .lgw-pp-tab:hover{background:#2a3a5a;color:#c8d6f8}
+[data-lgw-theme="dark"] .lgw-pp-tab-active{background:#1a2e5a;color:#fff}
+
+/* ── Dark mode: champ player links ──────────────────────────────────────────── */
+[data-lgw-theme="dark"] .lgw-champ-player-link{text-decoration-color:rgba(200,214,248,.3)}
+[data-lgw-theme="dark"] .lgw-champ-player-link:hover,[data-lgw-theme="dark"] .lgw-champ-player-link:focus-visible{
+  color:#7ab0ff;text-decoration-color:#7ab0ff
+}
