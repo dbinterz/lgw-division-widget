@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.1
+Stable tag: 7.6.2
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.2 =
+* Fix: wpAdminLogin() uses LGW_BASE_URL env var instead of private Playwright browser._options API
+* Fix: deleteAllScorecards() safe when no scorecards exist
+* Fix: playwright.config.js loads tests/.env via dotenv so env vars are available in helper modules
+* Add: tests/.env.example and tests/TESTING.md local development runbook
 
 = 7.6.1 =
 * Fix: SSR (DB-primary) path now renders postponed pill on fixture rows, matching XHR path behaviour

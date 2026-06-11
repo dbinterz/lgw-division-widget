@@ -1,6 +1,9 @@
 // tests/playwright.config.js
 // LGW Division Widget — Playwright E2E test configuration
-// Phase 4.3 — Test Suite (v7.6.0)
+// Phase 4.3 — Test Suite (v7.6.1)
+
+// Load .env from tests/ directory so all env vars are available in helpers too
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
 const { defineConfig, devices } = require('@playwright/test');
 

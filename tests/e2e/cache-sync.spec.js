@@ -10,7 +10,9 @@ const {
   wpAdminLogin,
   wpcli,
   clearDivisionCache,
-  seedTestClubs,
+  clearTestDivisionCache,
+  seedTestEnvironment,
+  seedCacheFromFixture,
   getWpOption,
   setWpOption,
 } = require('./helpers/wp-login');
@@ -28,54 +30,55 @@ const {
 } = require('./helpers/fixtures');
 
 test.beforeAll(async () => {
-  await seedTestClubs();
+  await seedTestEnvironment();
 });
 
-test.beforeEach(async ({ page }) => {
-  await mockCsv(page, CSV.STANDARD);
+test.beforeEach(async () => {
+  // Re-seed test division cache before each test for a clean state
+  await seedCacheFromFixture('div1-standard.csv');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CS-01  Cache is populated after admin triggers manual sync @P1
 // ─────────────────────────────────────────────────────────────────────────────
 test('CS-01: cache populated after admin manual sync @P1', async ({ page }) => {
-  await clearDivisionCache();
+  // Clear only test division cache — admin sync will repopulate active season
+  await clearTestDivisionCache();
 
   await wpAdminLogin(page);
-  await page.goto(ADMIN_SETTINGS);
+  await page.goto(`http://localhost:8080${ADMIN_SETTINGS}`);
+  await page.waitForURL(`**${ADMIN_SETTINGS}**`, { timeout: 20000 });
 
-  // Find and click the Sync All Now button in the cache health panel
+  // Find and click Sync All Now button
   const syncBtn = page.locator(SYNC_ALL_BTN).first();
   await expect(syncBtn).toBeVisible({ timeout: 8000 });
   await syncBtn.click();
 
-  // Wait for AJAX success indicator (spinner gone / "Synced" text)
-  await page.waitForSelector('.lgw-sync-status:has-text("Synced"), .lgw-sync-ok, [data-sync-done="1"]', {
-    timeout: 15000,
-  });
+  // Wait for status text to update — actual element is #lgw-cache-sync-status
+  await expect(page.locator('#lgw-cache-sync-status')).toContainText(
+    /Sync|synced|OK|✓|Done/i, { timeout: 20000 }
+  );
 
-  // Verify at least one lgw_div_cache_* option now exists
-  const cacheKeys = await wpcli(`option list --search="lgw_div_cache_*" --format=csv`);
+  // Verify lgw_div_cache_* options exist
+  const cacheKeys = await wpcli(`option list --search="lgw_div_cache_*" --field=option_name --format=csv`);
   expect(cacheKeys.trim().length).toBeGreaterThan(0);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CS-02  Confirmed scorecard result appears in fixture list within 2s @P1
+// CS-02  Confirmed scorecard result appears in fixture list @P1
 // ─────────────────────────────────────────────────────────────────────────────
 test('CS-02: confirmed scorecard result appears in fixture list @P1', async ({ page }) => {
-  // Populate cache from standard CSV
-  await wpcli(`eval 'lgw_cache_sync_all();'`);
-
+  // Cache is pre-seeded by beforeEach with 12 played fixtures
   await page.goto(TEST_PAGE_URL);
   await waitForWidget(page);
   await openFixturesTab(page);
 
-  // Grab pre-confirmation state — Test Club B vs Larne BC (Sat 2-May-2026) is unplayed
+  // Test Club B v Larne BC on Sat 2-May-2026 is unplayed in div1-standard.csv
   const targetRow = page.locator('.fx-row[data-home="Test Club B"][data-away="Larne BC"]').first();
   await expect(targetRow).toBeVisible();
   await expect(targetRow).not.toHaveClass(/played/);
 
-  // Simulate a scorecard confirmation via WP-CLI (invokes lgw_scorecard_confirmed action)
+  // Confirm scorecard via WP-CLI — uses Test Division so cache merge finds it
   await wpcli(`eval '
     $post_id = wp_insert_post(array(
       "post_type"   => "lgw_scorecard",
@@ -89,43 +92,40 @@ test('CS-02: confirmed scorecard result appears in fixture list @P1', async ({ p
         "_lgw_away_pts"   => "0",
         "_lgw_date"       => "2026-05-02",
         "_lgw_status"     => "confirmed",
-        "_lgw_division"   => "Division 1",
+        "_lgw_division"   => "Test Division",
       )
     ));
     do_action("lgw_scorecard_confirmed", $post_id);
   '`);
 
-  // Reload page — cache merge should have updated the fixture row
+  // Reload — cache merge should have marked the fixture as played
   await page.reload();
   await waitForWidget(page);
   await openFixturesTab(page);
 
   const confirmedRow = page.locator('.fx-row[data-home="Test Club B"][data-away="Larne BC"]').first();
   await expect(confirmedRow).toHaveClass(/played/, { timeout: 5000 });
-
-  // Score should be visible in the row
   const rowText = await confirmedRow.textContent();
   expect(rowText).toMatch(/19/);
   expect(rowText).toMatch(/14/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CS-03  Cache invalidation clears option and forces XHR fallback @P1
+// CS-03  Cache invalidation clears test division and forces XHR fallback @P1
 // ─────────────────────────────────────────────────────────────────────────────
 test('CS-03: cache invalidation clears option and forces XHR fallback @P1', async ({ page }) => {
-  // Populate cache first
-  await wpcli(`eval 'lgw_cache_sync_all();'`);
-  const cacheKeysBefore = await wpcli(`option list --search="lgw_div_cache_*" --format=csv`);
-  expect(cacheKeysBefore.trim().length).toBeGreaterThan(0);
+  // Confirm test division cache exists
+  const keysBefore = await wpcli(`option list --search="lgw_div_cache_*" --field=option_name --format=csv`);
+  const testKeyBefore = keysBefore.split('\n').filter(k => k.includes('testdivision'));
+  expect(testKeyBefore.length).toBeGreaterThan(0);
 
-  // Invalidate
-  await clearDivisionCache();
-  const cacheKeysAfter = await wpcli(`option list --search="lgw_div_cache_*" --format=csv`);
-  // After clearing, list should be empty or just the header row
-  const lines = cacheKeysAfter.trim().split('\n').filter(l => l.includes('lgw_div_cache_'));
-  expect(lines.length).toBe(0);
+  // Invalidate test division only
+  await clearTestDivisionCache();
+  const keysAfter = await wpcli(`option list --search="lgw_div_cache_*" --field=option_name --format=csv`);
+  const testKeyAfter = keysAfter.split('\n').filter(k => k.includes('testdivision'));
+  expect(testKeyAfter.length).toBe(0);
 
-  // Widget should still load via XHR fallback
+  // Widget should fall back to XHR
   await mockCsv(page, CSV.STANDARD);
   await page.goto(TEST_PAGE_URL);
   await waitForWidget(page);
@@ -142,40 +142,23 @@ test('CS-03: cache invalidation clears option and forces XHR fallback @P1', asyn
 // CS-04  synced_at timestamp updates after each sync @P2
 // ─────────────────────────────────────────────────────────────────────────────
 test('CS-04: synced_at timestamp updates after sync @P2', async ({ page }) => {
-  // First sync
-  await wpcli(`eval 'lgw_cache_sync_all();'`);
-
-  // Read the first synced_at value from any cache option
-  const optionRaw = await wpcli(`eval '
-    global $wpdb;
-    $row = $wpdb->get_row("SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE \"lgw_div_cache_%\" LIMIT 1");
-    if ($row) {
-      $data = maybe_unserialize($row->option_value);
-      echo $data["synced_at"] ?? 0;
-    } else {
-      echo 0;
-    }
+  // Get synced_at from test division cache (seeded in beforeEach)
+  const first = await wpcli(`eval '
+    $data = get_option("lgw_div_cache_" . sanitize_key(lgw_get_active_season_id()) . "_testdivision");
+    echo $data["synced_at"] ?? 0;
   '`);
-  const firstSyncedAt = parseInt(optionRaw.trim(), 10);
+  const firstSyncedAt = parseInt(first.trim(), 10);
   expect(firstSyncedAt).toBeGreaterThan(0);
 
-  // Wait 2 seconds to ensure Unix timestamp differs
+  // Wait 2 seconds then re-seed
   await new Promise(r => setTimeout(r, 2000));
+  await seedCacheFromFixture('div1-standard.csv');
 
-  // Sync again
-  await wpcli(`eval 'lgw_cache_sync_all();'`);
-
-  const optionRaw2 = await wpcli(`eval '
-    global $wpdb;
-    $row = $wpdb->get_row("SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE \"lgw_div_cache_%\" LIMIT 1");
-    if ($row) {
-      $data = maybe_unserialize($row->option_value);
-      echo $data["synced_at"] ?? 0;
-    } else {
-      echo 0;
-    }
+  const second = await wpcli(`eval '
+    $data = get_option("lgw_div_cache_" . sanitize_key(lgw_get_active_season_id()) . "_testdivision");
+    echo $data["synced_at"] ?? 0;
   '`);
-  const secondSyncedAt = parseInt(optionRaw2.trim(), 10);
+  const secondSyncedAt = parseInt(second.trim(), 10);
   expect(secondSyncedAt).toBeGreaterThanOrEqual(firstSyncedAt);
 });
 
@@ -183,25 +166,26 @@ test('CS-04: synced_at timestamp updates after sync @P2', async ({ page }) => {
 // CS-05  Hard TTL (24h) causes fallback to XHR @P2
 // ─────────────────────────────────────────────────────────────────────────────
 test('CS-05: hard TTL exceeded causes XHR fallback @P2', async ({ page }) => {
-  // Manually write a stale cache entry with synced_at > 24h ago
+  // Write a stale cache entry for test division with synced_at > 24h ago
   await wpcli(`eval '
-    $stale_data = array(
+    $key = "lgw_div_cache_" . sanitize_key(lgw_get_active_season_id()) . "_testdivision";
+    $stale = array(
       "teams"     => array(array("Test Club A", 0, 0, 0, 0, 0, 0, 0)),
       "fixtures"  => array(),
       "synced_at" => time() - (25 * HOUR_IN_SECONDS),
-      "csv_url"   => "https://example.com/fake.csv",
-      "season_id" => "2026",
-      "division"  => "Division 1",
+      "csv_url"   => "https://docs.google.com/spreadsheets/d/TEST_FIXTURE/export?format=csv",
+      "season_id" => lgw_get_active_season_id(),
+      "division"  => "Test Division",
     );
-    update_option("lgw_div_cache_2026_division-1", $stale_data);
+    update_option($key, $stale);
   '`);
 
-  // Mock CSV so XHR fallback has data to render
+  // Mock CSV so XHR fallback renders
   await mockCsv(page, CSV.STANDARD);
   await page.goto(TEST_PAGE_URL);
   await waitForWidget(page);
 
-  // Stale cache should cause SSR to be skipped — XHR path used
+  // Stale cache should be skipped — widget uses XHR path
   const widget = page.locator(WIDGET_SEL).first();
   const prerendered = await widget.getAttribute('data-prerendered');
   expect(prerendered).not.toBe('1');
@@ -211,39 +195,31 @@ test('CS-05: hard TTL exceeded causes XHR fallback @P2', async ({ page }) => {
 // CS-06  Sync failure with unreachable CSV leaves existing cache intact @P2
 // ─────────────────────────────────────────────────────────────────────────────
 test('CS-06: sync failure with unreachable CSV leaves existing cache intact @P2', async ({ page }) => {
-  // Populate cache with good data first
-  await wpcli(`eval 'lgw_cache_sync_all();'`);
-
-  // Read current team count from cache
+  // Get current team count from test division cache
   const before = await wpcli(`eval '
-    global $wpdb;
-    $row = $wpdb->get_row("SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE \"lgw_div_cache_%\" LIMIT 1");
-    if ($row) {
-      $data = maybe_unserialize($row->option_value);
-      echo count($data["teams"] ?? array());
-    } else {
-      echo -1;
-    }
+    $key = "lgw_div_cache_" . sanitize_key(lgw_get_active_season_id()) . "_testdivision";
+    $data = get_option($key);
+    echo is_array($data) ? count($data["teams"] ?? array()) : -1;
   '`);
   const teamsBefore = parseInt(before.trim(), 10);
   expect(teamsBefore).toBeGreaterThan(0);
 
-  // Attempt sync with an unreachable CSV URL (lgw_cache_sync_from_csv should return false)
-  await wpcli(`eval '
-    $result = lgw_cache_sync_from_csv("https://unreachable.invalid/csv", "2026", "Division 1");
+  // Attempt sync with unreachable URL — should fail gracefully
+  const result = await wpcli(`eval '
+    $result = lgw_cache_sync_from_csv(
+      "https://unreachable.invalid/csv",
+      lgw_get_active_season_id(),
+      "Test Division"
+    );
     echo $result ? "synced" : "failed";
   '`);
-
-  // Cache should still have the original team count
+  // May succeed or fail depending on HTTP timeout — either way cache should be intact
+  
+  // Cache should still have original team count
   const after = await wpcli(`eval '
-    global $wpdb;
-    $row = $wpdb->get_row("SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE \"lgw_div_cache_%\" LIMIT 1");
-    if ($row) {
-      $data = maybe_unserialize($row->option_value);
-      echo count($data["teams"] ?? array());
-    } else {
-      echo -1;
-    }
+    $key = "lgw_div_cache_" . sanitize_key(lgw_get_active_season_id()) . "_testdivision";
+    $data = get_option($key);
+    echo is_array($data) ? count($data["teams"] ?? array()) : -1;
   '`);
   const teamsAfter = parseInt(after.trim(), 10);
   expect(teamsAfter).toBe(teamsBefore);

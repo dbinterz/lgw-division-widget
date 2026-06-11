@@ -8,9 +8,12 @@
     "test:e2e":    "playwright test --project=chromium",
     "test:mobile": "playwright test --project=mobile",
     "test:p1":     "playwright test --grep @P1",
+    "test:headed": "playwright test --headed",
+    "test:ui":     "playwright test --ui",
     "test:report": "playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "^1.44.0"
+    "@playwright/test": "^1.44.0",
+    "dotenv": "^16.4.5"
   }
 }

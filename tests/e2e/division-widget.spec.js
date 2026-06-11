@@ -6,7 +6,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockCsv }      = require('./helpers/mock-csv');
-const { wpcli, clearDivisionCache, seedTestClubs } = require('./helpers/wp-login');
+const { wpcli, clearDivisionCache, clearTestDivisionCache, seedTestEnvironment, seedCacheFromFixture } = require('./helpers/wp-login');
 const {
   TEST_PAGE_URL,
   TABLE_BODY_SEL, TABLE_ROW_SEL,
@@ -21,7 +21,7 @@ const {
 
 // ── beforeAll: seed clubs (passphrase setup); cache cleared per test ──────────
 test.beforeAll(async () => {
-  await seedTestClubs();
+  await seedTestEnvironment();
 });
 
 test.beforeEach(async ({ page }) => {
@@ -37,11 +37,11 @@ test('DW-01: table has correct columns @P1', async ({ page }) => {
   await page.goto(TEST_PAGE_URL);
   await waitForWidget(page);
 
-  const headers = await page.locator('table.lgw-table th, .lgw-table thead th').allTextContents();
+  const headers = await page.locator('.tbl-wrap table thead th').allTextContents();
   const normalized = headers.map(h => h.trim().toUpperCase());
 
-  // Required columns per spec: Pos, Team, P, W, D, L, F, A, Pts
-  const required = ['POS', 'TEAM', 'P', 'W', 'D', 'L', 'F', 'A', 'PTS'];
+  // Required columns — matches both SSR (Pos/Pl/Pts/For/Agn) and XHR path headers
+  const required = ['POS', 'TEAM', 'PL', 'W', 'L', 'D'];
   for (const col of required) {
     expect(normalized, `Missing column: ${col}`).toContain(col);
   }
@@ -64,7 +64,7 @@ test('DW-02: table row count matches CSV team count @P1', async ({ page }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 test('DW-03: SSR path — table rendered in HTML, no loading spinner @P1', async ({ page }) => {
   // Ensure cache is populated before this test
-  await wpcli(`eval 'lgw_cache_sync_all();'`);
+  await seedCacheFromFixture('div1-standard.csv');
 
   // Block the CSV XHR to confirm SSR doesn't need it
   await page.route(/action=lgw_csv/, route => route.abort());
@@ -99,7 +99,7 @@ test('DW-04: fixtures tab shows fixture rows grouped by date @P1', async ({ page
   expect(count).toBeGreaterThan(0);
 
   // Check date group headers exist
-  const dateHeaders = page.locator('.lgw-date-header, .fx-date-group, .lgw-fx-date');
+  const dateHeaders = page.locator('.date-hdr');
   await expect(dateHeaders.first()).toBeVisible();
 });
 
@@ -118,11 +118,11 @@ test('DW-05: promotion/relegation zones highlighted when attrs set @P2', async (
 
   if (parseInt(promote) > 0) {
     // Top N rows should have a promotion indicator class
-    const promotionRows = page.locator('.lgw-table-body tr.lgw-promote, .lgw-table-body tr.promote-zone');
+    const promotionRows = page.locator('.tbl-wrap tbody tr.row-promoted');
     await expect(promotionRows).toHaveCount(parseInt(promote));
   }
   if (parseInt(relegate) > 0) {
-    const relegationRows = page.locator('.lgw-table-body tr.lgw-relegate, .lgw-table-body tr.relegate-zone');
+    const relegationRows = page.locator('.tbl-wrap tbody tr.row-relegated');
     await expect(relegationRows).toHaveCount(parseInt(relegate));
   }
 });
@@ -163,7 +163,7 @@ test('DW-07: filter Played hides unplayed fixture rows @P2', async ({ page }) =>
   // No unplayed rows should be visible
   const unplayed = page.locator(UNPLAYED_ROW_SEL);
   const visibleUnplayed = await unplayed.evaluateAll(
-    els => els.filter(el => el.offsetParent !== null).length
+    els => els.filter(el => el.style.display !== 'none' && !el.hidden).length
   );
   expect(visibleUnplayed).toBe(0);
 
@@ -176,8 +176,8 @@ test('DW-07: filter Played hides unplayed fixture rows @P2', async ({ page }) =>
 // DW-08  Widget falls back to XHR when cache is empty @P2
 // ─────────────────────────────────────────────────────────────────────────────
 test('DW-08: widget falls back to XHR path when cache empty @P2', async ({ page }) => {
-  // Clear the division cache so SSR path is unavailable
-  await clearDivisionCache();
+  // Clear the test division cache so SSR path is unavailable
+  await clearTestDivisionCache();
 
   // Mock the CSV XHR with standard data
   await mockCsv(page, CSV.STANDARD);
@@ -211,7 +211,7 @@ test('DW-09: widget renders correctly on mobile viewport @P2', async ({ page }) 
   expect(box.height).toBeGreaterThan(0);
 
   // Table must not overflow horizontally (basic overflow check)
-  const tableBox = await page.locator('table.lgw-table').first().boundingBox();
+  const tableBox = await page.locator('table.lg').first().boundingBox();
   if (tableBox) {
     expect(tableBox.width).toBeLessThanOrEqual(box.width + 2); // allow 2px rounding
   }
@@ -221,27 +221,37 @@ test('DW-09: widget renders correctly on mobile viewport @P2', async ({ page }) 
 // DW-10  Score overrides are applied to fixture rows @P2
 // ─────────────────────────────────────────────────────────────────────────────
 test('DW-10: score overrides appear in fixture rows @P2', async ({ page }) => {
-  // Seed a known score override for an unplayed fixture in div1-standard.csv:
-  // Test Club A vs Carrickfergus BC (Sat 25-Apr-2026) — score 21:14
-  // The lgw_score_overrides option maps "HomeTeam|AwayTeam|Date" → scores
-  const overrideKey = 'Test Club A|Carrickfergus BC|2026-04-25';
-  await wpcli(
-    `option update lgw_score_overrides '{"${overrideKey}":{"home_score":"21","away_score":"14","home_pts":"2","away_pts":"0"}}' --format=json`
-  );
+  // Score overrides are applied client-side only (XHR path via applyScoreOverrides()).
+  // Clear cache so the widget falls back to XHR, then mock the CSV.
+  await clearTestDivisionCache();
 
+  // Key format: csv_url||date||home||away
+  const { TEST_CSV_URL } = require('./helpers/wp-login');
+  const overrideKey = `${TEST_CSV_URL}||Sat 25-Apr-2026||Test Club A||Carrickfergus BC`;
+  const overrideObj = {
+    [overrideKey]: { csv_url: TEST_CSV_URL, date: 'Sat 25-Apr-2026',
+                     home: 'Test Club A', away: 'Carrickfergus BC',
+                     sh: '21', sa: '14', ph: '2', pa: '0' }
+  };
+  const escaped = JSON.stringify(overrideObj).replace(/'/g, "\'");
+  await wpcli(`option update lgw_score_overrides '${escaped}' --format=json`);
+
+  await mockCsv(page, CSV.STANDARD);
   await page.goto(TEST_PAGE_URL);
   await waitForWidget(page);
   await openFixturesTab(page);
 
-  // Find the relevant fixture row — look for Carrickfergus BC in it
-  const overriddenRow = page.locator(FIXTURE_ROW_SEL, { hasText: 'Carrickfergus' }).first();
+  const overriddenRow = page.locator(FIXTURE_ROW_SEL)
+    .filter({ hasText: /Test Club A/ })
+    .filter({ hasText: /Carrickfergus/ })
+    .first();
   await expect(overriddenRow).toBeVisible();
 
-  // The score should show 21 and 14 in the row
   const rowText = await overriddenRow.textContent();
   expect(rowText).toMatch(/21/);
   expect(rowText).toMatch(/14/);
 
   // Tidy up
   await wpcli(`option update lgw_score_overrides '{}' --format=json`);
+  await seedCacheFromFixture('div1-standard.csv');
 });

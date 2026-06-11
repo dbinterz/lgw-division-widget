@@ -10,27 +10,27 @@
 
 /** LGW widget root selector — covers all [lgw_division] instances on a page */
 const WIDGET_SEL        = '.lgw-w';
-const TABLE_BODY_SEL    = '.lgw-table-body';
-const TABLE_ROW_SEL     = '.lgw-table-body tr';
+const TABLE_BODY_SEL    = '.tbl-wrap tbody';
+const TABLE_ROW_SEL     = '.tbl-wrap tbody tr';
 const FIXTURES_PANEL    = '[data-panel="fixtures"]';
 const TABLE_PANEL       = '[data-panel="table"]';
 const FIXTURE_ROW_SEL   = '.fx-row';
 const PLAYED_ROW_SEL    = '.fx-row.played';
 const UNPLAYED_ROW_SEL  = '.fx-row:not(.played)';
-const FILTER_BAR_SEL    = '.lgw-filter-bar';
-const FILTER_BTN_SEL    = '.lgw-filter-btn';
+const FILTER_BAR_SEL    = '.fix-filter';
+const FILTER_BTN_SEL    = '.fix-filter [data-f]';
 const TAB_FIXTURES_SEL  = '.lgw-tab[data-tab="fixtures"]';
 const TAB_TABLE_SEL     = '.lgw-tab[data-tab="table"]';
 
 // Scorecard modal / submission selectors
-const MODAL_SEL         = '.lgw-modal, #lgw-sc-modal';
-const LOGIN_FORM_SEL    = '.lgw-login-form, #lgw-login-wrap';
-const PASSPHRASE_INPUT  = 'input[name="lgw_passphrase"], input[type="password"]';
-const SC_SUBMIT_BTN     = '#lgw-sc-submit-btn, button[name="lgw_submit_sc"]';
+const MODAL_SEL         = '.lgw-modal';
+const LOGIN_FORM_SEL    = '#lgw-pin-gate';
+const PASSPHRASE_INPUT  = '#lgw-pin-input';
+const SC_SUBMIT_BTN     = '#lgw-save-scorecard';
 
 // Cache health panel (admin settings)
-const CACHE_PANEL_SEL   = '#lgw-cache-panel, .lgw-cache-health';
-const SYNC_ALL_BTN      = '#lgw-sync-all-btn, .lgw-sync-all';
+const CACHE_PANEL_SEL   = '#lgw-cache-health-wrap';
+const SYNC_ALL_BTN      = '#lgw-cache-sync-all';
 
 // ── URLs ──────────────────────────────────────────────────────────────────────
 

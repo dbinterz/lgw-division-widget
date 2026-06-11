@@ -108,6 +108,14 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [7.6.2]
+### Fixed
+- `wpAdminLogin()` helper no longer uses the private `browser()._options` Playwright API — base URL now read from `LGW_BASE_URL` env var (loaded via dotenv)
+- `deleteAllScorecards()` no longer fails when no scorecard posts exist — IDs fetched first, delete skipped if result is empty
+- `tests/playwright.config.js` now loads `tests/.env` via dotenv so env vars are available in helper modules at import time
+- Added `dotenv` to `tests/package.json` devDependencies
+- Added `tests/.env.example` and `tests/TESTING.md` local runbook
+
 ## [7.6.1]
 ### Fixed
 - SSR (DB-primary cache) path now renders postponed pills on fixture rows — previously the `🚫 Postponed` and `Rescheduled` pills were missing when the widget was served from cache; only appeared on the XHR fallback path

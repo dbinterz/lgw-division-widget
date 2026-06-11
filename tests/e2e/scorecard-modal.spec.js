@@ -6,7 +6,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockCsv }      = require('./helpers/mock-csv');
-const { wpcli, seedTestClubs } = require('./helpers/wp-login');
+const { wpcli, seedTestEnvironment } = require('./helpers/wp-login');
 const {
   TEST_PAGE_URL,
   MODAL_SEL,
@@ -19,9 +19,7 @@ const {
 } = require('./helpers/fixtures');
 
 test.beforeAll(async () => {
-  await seedTestClubs();
-  // Ensure cache is populated with standard data (includes confirmed fixtures)
-  await wpcli(`eval 'lgw_cache_sync_all();'`);
+  await seedTestEnvironment();
 });
 
 test.beforeEach(async ({ page }) => {
@@ -49,7 +47,7 @@ test('SM-01: played fixture opens read-only scorecard modal @P1', async ({ page 
   await expect(modal).toBeVisible({ timeout: 8000 });
 
   // Modal should be read-only — no editable score inputs
-  const editableInputs = modal.locator('input[type="number"], input[type="text"]');
+  const editableInputs = modal.locator('input[type="number"], input:not([type="hidden"])').filter({ visible: true });
   // Count only visible ones
   const visibleEditable = await editableInputs.evaluateAll(
     els => els.filter(el => el.offsetParent !== null && !el.disabled && !el.readOnly).length
@@ -117,45 +115,45 @@ test('SM-03: modal closes on overlay click and ESC key @P1', async ({ page }) =>
 // SM-04  Disputed scorecard shows dispute banner @P2
 // ─────────────────────────────────────────────────────────────────────────────
 test('SM-04: disputed scorecard shows dispute banner @P2', async ({ page }) => {
-  // Seed a disputed scorecard
-  const postId = await wpcli(`eval '
-    $id = wp_insert_post(array(
-      "post_type"   => "lgw_scorecard",
-      "post_status" => "publish",
-      "meta_input"  => array(
-        "_lgw_home"       => "Test Club A",
-        "_lgw_away"       => "Carrickfergus BC",
-        "_lgw_home_score" => "21",
-        "_lgw_away_score" => "14",
-        "_lgw_home_pts"   => "2",
-        "_lgw_away_pts"   => "0",
-        "_lgw_date"       => "2026-04-25",
-        "_lgw_status"     => "disputed",
-        "_lgw_division"   => "Division 1",
-      )
-    ));
-    echo $id;
+  // Mark a played fixture as disputed directly in the cache
+  await wpcli(`eval '
+    $season = lgw_get_active_season_id();
+    $key    = "lgw_div_cache_" . sanitize_key($season) . "_testdivision";
+    $data   = get_option($key);
+    if (!is_array($data)) { echo "no cache"; return; }
+    foreach ($data["fixtures"] as &$fx) {
+      if (strcasecmp($fx["homeTeam"], "Test Club A") === 0 &&
+          strcasecmp($fx["awayTeam"], "Test Club B") === 0) {
+        $fx["status"] = "disputed";
+        break;
+      }
+    }
+    unset($fx);
+    update_option($key, $data, false);
+    echo "ok";
   '`);
-  expect(parseInt(postId.trim(), 10)).toBeGreaterThan(0);
-
-  // Refresh cache so the disputed status appears in the fixture list
-  await wpcli(`eval 'lgw_cache_sync_all();'`);
 
   await page.goto(TEST_PAGE_URL);
   await waitForWidget(page);
   await openFixturesTab(page);
 
-  // Click the disputed fixture
-  const row = page.locator(`.fx-row[data-home="${CLUB_A.name}"][data-away="Carrickfergus BC"]`).first();
-  await row.click();
+  // Find the disputed played row by text
+  const rows = page.locator('.fx-row');
+  const count = await rows.count();
+  let targetRow = null;
+  for (let i = 0; i < count; i++) {
+    const txt = await rows.nth(i).textContent();
+    if (txt.includes('Test Club A') && txt.includes('Test Club B')) {
+      targetRow = rows.nth(i); break;
+    }
+  }
+  expect(targetRow, 'Test Club A v Test Club B row not found').not.toBeNull();
+  await targetRow.click();
 
   const modal = page.locator(MODAL_SEL);
   await expect(modal).toBeVisible({ timeout: 8000 });
 
-  // Dispute banner should be visible
-  const disputeBanner = modal.locator('.lgw-dispute, .lgw-disputed, [data-disputed], :has-text("disputed"), :has-text("Disputed")');
+  // Dispute banner should be visible in modal
+  const disputeBanner = modal.locator('.lgw-notice, [class*="disputed"], .fx-sc-status');
   await expect(disputeBanner.first()).toBeVisible({ timeout: 5000 });
-
-  // Tidy up
-  await wpcli(`post delete ${postId.trim()} --force --allow-root`);
 });

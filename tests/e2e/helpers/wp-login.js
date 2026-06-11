@@ -1,35 +1,27 @@
 // tests/e2e/helpers/wp-login.js
-// Reusable WordPress admin login helper + test data seeding for LGW tests.
-//
-// Assumes the local Docker WP site is running at LGW_BASE_URL (default http://localhost:8080).
-// Credentials default to admin/password — override via env vars WP_USER / WP_PASS.
-
 'use strict';
 
-const { exec } = require('child_process');
+const { exec, execSync } = require('child_process');
 const { promisify } = require('util');
+const path = require('path');
+const fs   = require('fs');
 const execAsync = promisify(exec);
-
-// ── Constants ─────────────────────────────────────────────────────────────────
 
 const BASE_URL       = process.env.LGW_BASE_URL    || 'http://localhost:8080';
 const WP_USER        = process.env.WP_USER         || 'admin';
 const WP_PASS        = process.env.WP_PASS         || 'password';
-const CONTAINER_NAME = process.env.WP_CONTAINER    || 'nipgl-local_wordpress_1';
+const CONTAINER_NAME = process.env.WP_CONTAINER    || 'lgw-local_wordpress_1';
 const WP_CLI_BASE    = `docker exec ${CONTAINER_NAME} wp --allow-root`;
 
-// SHA-256 hashes of test passphrases for deterministic seeding.
-// "test-pass-a" → sha256, "test-pass-b" → sha256
-// Pre-computed to avoid exec() dependency in test files.
-const TEST_PASSPHRASE_A_RAW  = 'test-pass-a';
-const TEST_PASSPHRASE_B_RAW  = 'test-pass-b';
+const TEST_PASSPHRASE_A_RAW = 'test-pass-a';
+const TEST_PASSPHRASE_B_RAW = 'test-pass-b';
 
-/**
- * Log in to WP admin via the browser.
- * Call this in beforeAll() for any test that needs an authenticated session.
- *
- * @param {import('@playwright/test').Page} page
- */
+// Division name used in the test page shortcode and cache seed.
+// Seeded under the ACTIVE season so lgw_cache_render_division finds it.
+const TEST_DIVISION  = 'Test Division';
+// Dummy CSV URL — never fetched; mock-csv.js intercepts action=lgw_csv regardless of url param.
+const TEST_CSV_URL   = 'https://docs.google.com/spreadsheets/d/TEST_FIXTURE/export?format=csv';
+
 async function wpAdminLogin(page) {
   await page.goto(`${BASE_URL}/wp-login.php`);
   await page.fill('#user_login', WP_USER);
@@ -38,40 +30,19 @@ async function wpAdminLogin(page) {
   await page.waitForURL('**/wp-admin/**');
 }
 
-/**
- * Run an arbitrary WP-CLI command inside the Docker container.
- * Returns stdout as a string (trimmed).
- *
- * @param {string} cmd  — everything after `wp --allow-root`
- * @returns {Promise<string>}
- */
 async function wpcli(cmd) {
   const { stdout, stderr } = await execAsync(`${WP_CLI_BASE} ${cmd}`);
   if (stderr && stderr.trim()) {
-    // WP-CLI writes non-fatal notices to stderr; log but don't throw
     console.warn('[wp-login helper] WP-CLI stderr:', stderr.trim());
   }
   return stdout.trim();
 }
 
-/**
- * Seed two test clubs ("Test Club A" and "Test Club B") with known passphrases
- * into lgw_clubs WP option. Idempotent — safe to call in beforeAll().
- *
- * Clubs are seeded via the lgw_seed_test_clubs() PHP helper (registered only
- * when WP_ENVIRONMENT_TYPE === 'local').
- */
 async function seedTestClubs() {
   await wpcli(`eval 'lgw_seed_test_clubs();'`);
 }
 
-/**
- * Delete all lgw_scorecard posts. Used to reset scorecard state between test
- * file runs so results from one spec don't bleed into another.
- * Safe when no scorecards exist.
- */
 async function deleteAllScorecards() {
-  // Get IDs first; skip delete entirely if there are none
   const ids = await wpcli(`post list --post_type=lgw_scorecard --format=ids 2>/dev/null || true`);
   if (ids && ids.trim()) {
     await wpcli(`post delete ${ids.trim()} --force 2>/dev/null || true`);
@@ -79,48 +50,125 @@ async function deleteAllScorecards() {
 }
 
 /**
- * Invalidate all lgw_div_cache_* options, forcing the XHR fallback path on
- * next page load. Useful to set up cache-empty test states.
+ * Copy a fixture CSV into the container and seed the "Test Division" cache
+ * under the ACTIVE season. Uses lgw_cache_parse_teams + lgw_cache_parse_fixtures
+ * directly — no HTTP fetch needed.
+ *
+ * @param {string} fixtureFile — filename in tests/e2e/fixtures/
  */
-async function clearDivisionCache() {
-  await wpcli(`eval 'global $wpdb; $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE \'lgw_div_cache_%\'");'`);
+async function seedCacheFromFixture(fixtureFile = 'div1-standard.csv') {
+  const csvPath = path.join(__dirname, '..', 'fixtures', fixtureFile);
+  execSync(`docker cp ${csvPath} ${CONTAINER_NAME}:/tmp/lgw-test-fixture.csv`);
+
+  // Get the active season ID at runtime
+  const seasonId = await wpcli(`eval 'echo lgw_get_active_season_id();'`);
+  if (!seasonId || !seasonId.trim()) {
+    throw new Error('seedCacheFromFixture: no active season ID found');
+  }
+
+  const result = await wpcli(`eval '
+    $csv = file_get_contents("/tmp/lgw-test-fixture.csv");
+    if (!$csv) { echo "ERR:read"; return; }
+    $teams    = lgw_cache_parse_teams($csv);
+    $fixtures = lgw_cache_parse_fixtures($csv);
+    $data = array(
+      "teams"    => $teams,
+      "fixtures" => $fixtures,
+      "csv_url"  => "${TEST_CSV_URL}",
+    );
+    lgw_cache_set_division("${seasonId.trim()}", "Test Division", $data);
+    echo "ok:" . count($teams) . "t," . count($fixtures) . "f";
+  '`);
+
+  if (!result || result.startsWith('ERR')) {
+    throw new Error(`seedCacheFromFixture failed: ${result}`);
+  }
+  console.log(`[seedCacheFromFixture] ${result} (season: ${seasonId.trim()})`);
 }
 
 /**
- * Set a single WP option via WP-CLI.
- *
- * @param {string} key
- * @param {string} value  — JSON-encoded or plain string
+ * Seed the complete test environment. Idempotent — safe in beforeAll().
+ *  1. Test clubs with known passphrases
+ *  2. "Test Division" entry added to the active season's divisions list
+ *  3. Test page shortcode updated to [lgw_division csv="TEST_CSV_URL" title="Test Division" ...]
+ *  4. Cache primed from div1-standard.csv under the active season
  */
+async function seedTestEnvironment() {
+  // 1. Test clubs
+  await seedTestClubs();
+
+  // 2. Add "Test Division" to the active season's division list (idempotent)
+  await wpcli(`eval '
+    $seasons  = get_option("lgw_seasons", array());
+    $active   = lgw_get_active_season_id();
+    foreach ($seasons as &$s) {
+      if (($s["id"] ?? "") !== $active) continue;
+      $divs = $s["divisions"] ?? array();
+      // Remove any existing Test Division entry
+      $divs = array_values(array_filter($divs, function($d){
+        return trim($d["division"] ?? "") !== "Test Division";
+      }));
+      $divs[] = array("division" => "Test Division", "csv_url" => "${TEST_CSV_URL}");
+      $s["divisions"] = $divs;
+      break;
+    }
+    unset($s);
+    update_option("lgw_seasons", $seasons);
+    echo "ok";
+  '`);
+
+  // 3. Ensure test page has shortcode with csv attr
+  const pageId = await wpcli(`post list --post_type=page --post_name=test-division --format=ids`);
+  const id = pageId ? pageId.trim().split(/\s+/)[0] : '';
+  const shortcode = `[lgw_division csv="${TEST_CSV_URL}" title="Test Division" promote="1" relegate="1" max_points="7"]`;
+  if (id) {
+    await wpcli(`post update ${id} --post_content='${shortcode}'`);
+  } else {
+    await wpcli(`post create --post_type=page --post_title="Test Division" --post_name=test-division --post_status=publish --post_content='${shortcode}'`);
+    await wpcli(`rewrite flush`);
+  }
+
+  // 4. Prime cache from standard fixture
+  await seedCacheFromFixture('div1-standard.csv');
+}
+
+async function clearDivisionCache() {
+  const keys = await wpcli(`option list --search="lgw_div_cache_*" --field=option_name --format=csv 2>/dev/null || true`);
+  if (!keys || !keys.trim()) return;
+  const names = keys.trim().split('\n').filter(k => k.startsWith('lgw_div_cache_'));
+  if (names.length === 0) return;
+  await wpcli(`option delete ${names.join(' ')}`);
+}
+
+// Clear only the test division cache entry (leaves live division caches intact)
+async function clearTestDivisionCache() {
+  const seasonId = await wpcli(`eval 'echo lgw_get_active_season_id();'`);
+  if (!seasonId || !seasonId.trim()) return;
+  const key = `lgw_div_cache_${seasonId.trim()}_testdivision`;
+  await wpcli(`option delete ${key} 2>/dev/null || true`);
+}
+
 async function setWpOption(key, value) {
-  // Use wp option update for strings; update adds if absent
   const escaped = value.replace(/'/g, "'\\''");
   await wpcli(`option update ${key} '${escaped}'`);
 }
 
-/**
- * Get a WP option value as a string via WP-CLI.
- *
- * @param {string} key
- * @returns {Promise<string>}
- */
 async function getWpOption(key) {
   return wpcli(`option get ${key}`);
 }
 
-/**
- * Full reset: delete scorecards + clear division cache.
- * Suitable for beforeAll() in most test files.
- */
 async function resetTestState() {
   await deleteAllScorecards();
-  await clearDivisionCache();
+  await seedCacheFromFixture('div1-standard.csv');
 }
 
 module.exports = {
   wpAdminLogin,
   wpcli,
   seedTestClubs,
+  seedTestEnvironment,
+  seedCacheFromFixture,
+  clearTestDivisionCache,
   deleteAllScorecards,
   clearDivisionCache,
   setWpOption,
@@ -128,4 +176,6 @@ module.exports = {
   resetTestState,
   TEST_PASSPHRASE_A_RAW,
   TEST_PASSPHRASE_B_RAW,
+  TEST_DIVISION,
+  TEST_CSV_URL,
 };
