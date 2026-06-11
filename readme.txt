@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.12
+Stable tag: 7.6.13
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.13 =
+* Fix: confirmed scorecard scores now survive a CSV re-sync — lgw_cache_overlay_scorecard_statuses now writes scores (shots/points) from confirmed scorecards into the cache at sync time, so the Sync button no longer overwrites results with stale CSV data.
 
 = 7.6.12 =
 * Fix: form guide tooltip right-aligned via data-tip attribute; browser native title tooltip removed to prevent double-up.

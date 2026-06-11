@@ -616,17 +616,30 @@ function lgw_cache_overlay_scorecard_statuses( $fixtures, $division, $season_id 
         $away   = strtolower( trim( $sc['away_team'] ?? '' ) );
         $status = get_post_meta( $post->ID, 'lgw_sc_status', true );
         if ( $home && $away ) {
-            $sc_lookup[ $home . '||' . $away ] = $status ?: 'pending';
+            // Store status AND scores so a CSV sync doesn't lose confirmed results
+            $sc_lookup[ $home . '||' . $away ] = [
+                'status'       => $status ?: 'pending',
+                'home_total'   => $sc['home_total']   ?? null,
+                'away_total'   => $sc['away_total']   ?? null,
+                'home_points'  => $sc['home_points']  ?? null,
+                'away_points'  => $sc['away_points']  ?? null,
+            ];
         }
     }
 
     foreach ( $fixtures as &$fx ) {
         $key = strtolower( $fx['homeTeam'] ) . '||' . strtolower( $fx['awayTeam'] );
         if ( isset( $sc_lookup[ $key ] ) ) {
-            $sc_status = $sc_lookup[ $key ];
+            $entry     = $sc_lookup[ $key ];
+            $sc_status = $entry['status'];
             if ( $sc_status === 'confirmed' ) {
                 $fx['status'] = 'confirmed';
                 $fx['played'] = true;
+                // Write scores so they survive a CSV re-sync
+                if ( $entry['home_total'] !== null )  $fx['shotsHome'] = (string) $entry['home_total'];
+                if ( $entry['away_total'] !== null )  $fx['shotsAway'] = (string) $entry['away_total'];
+                if ( $entry['home_points'] !== null ) $fx['ptsHome']   = (string) $entry['home_points'];
+                if ( $entry['away_points'] !== null ) $fx['ptsAway']   = (string) $entry['away_points'];
             } elseif ( in_array( $sc_status, [ 'pending_second_club', 'submitted' ], true ) ) {
                 $fx['status'] = 'pending';
             } elseif ( $sc_status === 'disputed' ) {

@@ -125,6 +125,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.13]
+### Fixed
+- Confirmed scorecard scores now survive a CSV re-sync. `lgw_cache_overlay_scorecard_statuses` now writes shots and points from confirmed scorecards into the cache at sync time, so the Settings Sync button no longer overwrites results with stale CSV data.
+
 ## [7.6.12]
 ### Fixed
 - Form guide tooltip right-aligned via `data-tip` attribute; browser native `title` tooltip removed to prevent double-up.
