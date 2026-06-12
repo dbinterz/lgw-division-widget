@@ -1271,7 +1271,7 @@
           + postponePanel
           + '<p class="lgw-sc-none">No scorecard submitted yet.</p>';
         openModal(titleHtml, bodyHtml, widget);
-        bindConcedePanel(home, away, date, pdKey2, concessionEntry2);
+        bindConcedePanel(home, away, date, pdKey2, concessionEntry2, divisionTitle);
         bindPostponePanel(home, away, date, pdKey2, postEntry2);
         return;
       }
@@ -1284,7 +1284,7 @@
         + '<div id="lgw-sc-modal-submit"></div>';
 
       openModal(titleHtml, bodyHtml, widget);
-      bindConcedePanel(home, away, date, pdKey2, concessionEntry2);
+      bindConcedePanel(home, away, date, pdKey2, concessionEntry2, divisionTitle);
       bindPostponePanel(home, away, date, pdKey2, postEntry2);
 
       var container = document.getElementById('lgw-sc-modal-submit');
@@ -1307,7 +1307,7 @@
     }
 
     // ── Concede panel binding ─────────────────────────────────────────────────
-    function bindConcedePanel(home, away, date, pdKey2, concessionEntry2){
+    function bindConcedePanel(home, away, date, pdKey2, concessionEntry2, division){
       var chk       = document.getElementById('lgw-concede-chk');
       var row       = document.getElementById('lgw-concede-row');
       var saveBtn   = document.getElementById('lgw-concede-save');
@@ -1333,6 +1333,7 @@
         fd.append('home',              home);
         fd.append('away',              away);
         fd.append('date',              date);
+        fd.append('division',          division || '');
         fd.append('concession_action', action);
         fd.append('conceding_team',    concedingSide);
         if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = '⏳'; }

@@ -186,7 +186,7 @@ function lgw_cache_sync_all() {
     $season_id = lgw_get_active_season_id();
     if ( ! $season_id ) return;
 
-    $seasons = get_option( 'lgw_seasons', [] );
+    $seasons = lgw_get_option_array( 'lgw_seasons' );
     $season  = null;
     foreach ( $seasons as $s ) {
         if ( ( $s['id'] ?? '' ) === $season_id ) { $season = $s; break; }
@@ -196,7 +196,7 @@ function lgw_cache_sync_all() {
     $divisions = $season['divisions'] ?? [];
     if ( empty( $divisions ) ) return;
 
-    $opts = get_option( 'lgw_drive', [] );
+    $opts = lgw_get_option_array( 'lgw_drive' );
 
     foreach ( $divisions as $div_entry ) {
         // Each division entry is an array: ['division' => 'Division 1', 'csv_url' => '...']
@@ -304,7 +304,7 @@ function lgw_cache_get_all_status() {
     $season_id = lgw_get_active_season_id();
     if ( ! $season_id ) return [];
 
-    $seasons = get_option( 'lgw_seasons', [] );
+    $seasons = lgw_get_option_array( 'lgw_seasons' );
     $season  = null;
     foreach ( $seasons as $s ) {
         if ( ( $s['id'] ?? '' ) === $season_id ) { $season = $s; break; }
@@ -702,7 +702,7 @@ function lgw_ajax_cache_sync_division() {
 
     // Find CSV URL — check season divisions array first (authoritative source)
     $csv_url = '';
-    $seasons = get_option( 'lgw_seasons', [] );
+    $seasons = lgw_get_option_array( 'lgw_seasons' );
     foreach ( $seasons as $s ) {
         if ( ( $s['id'] ?? '' ) !== $season_id ) continue;
         foreach ( $s['divisions'] ?? [] as $d ) {
@@ -714,7 +714,7 @@ function lgw_ajax_cache_sync_division() {
     }
     // Fallback: sheets_tabs mapping
     if ( ! $csv_url ) {
-        $opts = get_option( 'lgw_drive', [] );
+        $opts = lgw_get_option_array( 'lgw_drive' );
         if ( function_exists( 'lgw_sheets_entry_for_division' ) ) {
             $entry   = lgw_sheets_entry_for_division( $division, $opts );
             $csv_url = trim( $entry['csv_url'] ?? '' );
@@ -1009,7 +1009,7 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
     if ( empty( $teams ) ) return $empty;
 
     // Apply score overrides from lgw_score_overrides (belt-and-braces)
-    $overrides = get_option( 'lgw_score_overrides', [] );
+    $overrides = lgw_get_option_array( 'lgw_score_overrides' );
     foreach ( $fixtures as &$fx ) {
         $key = $csv_url . '||' . ( $fx['date'] ?? '' ) . '||' . ( $fx['homeTeam'] ?? '' ) . '||' . ( $fx['awayTeam'] ?? '' );
         if ( isset( $overrides[ $key ] ) ) {
@@ -1051,8 +1051,8 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
     $played_dates   = function_exists( 'lgw_build_played_dates_map' )     ? lgw_build_played_dates_map()    : [];
 
     // Badge lookup for team cells
-    $badges      = get_option( 'lgw_badges',       [] );
-    $club_badges = get_option( 'lgw_club_badges',  [] );
+    $badges      = lgw_get_option_array( 'lgw_badges' );
+    $club_badges = lgw_get_option_array( 'lgw_club_badges' );
 
     $table_html    = lgw_cache_render_table( $teams, $promote, $relegate, $fixtures, $badges, $club_badges );
     $postponements  = function_exists( 'lgw_get_postponements' ) ? lgw_get_postponements() : [];

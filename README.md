@@ -125,6 +125,36 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.20]
+### Fixed
+- `ReferenceError: division is not defined` in `bindConcedePanel` — `division` added to function signature and both call sites.
+
+## [7.6.19]
+### Changed
+- Debug logging added to concession AJAX handler.
+
+## [7.6.18]
+### Fixed
+- Concession save AJAX silent failure — `do_action(lgw_scorecard_confirmed)` now wrapped in `try/catch` so a Sheets/Drive exception no longer prevents the JSON response from being sent. Added missing `return` after `wp_send_json_error()` on `wp_insert_post` failure.
+
+## [7.6.17]
+### Fixed
+- Scorecard admin page fatal: `array_filter()` on a JSON string — `lgw_score_overrides` and related options were stored as JSON strings rather than PHP arrays. New `lgw_get_option_array()` helper decodes JSON transparently; applied across `lgw_drive`, `lgw_score_overrides`, `lgw_concessions`, `lgw_postponements`, `lgw_seasons`, `lgw_badges` in both `lgw-division-widget.php` and `lgw-div-cache.php`.
+
+## [7.6.16]
+### Fixed
+- Scorecard listing `foreach` wrapped in `try/catch` — exceptions now logged to PHP error log with post ID, message, file/line and a `sc_data` snapshot. Affected rows render an inline error notice instead of killing the page.
+
+## [7.6.15]
+### Fixed
+- Scorecard admin listing page critical error — `$sc` post meta can be `false` on new/malformed posts (including auto-created concession scorecards); added `is_array()` guard before all array key accesses in the listing loop.
+
+## [7.6.14]
+### Fixed
+- Concession workflow now auto-creates a confirmed `lgw_scorecard` post (50–0 shots, ±max_pts points) and fires `lgw_scorecard_confirmed`, triggering Sheets writeback and cache merge via the standard pipeline.
+- Clearing a concession voids the auto-created scorecard (moves to trash).
+- `division` is now passed in the concession AJAX call so the scorecard is correctly linked to its sheet tab.
+
 ## [7.6.13]
 ### Fixed
 - Confirmed scorecard scores now survive a CSV re-sync. `lgw_cache_overlay_scorecard_statuses` now writes shots and points from confirmed scorecards into the cache at sync time, so the Settings Sync button no longer overwrites results with stale CSV data.
