@@ -1152,14 +1152,34 @@
           +'</div>';
       }
 
+      // ── Concession clear panel (admin only, played conceded fixtures) ──
+      var pdKeyFx = (home+'||'+away+'||'+date).toLowerCase();
+      var ceFx    = concessions[pdKeyFx] || null;
+      var concessionFxPanel = '';
+      if(effectiveAdmin && ceFx){
+        var concedingNameFx = ceFx.conceding_team === 'home' ? home : away;
+        concessionFxPanel =
+          '<div class="lgw-concede-panel" id="lgw-concede-panel">'
+          +'<div class="lgw-conceded-notice" style="margin-bottom:8px">'
+          +'<span class="fx-conceded-pill" style="font-size:13px;padding:4px 14px">'
+          +'&#x1F3F3;&#xFE0F; Conceded by <strong>'+concedingNameFx+'</strong></span></div>'
+          +'<div style="display:flex;gap:8px;margin-bottom:8px">'
+          +'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-clear">&#x274C; Clear concession</button>'
+          +'</div>'
+          +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+          +'<hr class="lgw-sc-divider">';
+      }
+
       var bodyHtml=fxStatsHtml
         +'<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
         + pp.html
+        + concessionFxPanel
         +'<hr class="lgw-sc-divider">'
         +'<div class="lgw-sc-title">Full Scorecard</div>'
         +'<div id="lgw-sc-container"><p class="lgw-sc-loading">Loading…</p></div>';
       openModal(titleHtml, bodyHtml, widget);
       bindPostponePanel(home, away, date, pp.key, pp.entry);
+      bindConcedePanel(home, away, date, pdKeyFx, ceFx, divisionTitle);
       var container=document.getElementById('lgw-sc-container');
       if(!container) return;
 
@@ -1314,9 +1334,11 @@
       var clearBtn  = document.getElementById('lgw-concede-clear');
       var statusEl  = document.getElementById('lgw-concede-status');
       var noteEl    = document.getElementById('lgw-concede-note');
-      if(!chk) return;
 
-      chk.addEventListener('change', function(){
+      // Already-conceded panel (no checkbox) — skip to end to bind Clear after doSave
+      var noChkMode = !chk;
+
+      if(!noChkMode) chk.addEventListener('change', function(){
         if(row) row.style.display = chk.checked ? 'flex' : 'none';
         if(noteEl) noteEl.innerHTML = chk.checked
           ? 'Penalty: winner receives <strong>'+maxPts+' pts</strong> and a 50–0 victory; conceding team loses <strong>'+maxPts+' pts</strong>.'
@@ -1345,13 +1367,69 @@
           if(res.success){
             if(action === 'set'){
               concessions[pdKey2] = { conceding_team: concedingSide };
+              // Swap panel to conceded-notice state
+              var panel = document.getElementById('lgw-concede-panel');
+              if(panel){
+                var concedingTeamName = concedingSide === 'home' ? home : away;
+                panel.innerHTML =
+                  '<div class="lgw-conceded-notice" style="margin-bottom:8px">'
+                  +'<span class="fx-conceded-pill" style="font-size:13px;padding:4px 14px">'
+                  +'&#x1F3F3;&#xFE0F; Conceded by <strong>'+concedingTeamName+'</strong></span>'
+                  +'</div>'
+                  +'<div style="display:flex;gap:8px;margin-bottom:8px">'
+                  +'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-clear">&#x274C; Clear concession</button>'
+                  +'</div>'
+                  +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+                  +'<hr class="lgw-sc-divider">';
+                // Re-bind the new clear button
+                var newClearBtn = document.getElementById('lgw-concede-clear');
+                var newStatusEl = document.getElementById('lgw-concede-status');
+                if(newClearBtn) newClearBtn.addEventListener('click', function(){
+                  bindConcedePanel(home, away, date, pdKey2, {conceding_team: concedingSide}, division);
+                  var innerPanel = document.getElementById('lgw-concede-panel');
+                  // trigger clear immediately
+                  var clearXhr = new XMLHttpRequest();
+                  var clearFd = new FormData();
+                  clearFd.append('action','lgw_save_concession');
+                  clearFd.append('nonce',(typeof lgwData!=='undefined'?lgwData.scNonce:''));
+                  clearFd.append('home',home); clearFd.append('away',away); clearFd.append('date',date);
+                  clearFd.append('division',division||'');
+                  clearFd.append('concession_action','clear');
+                  clearFd.append('conceding_team',concedingSide);
+                  newClearBtn.disabled=true; newClearBtn.textContent='⏳';
+                  clearXhr.open('POST',(typeof lgwData!=='undefined'?lgwData.ajaxUrl:'/wp-admin/admin-ajax.php'));
+                  clearXhr.onload=function(){
+                    var r=JSON.parse(clearXhr.responseText||'{}');
+                    if(r.success){
+                      delete concessions[pdKey2];
+                      refreshConcededPill(home,away,date,pdKey2);
+                      // Restore the original unchecked panel
+                      if(innerPanel) innerPanel.outerHTML=
+                        '<div class="lgw-concede-panel" id="lgw-concede-panel">'
+                        +'<div class="lgw-concede-toggle"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'
+                        +'<input type="checkbox" id="lgw-concede-chk" style="width:16px;height:16px;cursor:pointer">'
+                        +'<span>&#x1F3F3;&#xFE0F; Mark as conceded</span></label></div>'
+                        +'<div class="lgw-concede-row" id="lgw-concede-row" style="margin-top:8px;display:none;align-items:center;gap:12px">'
+                        +'<label style="font-size:12px;color:#666;white-space:nowrap;font-weight:600">Conceding team:</label>'
+                        +'<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="radio" name="lgw-concede-side" value="home">'+home+'</label>'
+                        +'<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="radio" name="lgw-concede-side" value="away" checked>'+away+'</label>'
+                        +'</div>'
+                        +'<p style="font-size:12px;color:#888;margin:6px 0 8px" id="lgw-concede-note"></p>'
+                        +'<div style="display:flex;gap:8px;"><button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-concede-save">Save</button></div>'
+                        +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+                        +'<hr class="lgw-sc-divider">';
+                      bindConcedePanel(home,away,date,pdKey2,null,division);
+                    }
+                  };
+                  clearXhr.send(clearFd);
+                });
+              }
             } else {
               delete concessions[pdKey2];
+              // Remove the concede panel from the played fixture modal
+              var clearedPanel = document.getElementById('lgw-concede-panel');
+              if(clearedPanel) clearedPanel.parentNode.removeChild(clearedPanel);
             }
-            showPostponeStatus(statusEl,
-              action === 'set' ? '✅ Saved — fixture marked as conceded. Reload to see standings update.' : '✅ Concession cleared.',
-              'ok'
-            );
             refreshConcededPill(home, away, date, pdKey2);
           } else {
             showPostponeStatus(statusEl, '❌ ' + (res.data || 'Save failed'), 'error');
@@ -1364,8 +1442,11 @@
         xhr.send(fd);
       }
 
-      if(saveBtn)  saveBtn.addEventListener('click',  function(){ doSave('set'); });
+      // Bind buttons — clear-only in no-checkbox mode, full set in normal mode
       if(clearBtn) clearBtn.addEventListener('click', function(){ doSave('clear'); });
+      if(!noChkMode){
+        if(saveBtn) saveBtn.addEventListener('click', function(){ doSave('set'); });
+      }
     }
 
     function refreshConcededPill(home, away, date, pdKey2){

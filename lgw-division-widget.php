@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.6.20
+ * Version: 7.6.26
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.6.20');
+define('LGW_VERSION', '7.6.26');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -593,7 +593,7 @@ function lgw_ajax_save_concession() {
         unset($map[$key]);
         update_option('lgw_concessions', $map);
 
-        // Also void the auto-created concession scorecard if one exists
+        // Trash the auto-created concession scorecard if one exists
         $existing = get_posts(array(
             'post_type'  => 'lgw_scorecard',
             'meta_query' => array(
@@ -605,6 +605,26 @@ function lgw_ajax_save_concession() {
         ));
         if (!empty($existing)) {
             wp_update_post(array('ID' => $existing[0], 'post_status' => 'trash'));
+        }
+
+        // Remove any score overrides for this home/away pair (any date/csv_url)
+        $overrides = lgw_get_option_array('lgw_score_overrides');
+        $changed   = false;
+        foreach ( $overrides as $ok => $ov ) {
+            if ( strcasecmp( $ov['home'] ?? '', $home_raw ) === 0
+              && strcasecmp( $ov['away'] ?? '', $away_raw ) === 0 ) {
+                unset( $overrides[$ok] );
+                $changed = true;
+            }
+        }
+        if ( $changed ) update_option( 'lgw_score_overrides', $overrides );
+
+        // Wipe the cached fixture back to unplayed
+        if ( function_exists('lgw_cache_wipe_fixture_result') ) {
+            $season_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+            if ( $season_id && $division ) {
+                lgw_cache_wipe_fixture_result( $home_raw, $away_raw, $season_id, $division );
+            }
         }
 
         wp_send_json_success(array('key' => $key, 'action' => 'clear'));

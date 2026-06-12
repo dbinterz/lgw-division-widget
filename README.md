@@ -125,6 +125,30 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.26]
+### Fixed
+- Clearing a concession now fully restores the fixture to unplayed state: removes matching score overrides, wipes cached fixture scores/played flag via new `lgw_cache_wipe_fixture_result()`, and trashes the auto-created scorecard.
+
+## [7.6.25]
+### Fixed
+- SyntaxError: missing `)` — `chk.addEventListener` closing `});` was dropped during the `noChkMode` refactor in v7.6.24.
+
+## [7.6.24]
+### Fixed
+- `bindConcedePanel` TypeError on null `chk.addEventListener` — introduced `noChkMode` flag before any `chk` access; clears both the scorecard loading failure and the non-functional Clear button in the played fixture modal.
+
+## [7.6.23]
+### Fixed
+- Concession Clear button missing after save — once the cache marks the fixture as played, `showFixtureModal` opens instead of `showUnplayedFixtureModal`. Concession clear panel now injected into `showFixtureModal` for admins. Clearing removes the panel and trashes the auto-created scorecard via the existing PHP clear handler.
+
+## [7.6.22]
+### Fixed
+- Clear concession button not functional after save — `bindConcedePanel` now correctly binds the Clear button in the no-checkbox (already-conceded) panel state.
+
+## [7.6.21]
+### Fixed
+- Concede panel does not update after saving — swaps to conceded-notice state immediately with Clear button; clearing restores the unchecked panel without a page reload.
+
 ## [7.6.20]
 ### Fixed
 - `ReferenceError: division is not defined` in `bindConcedePanel` — `division` added to function signature and both call sites.

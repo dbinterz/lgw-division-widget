@@ -294,6 +294,47 @@ function lgw_cache_merge_result( $post_id ) {
 }
 
 /**
+ * Wipe a confirmed result from the cache, restoring the fixture to unplayed state.
+ * Used when a concession or incorrectly confirmed result is cleared.
+ *
+ * @param string $home      Home team name (case-insensitive match).
+ * @param string $away      Away team name (case-insensitive match).
+ * @param string $season_id Season ID.
+ * @param string $division  Division slug/name.
+ */
+function lgw_cache_wipe_fixture_result( $home, $away, $season_id, $division ) {
+    if ( ! $home || ! $away || ! $season_id || ! $division ) return false;
+
+    $cached = lgw_cache_get_division( $season_id, $division );
+    if ( ! $cached || empty( $cached['fixtures'] ) ) return false;
+
+    $matched = false;
+    foreach ( $cached['fixtures'] as &$fx ) {
+        if ( strcasecmp( trim( $fx['homeTeam'] ?? '' ), $home ) !== 0 ) continue;
+        if ( strcasecmp( trim( $fx['awayTeam'] ?? '' ), $away ) !== 0 ) continue;
+
+        // Restore to unplayed state
+        $fx['shotsHome'] = '';
+        $fx['shotsAway'] = '';
+        $fx['ptsHome']   = '';
+        $fx['ptsAway']   = '';
+        $fx['played']    = false;
+        $fx['status']    = '';
+        $matched = true;
+        break;
+    }
+    unset( $fx );
+
+    if ( $matched ) {
+        $key = lgw_cache_option_key( $season_id, $division );
+        update_option( $key, $cached, false );
+        lgw_cache_log( 'info', "Wiped result from cache: {$home} v {$away} ({$division})" );
+    }
+    return $matched;
+}
+
+
+/**
  * Return status info for the Settings health panel.
  *
  * @return array[]  One entry per active-season division.

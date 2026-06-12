@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.20
+Stable tag: 7.6.26
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,24 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.26 =
+* Fix: clearing a concession now fully restores the fixture to unplayed — removes score overrides for the home/away pair, wipes the cached fixture result (played=false, scores cleared) via new lgw_cache_wipe_fixture_result(), and trashes the auto-created scorecard post.
+
+= 7.6.25 =
+* Fix: SyntaxError missing ) — chk.addEventListener closing }); dropped during noChkMode refactor.
+
+= 7.6.24 =
+* Fix: bindConcedePanel crashes on null chk.addEventListener when opened from showFixtureModal (no-checkbox panel) — guard now uses noChkMode flag set before any chk access, preventing the TypeError that also blocked scorecard loading.
+
+= 7.6.23 =
+* Fix: concession Clear button missing — after a concession is saved the fixture becomes a played row (lgw_cache_merge_result sets played=true) so showFixtureModal opens instead of showUnplayedFixtureModal. Concession clear panel now also rendered and bound in showFixtureModal for admin users. Clearing removes the panel and trashes the auto-created scorecard.
+
+= 7.6.22 =
+* Fix: Clear concession button not bound after save — bindConcedePanel now binds the Clear button in the already-conceded (no-checkbox) state by deferring the no-chk branch until after doSave is defined.
+
+= 7.6.21 =
+* Fix: concede panel does not update after saving — panel now swaps to conceded-notice state immediately showing the conceding team and a Clear button; clearing restores the original unchecked panel without a page reload.
 
 = 7.6.20 =
 * Fix: ReferenceError division is not defined in bindConcedePanel — division parameter added to function signature and both call sites.
