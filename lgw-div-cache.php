@@ -990,6 +990,8 @@ function lgw_apply_concessions_to_teams( $teams, $concessions, $max_pts ) {
         // Key format: "home||away||date" (all lowercase)
         $parts = explode( '||', $key );
         if ( count( $parts ) < 2 ) continue;
+        // Skip if a scorecard was auto-created — already in standings via cache merge
+        if ( ! empty( $c['scorecard_id'] ) ) continue;
         $home_name    = trim( $parts[0] );
         $away_name    = trim( $parts[1] );
         $home_concedes = ( $c['conceding_team'] ?? 'away' ) === 'home';
@@ -999,21 +1001,18 @@ function lgw_apply_concessions_to_teams( $teams, $concessions, $max_pts ) {
         $wi = $idx_map[ strtoupper( $winner_name ) ] ?? null;
         $li = $idx_map[ strtoupper( $loser_name  ) ] ?? null;
 
-        if ( $wi !== null ) {
-            $teams[ $wi ]['pl']   = intval( $teams[ $wi ]['pl'] )  + 1;
-            $teams[ $wi ]['pts']  = floatval( $teams[ $wi ]['pts'] ) + $max_pts;
-            $teams[ $wi ]['w']    = intval( $teams[ $wi ]['w'] )   + 1;
-            $teams[ $wi ]['f']    = intval( $teams[ $wi ]['f'] )   + 50;
-            // diff recalculated from for/against
-            $teams[ $wi ]['diff'] = intval( $teams[ $wi ]['f'] ) - intval( $teams[ $wi ]['a'] );
-        }
-        if ( $li !== null ) {
-            $teams[ $li ]['pl']   = intval( $teams[ $li ]['pl'] )  + 1;
-            $teams[ $li ]['pts']  = floatval( $teams[ $li ]['pts'] ) - $max_pts;
-            $teams[ $li ]['l']    = intval( $teams[ $li ]['l'] )   + 1;
-            $teams[ $li ]['a']    = intval( $teams[ $li ]['a'] )   + 50;
-            $teams[ $li ]['diff'] = intval( $teams[ $li ]['f'] ) - intval( $teams[ $li ]['a'] );
-        }
+        // Both teams must be in this division — skip cross-division concessions
+        if ( $wi === null || $li === null ) continue;
+        $teams[ $wi ]['pl']   = intval( $teams[ $wi ]['pl'] )  + 1;
+        $teams[ $wi ]['pts']  = floatval( $teams[ $wi ]['pts'] ) + $max_pts;
+        $teams[ $wi ]['w']    = intval( $teams[ $wi ]['w'] )   + 1;
+        $teams[ $wi ]['f']    = intval( $teams[ $wi ]['f'] )   + 50;
+        $teams[ $wi ]['diff'] = intval( $teams[ $wi ]['f'] ) - intval( $teams[ $wi ]['a'] );
+        $teams[ $li ]['pl']   = intval( $teams[ $li ]['pl'] )  + 1;
+        $teams[ $li ]['pts']  = floatval( $teams[ $li ]['pts'] ) - $max_pts;
+        $teams[ $li ]['l']    = intval( $teams[ $li ]['l'] )   + 1;
+        $teams[ $li ]['a']    = intval( $teams[ $li ]['a'] )   + 50;
+        $teams[ $li ]['diff'] = intval( $teams[ $li ]['f'] ) - intval( $teams[ $li ]['a'] );
     }
 
     return $teams;
@@ -1071,13 +1070,18 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
         $fx_key = strtolower( ( $fx['homeTeam'] ?? '' ) . '||' . ( $fx['awayTeam'] ?? '' ) . '||' . ( $fx['date'] ?? '' ) );
         if ( isset( $concessions[ $fx_key ] ) ) {
             $c = $concessions[ $fx_key ];
-            $home_concedes     = ( $c['conceding_team'] ?? 'away' ) === 'home';
-            $fx['shotsHome']   = $home_concedes ? '0'  : '50';
-            $fx['shotsAway']   = $home_concedes ? '50' : '0';
-            $fx['ptsHome']     = $home_concedes ? (string) -$max_pts_raw : (string) $max_pts_raw;
-            $fx['ptsAway']     = $home_concedes ? (string) $max_pts_raw : (string) -$max_pts_raw;
-            $fx['played']      = true;
-            $fx['conceded']    = $c['conceding_team'];
+            // If a scorecard was auto-created, the cache merge already set played/scores — only set conceded flag
+            if ( ! empty( $c['scorecard_id'] ) && ! empty( $fx['played'] ) ) {
+                $fx['conceded'] = $c['conceding_team'];
+            } else {
+                $home_concedes     = ( $c['conceding_team'] ?? 'away' ) === 'home';
+                $fx['shotsHome']   = $home_concedes ? '0'  : '50';
+                $fx['shotsAway']   = $home_concedes ? '50' : '0';
+                $fx['ptsHome']     = $home_concedes ? (string) -$max_pts_raw : (string) $max_pts_raw;
+                $fx['ptsAway']     = $home_concedes ? (string) $max_pts_raw : (string) -$max_pts_raw;
+                $fx['played']      = true;
+                $fx['conceded']    = $c['conceding_team'];
+            }
         }
     }
     unset( $fx );

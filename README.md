@@ -125,6 +125,18 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.29]
+### Fixed
+- Cross-division concession contamination: `applyConcessionsToTable` (JS) and `lgw_apply_concessions_to_teams` (PHP) now require both teams to exist in the current division. A team playing in two divisions would incorrectly receive concession credits from the other division.
+
+## [7.6.28]
+### Fixed
+- Conceded fixtures double-counted in standings — fixture overlay loop and `lgw_apply_concessions_to_teams` now skip entries with a `scorecard_id` (already counted via the scorecard/cache-merge pipeline).
+
+## [7.6.27]
+### Added
+- Conceded Fixtures panel in the Scorecards admin page — lists all `lgw_concessions` entries with home, away, date, conceding team and a Clear button that fires the full wipe pipeline.
+
 ## [7.6.26]
 ### Fixed
 - Clearing a concession now fully restores the fixture to unplayed state: removes matching score overrides, wipes cached fixture scores/played flag via new `lgw_cache_wipe_fixture_result()`, and trashes the auto-created scorecard.

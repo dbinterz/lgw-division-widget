@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.6.26
+ * Version: 7.6.29
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.6.26');
+define('LGW_VERSION', '7.6.29');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -1953,6 +1953,99 @@ function lgw_scorecards_admin_page() {
         </tbody>
         </table>
         <?php endif; ?>
+
+        <!-- ── Concessions management ── -->
+        <div style="margin-top:28px">
+        <h3 style="margin-bottom:10px">🏳️ Conceded Fixtures</h3>
+        <?php
+        $all_concessions = lgw_get_concessions();
+        if (empty($all_concessions)):
+        ?>
+        <p style="color:#666;font-size:13px">No conceded fixtures recorded.</p>
+        <?php else: ?>
+        <table class="widefat striped" style="max-width:900px">
+            <thead><tr>
+                <th>Home</th><th>Away</th><th>Date</th><th>Conceding Team</th><th>Conceded On</th><th></th>
+            </tr></thead>
+            <tbody>
+            <?php foreach ($all_concessions as $ck => $ce):
+                $parts   = explode('||', $ck);
+                $c_home  = $parts[0] ?? '';
+                $c_away  = $parts[1] ?? '';
+                $c_date  = $parts[2] ?? '';
+                $c_side  = $ce['conceding_team'] ?? 'away';
+                $c_name  = $c_side === 'home' ? $c_home : $c_away;
+                $c_on    = $ce['conceded_on'] ?? '';
+                $c_sc_id = $ce['scorecard_id'] ?? '';
+            ?>
+            <tr>
+                <td><?php echo esc_html(ucwords($c_home)); ?></td>
+                <td><?php echo esc_html(ucwords($c_away)); ?></td>
+                <td><?php echo esc_html($c_date); ?></td>
+                <td><span class="lgw-badge-pill"><?php echo esc_html(ucwords($c_name)); ?></span></td>
+                <td style="color:#888;font-size:12px"><?php echo esc_html($c_on ?: '—'); ?></td>
+                <td>
+                    <button class="button button-small lgw-concession-clear-btn"
+                        data-key="<?php echo esc_attr($ck); ?>"
+                        data-home="<?php echo esc_attr($c_home); ?>"
+                        data-away="<?php echo esc_attr($c_away); ?>"
+                        data-date="<?php echo esc_attr($c_date); ?>"
+                        data-side="<?php echo esc_attr($c_side); ?>"
+                        data-nonce="<?php echo esc_attr(wp_create_nonce('lgw_submit_nonce')); ?>"
+                        style="color:#b32d2e;border-color:#b32d2e">
+                        ✕ Clear
+                    </button>
+                    <span class="lgw-concession-clear-status" style="margin-left:8px;font-size:12px;display:none"></span>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <script>
+        (function(){
+            document.querySelectorAll('.lgw-concession-clear-btn').forEach(function(btn){
+                btn.addEventListener('click', function(){
+                    if(!confirm('Clear this concession and restore the fixture to unplayed?')) return;
+                    var row    = btn.closest('tr');
+                    var status = row.querySelector('.lgw-concession-clear-status');
+                    btn.disabled = true; btn.textContent = '⏳';
+                    var fd = new FormData();
+                    fd.append('action',            'lgw_save_concession');
+                    fd.append('nonce',             btn.dataset.nonce);
+                    fd.append('home',              btn.dataset.home);
+                    fd.append('away',              btn.dataset.away);
+                    fd.append('date',              btn.dataset.date);
+                    fd.append('division',          '');
+                    fd.append('concession_action', 'clear');
+                    fd.append('conceding_team',    btn.dataset.side);
+                    fetch(ajaxurl, {method:'POST', body:fd})
+                        .then(function(r){ return r.json(); })
+                        .then(function(res){
+                            if(res.success){
+                                status.textContent = '✅ Cleared';
+                                status.style.display = 'inline';
+                                status.style.color = 'green';
+                                row.style.opacity = '0.4';
+                                btn.style.display = 'none';
+                            } else {
+                                btn.disabled = false; btn.textContent = '✕ Clear';
+                                status.textContent = '❌ ' + (res.data || 'Failed');
+                                status.style.display = 'inline';
+                                status.style.color = 'red';
+                            }
+                        })
+                        .catch(function(){
+                            btn.disabled = false; btn.textContent = '✕ Clear';
+                            status.textContent = '❌ Network error';
+                            status.style.display = 'inline';
+                        });
+                });
+            });
+        })();
+        </script>
+        <?php endif; ?>
+        </div>
+
         </div><!-- /.lgw-section-body -->
     </div><!-- /#lgw-sec-scorecards -->
 

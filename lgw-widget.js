@@ -32,20 +32,18 @@
       var loserName  = homeConcedes ? homeName : awayName;
       var wi = idxMap[winnerName.toUpperCase()];
       var li = idxMap[loserName.toUpperCase()];
-      if(wi !== undefined){
-        teams[wi].pl  = (parseInt(teams[wi].pl,10)  || 0) + 1;
-        teams[wi].pts = (parseFloat(teams[wi].pts) || 0) + maxPts;
-        teams[wi].w   = (parseInt(teams[wi].w,10)   || 0) + 1;
-        teams[wi].f   = (parseInt(teams[wi].f,10)   || 0) + 50;
-        teams[wi].diff = (parseInt(teams[wi].f,10)||0) - (parseInt(teams[wi].a,10)||0);
-      }
-      if(li !== undefined){
-        teams[li].pl  = (parseInt(teams[li].pl,10)  || 0) + 1;
-        teams[li].pts = (parseFloat(teams[li].pts) || 0) - maxPts;
-        teams[li].l   = (parseInt(teams[li].l,10)   || 0) + 1;
-        teams[li].a   = (parseInt(teams[li].a,10)   || 0) + 50;
-        teams[li].diff = (parseInt(teams[li].f,10)||0) - (parseInt(teams[li].a,10)||0);
-      }
+      // Both teams must exist in this division — skip cross-division concessions
+      if(wi === undefined || li === undefined) return;
+      teams[wi].pl  = (parseInt(teams[wi].pl,10)  || 0) + 1;
+      teams[wi].pts = (parseFloat(teams[wi].pts) || 0) + maxPts;
+      teams[wi].w   = (parseInt(teams[wi].w,10)   || 0) + 1;
+      teams[wi].f   = (parseInt(teams[wi].f,10)   || 0) + 50;
+      teams[wi].diff = (parseInt(teams[wi].f,10)||0) - (parseInt(teams[wi].a,10)||0);
+      teams[li].pl  = (parseInt(teams[li].pl,10)  || 0) + 1;
+      teams[li].pts = (parseFloat(teams[li].pts) || 0) - maxPts;
+      teams[li].l   = (parseInt(teams[li].l,10)   || 0) + 1;
+      teams[li].a   = (parseInt(teams[li].a,10)   || 0) + 50;
+      teams[li].diff = (parseInt(teams[li].f,10)||0) - (parseInt(teams[li].a,10)||0);
     });
     return teams;
   }

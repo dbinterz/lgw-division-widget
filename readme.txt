@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.26
+Stable tag: 7.6.29
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,15 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.29 =
+* Fix: cross-division concession contamination — applyConcessionsToTable (JS) and lgw_apply_concessions_to_teams (PHP) now require BOTH teams to exist in the current division before applying a concession. Previously a concession in Division A could corrupt standings in Division B if one team appeared in both.
+
+= 7.6.28 =
+* Fix: conceded fixtures with auto-created scorecards were double-counted in standings — fixture overlay loop and lgw_apply_concessions_to_teams now skip entries that have a scorecard_id (already handled by lgw_cache_merge_result via the scorecard pipeline).
+
+= 7.6.27 =
+* Feature: Conceded Fixtures management panel added to Scorecards admin page — lists all entries in lgw_concessions with Clear button per row; clearing fires the full wipe pipeline (overlay, cache, score overrides, scorecard post).
 
 = 7.6.26 =
 * Fix: clearing a concession now fully restores the fixture to unplayed — removes score overrides for the home/away pair, wipes the cached fixture result (played=false, scores cleared) via new lgw_cache_wipe_fixture_result(), and trashes the auto-created scorecard post.
