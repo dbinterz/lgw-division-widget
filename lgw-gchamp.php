@@ -429,6 +429,78 @@ function lgw_gchamp_edit_page( $champ_id ) {
                  style="display:none;margin-top:8px;padding:10px 14px;background:#fff8e1;border-left:4px solid #f0b429;border-radius:3px;font-size:13px;max-width:420px">
             </div>
         </td></tr>
+        <?php if ( $drawn && ! $is_new ): ?>
+        <tr>
+          <th><label for="lgw_gchamp_rename_old">Rename Entry</label></th>
+          <td>
+            <div id="lgw-gchamp-rename-entry-wrap">
+              <select id="lgw_gchamp_rename_old" style="width:400px;max-width:100%;font-size:13px">
+                <option value="">— select entry to rename —</option>
+                <?php foreach ( lgw_gchamp_collect_all_entries( $champ ) as $entry ): ?>
+                <option value="<?php echo esc_attr($entry); ?>"><?php echo esc_html($entry); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <br style="margin-bottom:6px">
+              <input type="text" id="lgw_gchamp_rename_new" placeholder="Corrected name" style="width:400px;max-width:100%;font-size:13px;margin-top:6px">
+              <br>
+              <button type="button" id="lgw_gchamp_rename_btn" class="button button-secondary" style="margin-top:8px">Rename Entry</button>
+              <span id="lgw_gchamp_rename_msg" style="margin-left:10px;font-size:13px"></span>
+            </div>
+            <p class="description">Corrects spelling in the entries list and throughout all drawn groups, fixtures, knockout brackets and qualifiers. Does not affect scores or reset the draw.</p>
+            <script>
+            (function(){
+              var btn = document.getElementById('lgw_gchamp_rename_btn');
+              if (!btn) return;
+              btn.addEventListener('click', function(){
+                var oldVal = document.getElementById('lgw_gchamp_rename_old').value.trim();
+                var newVal = document.getElementById('lgw_gchamp_rename_new').value.trim();
+                var msg    = document.getElementById('lgw_gchamp_rename_msg');
+                if (!oldVal) { msg.style.color='#c00'; msg.textContent='Please select an entry.'; return; }
+                if (!newVal) { msg.style.color='#c00'; msg.textContent='Please enter the corrected name.'; return; }
+                if (oldVal === newVal) { msg.style.color='#c00'; msg.textContent='Names are identical.'; return; }
+                btn.disabled = true;
+                msg.style.color='#555'; msg.textContent='Saving...';
+                var fd = new FormData();
+                fd.append('action',   'lgw_gchamp_rename_entry');
+                fd.append('nonce',    '<?php echo esc_js(wp_create_nonce("lgw_gchamp_score")); ?>');
+                fd.append('champ_id', '<?php echo esc_js($champ_id); ?>');
+                fd.append('old_name', oldVal);
+                fd.append('new_name', newVal);
+                fetch('<?php echo esc_url(admin_url("admin-ajax.php")); ?>', {method:'POST', body:fd})
+                  .then(function(r){ return r.json(); })
+                  .then(function(data){
+                    if (data.success) {
+                      msg.style.color='#197319';
+                      msg.textContent = data.data.message;
+                      var sel = document.getElementById('lgw_gchamp_rename_old');
+                      for (var i=0; i<sel.options.length; i++) {
+                        if (sel.options[i].value === oldVal) {
+                          sel.options[i].value = newVal;
+                          sel.options[i].text  = newVal;
+                          sel.options[i].selected = true;
+                          break;
+                        }
+                      }
+                      document.getElementById('lgw_gchamp_rename_new').value = '';
+                      var ta = document.getElementById('lgw_gchamp_entries');
+                      if (ta) {
+                        ta.value = ta.value.split('\\n').map(function(line){
+                          return line.trim() === oldVal ? newVal : line;
+                        }).join('\\n');
+                      }
+                    } else {
+                      msg.style.color='#c00';
+                      msg.textContent = data.data || 'Error.';
+                    }
+                  })
+                  .catch(function(){ msg.style.color='#c00'; msg.textContent='Network error.'; })
+                  .finally(function(){ btn.disabled = false; });
+              });
+            })();
+            </script>
+          </td>
+        </tr>
+        <?php endif; ?>
         <tr><th>Stats eligible</th>
         <td><label>
             <input type="checkbox" name="lgw_gchamp_stats_eligible" value="1" <?php checked($champ['stats_eligible']??1,1);?>>
@@ -1163,6 +1235,219 @@ function lgw_ajax_gchamp_run_draw() {
     if ( strlen( serialize( $champ ) ) > 800000 ) wp_send_json_error( 'Draw data exceeds safe storage limit.' );
     update_option( 'lgw_gchamp_' . $champ_id, $champ );
     wp_send_json_success( array( 'days'=>$result['days'], 'warnings'=>$result['warnings'] ) );
+}
+
+
+
+// ── Helper: normalise whitespace for tolerant entry-name comparison ───────────
+function lgw_gchamp_norm_entry( $s ) {
+    return preg_replace( '/\s+/', ' ', trim( (string) $s ) );
+}
+
+// ── Helper: collect every unique entry-name string found anywhere in a gchamp ─
+/**
+ * Returns a deduplicated, sorted list of every entry-name string that appears
+ * anywhere in the championship — the top-level entries list, every group's
+ * entries and fixtures, every knockout bracket (per-day and top-level), and
+ * every qualifiers list. Used to populate the Rename Entry dropdown so an
+ * entry baked into a drawn group (which may have drifted from the current
+ * top-level entries list) can still be selected and renamed.
+ */
+function lgw_gchamp_collect_all_entries( array $champ ) {
+    $names = array();
+
+    foreach ( $champ['entries'] ?? array() as $e ) {
+        if ( $e !== null && $e !== '' ) $names[ $e ] = true;
+    }
+
+    $collect_matches = function( $matches ) use ( &$names ) {
+        if ( empty( $matches ) || ! is_array( $matches ) ) return;
+        foreach ( $matches as $m ) {
+            if ( ! empty( $m['home'] ) ) $names[ $m['home'] ] = true;
+            if ( ! empty( $m['away'] ) ) $names[ $m['away'] ] = true;
+        }
+    };
+
+    foreach ( $champ['days'] ?? array() as $day ) {
+        foreach ( $day['groups'] ?? array() as $group ) {
+            foreach ( $group['entries'] ?? array() as $e ) {
+                if ( $e !== null && $e !== '' ) $names[ $e ] = true;
+            }
+            $collect_matches( $group['fixtures'] ?? array() );
+        }
+        foreach ( ( $day['ko_bracket']['rounds'] ?? array() ) as $round ) {
+            $collect_matches( $round['matches'] ?? array() );
+        }
+        foreach ( $day['qualifiers'] ?? array() as $q ) {
+            if ( $q !== null && $q !== '' ) $names[ $q ] = true;
+        }
+    }
+
+    if ( ! empty( $champ['ko_bracket']['matches'] ) && is_array( $champ['ko_bracket']['matches'] ) ) {
+        foreach ( $champ['ko_bracket']['matches'] as $round ) {
+            $collect_matches( $round );
+        }
+    }
+
+    foreach ( $champ['qualifiers'] ?? array() as $q ) {
+        if ( $q !== null && $q !== '' ) $names[ $q ] = true;
+    }
+
+    $list = array_keys( $names );
+    sort( $list, SORT_STRING | SORT_FLAG_CASE );
+    return $list;
+}
+
+// ── AJAX: rename an entry everywhere (entries list, group fixtures, KO brackets, qualifiers) ─
+add_action( 'wp_ajax_lgw_gchamp_rename_entry', 'lgw_ajax_gchamp_rename_entry' );
+/**
+ * Admin-only: rename an entry across every structure in a group championship.
+ *
+ * POST params:
+ *   champ_id  - championship slug
+ *   old_name  - exact current entry string
+ *   new_name  - corrected entry string
+ *   nonce     - lgw_gchamp_score nonce
+ *
+ * Replaces all occurrences in:
+ *   - champ['entries'] (top-level master list)
+ *   - champ['days'][*]['groups'][*]['entries']
+ *   - champ['days'][*]['groups'][*]['fixtures'] (home/away)
+ *   - champ['days'][*]['ko_bracket']['rounds'][*]['matches'] (home/away)
+ *   - champ['days'][*]['qualifiers']
+ *   - champ['ko_bracket']['matches'][round][match] (home/away) — champ.php-style nested bracket
+ *   - champ['qualifiers']
+ * Does NOT reset any scores or cascade — this is a spelling-correction only.
+ */
+function lgw_ajax_gchamp_rename_entry() {
+    check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised' );
+
+    $champ_id = sanitize_key( $_POST['champ_id'] ?? '' );
+    $old_name = sanitize_text_field( wp_unslash( $_POST['old_name'] ?? '' ) );
+    $new_name = sanitize_text_field( wp_unslash( $_POST['new_name'] ?? '' ) );
+
+    if ( ! $champ_id || $old_name === '' || $new_name === '' ) {
+        wp_send_json_error( 'Missing parameters' );
+    }
+    if ( $old_name === $new_name ) {
+        wp_send_json_error( 'New name is identical to old name' );
+    }
+
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) ) wp_send_json_error( 'Championship not found' );
+
+    $replaced  = 0;
+    $norm_old  = lgw_gchamp_norm_entry( $old_name );
+
+    // Whitespace-tolerant equality: a drawn group/bracket may have drifted
+    // slightly (extra spaces, etc.) from the current top-level entries list.
+    $matches_old = function( $val ) use ( $norm_old ) {
+        return $val !== null && lgw_gchamp_norm_entry( $val ) === $norm_old;
+    };
+
+    // 1. Top-level entries list
+    foreach ( $champ['entries'] ?? array() as $i => $entry ) {
+        if ( $matches_old( $entry ) ) {
+            $champ['entries'][$i] = $new_name;
+            $replaced++;
+        }
+    }
+
+    // Helper: rename flat home/away fixtures array (group fixtures, day ko_bracket round matches)
+    $rename_in_flat_matches = function ( &$matches ) use ( $matches_old, $new_name, &$replaced ) {
+        if ( empty( $matches ) || ! is_array( $matches ) ) return;
+        foreach ( $matches as &$m ) {
+            if ( $matches_old( $m['home'] ?? null ) ) { $m['home'] = $new_name; $replaced++; }
+            if ( $matches_old( $m['away'] ?? null ) ) { $m['away'] = $new_name; $replaced++; }
+        }
+        unset( $m );
+    };
+
+    // Helper: rename champ.php-style [round][match] nested bracket
+    $rename_in_nested_bracket = function ( &$bracket ) use ( $matches_old, $new_name, &$replaced ) {
+        if ( empty( $bracket['matches'] ) || ! is_array( $bracket['matches'] ) ) return;
+        foreach ( $bracket['matches'] as &$round ) {
+            foreach ( $round as &$match ) {
+                if ( $matches_old( $match['home'] ?? null ) ) { $match['home'] = $new_name; $replaced++; }
+                if ( $matches_old( $match['away'] ?? null ) ) { $match['away'] = $new_name; $replaced++; }
+            }
+            unset( $match );
+        }
+        unset( $round );
+    };
+
+    // 2. Per-day groups: entries + fixtures, per-day ko_bracket rounds, per-day qualifiers
+    foreach ( $champ['days'] ?? array() as $di => &$day ) {
+        foreach ( $day['groups'] ?? array() as $gi => &$group ) {
+            foreach ( $group['entries'] ?? array() as $ei => $entry ) {
+                if ( $matches_old( $entry ) ) {
+                    $group['entries'][$ei] = $new_name;
+                    $replaced++;
+                }
+            }
+            if ( ! empty( $group['fixtures'] ) ) {
+                $rename_in_flat_matches( $group['fixtures'] );
+            }
+        }
+        unset( $group );
+
+        if ( ! empty( $day['ko_bracket']['rounds'] ) ) {
+            foreach ( $day['ko_bracket']['rounds'] as &$round ) {
+                if ( ! empty( $round['matches'] ) ) {
+                    $rename_in_flat_matches( $round['matches'] );
+                }
+            }
+            unset( $round );
+        }
+
+        foreach ( $day['qualifiers'] ?? array() as $qi => $q ) {
+            if ( $matches_old( $q ) ) {
+                $day['qualifiers'][$qi] = $new_name;
+                $replaced++;
+            }
+        }
+    }
+    unset( $day );
+
+    // 3. Top-level knockout bracket (champ.php-style nested [round][match])
+    if ( ! empty( $champ['ko_bracket'] ) ) {
+        $rename_in_nested_bracket( $champ['ko_bracket'] );
+    }
+
+    // 4. Top-level qualifiers
+    foreach ( $champ['qualifiers'] ?? array() as $qi => $q ) {
+        if ( $matches_old( $q ) ) {
+            $champ['qualifiers'][$qi] = $new_name;
+            $replaced++;
+        }
+    }
+
+    if ( $replaced === 0 ) {
+        wp_send_json_error( 'Entry "' . esc_html( $old_name ) . '" not found' );
+    }
+
+    update_option( 'lgw_gchamp_' . $champ_id, $champ );
+
+    wp_send_json_success( array(
+        'message'  => 'Renamed "' . esc_html( $old_name ) . '" → "' . esc_html( $new_name ) . '" (' . $replaced . ' occurrences updated).',
+        'replaced' => $replaced,
+    ) );
+}
+
+// ── AJAX: get entries list for a championship (for rename dropdown) ───────────
+add_action( 'wp_ajax_lgw_gchamp_get_entries', 'lgw_ajax_gchamp_get_entries' );
+function lgw_ajax_gchamp_get_entries() {
+    check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised' );
+
+    $champ_id = sanitize_key( $_POST['champ_id'] ?? '' );
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) ) wp_send_json_error( 'Championship not found' );
+
+    wp_send_json_success( array(
+        'entries' => lgw_gchamp_collect_all_entries( $champ ),
+    ) );
 }
 
 // ── AJAX: save a group score ──────────────────────────────────────────────────

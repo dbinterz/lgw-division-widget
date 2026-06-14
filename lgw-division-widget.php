@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.6.29
+ * Version: 7.6.35
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.6.29');
+define('LGW_VERSION', '7.6.35');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -3599,6 +3599,76 @@ function lgw_sync_get_fixture_date_from_csv($csv_url, $home, $away) {
         if ($ht === $home_lc && $at === $away_lc) return $cur_date;
     }
     return '';
+}
+
+
+// ── Scorecard deletion: clear sheet result, override, cache, appearances ──────
+/**
+ * When an lgw_scorecard post is deleted (trashed permanently or force-deleted),
+ * reverse everything that confirmation wrote:
+ *  - clears the score/points cells in the Google Sheet (if previously written)
+ *  - removes the matching lgw_score_overrides entry
+ *  - restores the cached fixture to unplayed (lgw_cache_wipe_fixture_result)
+ *  - removes player appearance records logged for this scorecard
+ *
+ * Hooked on before_delete_post so post meta is still readable.
+ */
+add_action('before_delete_post', 'lgw_scorecard_on_delete');
+add_action('wp_trash_post',      'lgw_scorecard_on_delete');
+function lgw_scorecard_on_delete($post_id) {
+    $post = get_post($post_id);
+    if (!$post || $post->post_type !== 'lgw_scorecard') return;
+
+    $sc = get_post_meta($post_id, 'lgw_scorecard_data', true);
+    if (!is_array($sc)) $sc = array();
+
+    $home     = trim($sc['home_team'] ?? '');
+    $away     = trim($sc['away_team'] ?? '');
+    $date_raw = trim($sc['date']      ?? '');
+    $division = trim($sc['division']  ?? '');
+
+    // 1. Clear the result from the Google Sheet (only if it was ever written there)
+    $status = get_post_meta($post_id, 'lgw_sc_status', true);
+    if ($status === 'confirmed' && $home && $away) {
+        $opts = lgw_get_option_array('lgw_drive');
+        if (!empty($opts['sheets_enabled']) && !get_post_meta($post_id, 'lgw_skip_google', true)) {
+            if (function_exists('lgw_sheets_clear_result')) {
+                lgw_sheets_clear_result($post_id, $sc);
+            }
+        }
+    }
+
+    // 2. Remove any matching score override(s) for this home/away pair
+    if ($home && $away) {
+        $overrides = lgw_get_option_array('lgw_score_overrides');
+        $changed   = false;
+        foreach ($overrides as $ok => $ov) {
+            if (strcasecmp(trim($ov['home'] ?? ''), $home) === 0
+             && strcasecmp(trim($ov['away'] ?? ''), $away) === 0) {
+                unset($overrides[$ok]);
+                $changed = true;
+            }
+        }
+        if ($changed) update_option('lgw_score_overrides', $overrides);
+    }
+
+    // 3. Restore the cached fixture to unplayed so the table updates immediately
+    if ($home && $away && $division && function_exists('lgw_cache_wipe_fixture_result')) {
+        $season_id = '';
+        $sc_season = get_post_meta($post_id, 'lgw_sc_season', true);
+        if ($sc_season) {
+            $season_id = $sc_season;
+        } elseif (function_exists('lgw_get_active_season_id')) {
+            $season_id = lgw_get_active_season_id();
+        }
+        if ($season_id) {
+            lgw_cache_wipe_fixture_result($home, $away, $season_id, $division);
+        }
+    }
+
+    // 4. Player appearance cleanup is handled separately by
+    //    lgw_on_scorecard_deleted() in lgw-players.php (also hooked on
+    //    before_delete_post / wp_trash_post).
 }
 
 // ── Quick Score Entry — AJAX: save a single fixture override ─────────────────

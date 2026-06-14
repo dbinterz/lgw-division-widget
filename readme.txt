@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.29
+Stable tag: 7.6.35
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,25 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.35 =
+* Fix: orphaned-appearances tidy-up now excludes championship appearances by default (championship appearances always have scorecard_id=0, so they always looked orphaned even when correct). Added Include game types filter (League / Cup / Championships) to the preview, with Championships unchecked by default.
+
+= 7.6.34 =
+* Fix: Group Championship Rename Entry tool reporting "not found" for entries visible in drawn groups — dropdown now built from every entry-name occurrence (entries list, group entries/fixtures, brackets, qualifiers), not just the top-level entries list. Matching is also whitespace-tolerant (lgw_gchamp_norm_entry) so minor formatting drift between the entries list and a drawn group no longer causes a silent mismatch.
+
+= 7.6.33 =
+* Feature: orphaned-appearances tidy-up now has a dry-run preview — Players > Merge shows a table of affected appearances (player, club, team, match, date, rink, result, type) with per-row checkboxes plus Select all/none, before any deletion. Removing selected rows runs the same prune-and-cleanup as before, scoped to the chosen rows.
+
+= 7.6.32 =
+* Feature: Rename Entry tool added to Group Championships (mirrors the existing champ.php tool) — corrects spelling across the entries list, all per-day groups and fixtures, per-day and top-level knockout brackets, and qualifiers lists. New AJAX handlers lgw_ajax_gchamp_rename_entry and lgw_ajax_gchamp_get_entries.
+
+= 7.6.31 =
+* Feature: one-off cleanup tool for orphaned player appearances — Players > Merge tab now has a "Tidy up" button that removes appearance records for scorecards deleted before automatic cleanup existed, and prunes players left with zero appearances.
+* Fix: removed duplicate appearance-cleanup call in lgw_scorecard_on_delete (already handled by lgw_on_scorecard_deleted in lgw-players.php).
+
+= 7.6.30 =
+* Feature: deleting (trashing) a confirmed scorecard now reverses everything confirmation wrote — clears the score/points/online cells in the Google Sheet, removes the matching lgw_score_overrides entry, restores the cached fixture to unplayed (lgw_cache_wipe_fixture_result) so the league table updates immediately, and deletes player appearance records for that scorecard.
 
 = 7.6.29 =
 * Fix: cross-division concession contamination — applyConcessionsToTable (JS) and lgw_apply_concessions_to_teams (PHP) now require BOTH teams to exist in the current division before applying a concession. Previously a concession in Division A could corrupt standings in Division B if one team appeared in both.

@@ -125,6 +125,32 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.35]
+### Fixed
+- Orphaned-appearances tidy-up now defaults to excluding `game_type='champ'` — championship appearances always have `scorecard_id=0` and would always match the "orphaned" criteria even when valid. `lgw_get_orphaned_appearances()` accepts a `$game_types` filter; new UI checkboxes (League/Cup checked, Championships unchecked) control which types preview includes.
+
+## [7.6.34]
+### Fixed
+- Group Championship Rename Entry "not found" for entries visible in drawn groups — new `lgw_gchamp_collect_all_entries()` populates the dropdown from every occurrence across entries list, group entries/fixtures, brackets, and qualifiers. Matching uses new `lgw_gchamp_norm_entry()` (whitespace-normalised) so minor formatting drift no longer causes a mismatch.
+
+## [7.6.33]
+### Added
+- Dry-run preview for the orphaned-appearances tidy-up tool (Players > Merge): `lgw_get_orphaned_appearances()` lists affected rows with player/club/team/match/date/rink/result/type; admin selects individual rows (or all/none) before `lgw_prune_orphaned_appearances($ids)` removes only the chosen ones and prunes resulting zero-appearance players.
+
+## [7.6.32]
+### Added
+- Rename Entry tool for Group Championships, mirroring the existing champ.php tool. New `lgw_ajax_gchamp_rename_entry` walks `entries`, per-day `groups[].entries`/`fixtures`, per-day and top-level `ko_bracket` (both flat-rounds and nested `[round][match]` shapes), and `qualifiers` lists. New `lgw_ajax_gchamp_get_entries` companion for the dropdown.
+
+## [7.6.31]
+### Added
+- One-off cleanup tool for orphaned appearances: Players > Merge tab has a "🧹 Tidy up" button calling new `lgw_prune_orphaned_appearances()` — removes appearance records for scorecards deleted before automatic cleanup existed, then runs `lgw_prune_orphaned_players()`.
+### Fixed
+- Removed duplicate appearance-cleanup call in `lgw_scorecard_on_delete` (already handled by `lgw_on_scorecard_deleted` in `lgw-players.php`).
+
+## [7.6.30]
+### Added
+- `lgw_scorecard_on_delete` hooked on `wp_trash_post` and `before_delete_post`: deleting a confirmed scorecard now clears the Google Sheet result cells, removes matching `lgw_score_overrides`, restores the cached fixture to unplayed via new `lgw_sheets_clear_result()`/`lgw_cache_wipe_fixture_result()`, and removes player appearance records.
+
 ## [7.6.29]
 ### Fixed
 - Cross-division concession contamination: `applyConcessionsToTable` (JS) and `lgw_apply_concessions_to_teams` (PHP) now require both teams to exist in the current division. A team playing in two divisions would incorrectly receive concession credits from the other division.

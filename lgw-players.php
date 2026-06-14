@@ -488,6 +488,124 @@ function lgw_prune_orphaned_players() {
     );
 }
 
+// ── One-off cleanup: prune appearances for scorecards that no longer exist ────
+/**
+ * Finds appearance records whose scorecard_id does not correspond to any
+ * existing lgw_scorecard post (including trashed). Covers scorecards that
+ * were deleted BEFORE lgw_on_scorecard_deleted() was introduced, or before
+ * lgw_scorecard_on_delete() in lgw-division-widget.php existed.
+ *
+ * @return array List of orphaned appearance rows, each with:
+ *   id, player_id, player_name, club, team, match_title, match_date,
+ *   rink, scorecard_id, result, game_type
+ */
+/**
+ * @param array $game_types Game types to include (e.g. ['league','cup']). Defaults
+ *                           to all types EXCEPT 'champ' — championship appearances
+ *                           always have scorecard_id = 0 (logged directly from draw
+ *                           results, not from lgw_scorecard posts) and would otherwise
+ *                           always show as "orphaned" even when perfectly valid.
+ */
+function lgw_get_orphaned_appearances( $game_types = null ) {
+    global $wpdb;
+    $at = lgw_appearances_table();
+    $pt = lgw_players_table();
+
+    if ( $game_types === null ) {
+        $game_types = array( 'league', 'cup' );
+    }
+    $game_types = array_filter( array_map( 'sanitize_key', (array) $game_types ) );
+    if ( empty( $game_types ) ) return array();
+
+    $placeholders = implode( ',', array_fill( 0, count( $game_types ), '%s' ) );
+
+    $rows = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT a.id, a.player_id, p.name AS player_name, p.club, a.team,
+                    a.match_title, a.match_date, a.rink, a.scorecard_id,
+                    a.result, a.game_type
+             FROM $at a
+             LEFT JOIN {$wpdb->posts} sp ON sp.ID = a.scorecard_id AND sp.post_type = 'lgw_scorecard'
+             LEFT JOIN $pt p ON p.id = a.player_id
+             WHERE sp.ID IS NULL AND a.game_type IN ($placeholders)
+             ORDER BY a.match_date DESC, a.id DESC",
+            $game_types
+        ),
+        ARRAY_A
+    );
+
+    return $rows ?: array();
+}
+
+/**
+ * Deletes the given appearance row IDs, then runs lgw_prune_orphaned_players()
+ * to remove any players left with zero appearances as a result.
+ *
+ * @param int[] $ids Appearance IDs to delete.
+ * @return array ['appearances_removed' => int, 'players_removed' => int]
+ */
+function lgw_prune_orphaned_appearances( array $ids ) {
+    global $wpdb;
+    $at = lgw_appearances_table();
+    $pt = lgw_players_table();
+
+    $ids = array_filter( array_map( 'intval', $ids ) );
+    if ( empty( $ids ) ) {
+        return array( 'appearances_removed' => 0, 'players_removed' => 0 );
+    }
+
+    // Count players before, so we can report how many get pruned
+    $players_before = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $pt" );
+
+    $placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+    $removed = $wpdb->query(
+        $wpdb->prepare( "DELETE FROM $at WHERE id IN ($placeholders)", $ids )
+    );
+    $removed = ( $removed === false ) ? 0 : (int) $removed;
+
+    lgw_prune_orphaned_players();
+
+    $players_after = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $pt" );
+    $players_removed = max( 0, $players_before - $players_after );
+
+    return array(
+        'appearances_removed' => $removed,
+        'players_removed'     => $players_removed,
+    );
+}
+
+// ── AJAX: preview or apply the orphaned-appearances cleanup from the admin UI ─
+add_action('wp_ajax_lgw_prune_orphaned_appearances', 'lgw_ajax_prune_orphaned_appearances_handler');
+function lgw_ajax_prune_orphaned_appearances_handler() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+
+    $mode = sanitize_key( $_POST['mode'] ?? 'preview' );
+
+    if ( $mode === 'preview' ) {
+        $game_types_raw = $_POST['game_types'] ?? array( 'league', 'cup' );
+        if ( ! is_array( $game_types_raw ) ) $game_types_raw = array( $game_types_raw );
+        $rows = lgw_get_orphaned_appearances( $game_types_raw );
+        wp_send_json_success( array( 'rows' => $rows ) );
+    }
+
+    if ( $mode === 'apply' ) {
+        $ids_raw = $_POST['ids'] ?? array();
+        if ( ! is_array( $ids_raw ) ) $ids_raw = array();
+        $ids = array_map( 'intval', $ids_raw );
+
+        if ( empty( $ids ) ) {
+            wp_send_json_error( 'No appearances selected.' );
+        }
+
+        $result = lgw_prune_orphaned_appearances( $ids );
+        wp_send_json_success( $result );
+    }
+
+    wp_send_json_error( 'Invalid mode' );
+}
+
+
 /**
  * Find all player pairs within the same club where one name is a dotted-initial
  * variant of the other (e.g. "D. Bintley" vs "D Bintley").
@@ -2401,6 +2519,198 @@ function lgw_players_admin_page() {
     <div class="lgw-pt-panel" id="lgw-panel-merge">
         <h2>Merge Duplicate Players</h2>
         <p>Use this when the same person appears under two different spellings (e.g. "J Smith" and "John Smith"). All appearances will be moved to the player you keep, and the other record deleted.</p>
+
+        <!-- ── Tidy up: orphaned appearances from previously deleted scorecards ── -->
+        <div style="background:#f0f6ff;border:1px solid #b3d1ff;border-radius:6px;padding:16px 20px;margin-bottom:20px">
+            <h3 style="margin:0 0 8px">🧹 Tidy up: appearances from deleted scorecards</h3>
+            <p style="margin:0 0 12px;font-size:13px">If scorecards were deleted before automatic appearance cleanup was added, their player appearance records may still be counted in stats. Click below to preview affected appearance records, choose which to remove, then run the cleanup. Any players left with zero appearances afterwards are also removed.</p>
+            <p style="margin:0 0 10px;font-size:13px">
+                <strong>Include game types:</strong>
+                <label style="margin-left:8px;cursor:pointer"><input type="checkbox" id="lgw-prune-filter-league" checked> League</label>
+                <label style="margin-left:12px;cursor:pointer"><input type="checkbox" id="lgw-prune-filter-cup" checked> Cup</label>
+                <label style="margin-left:12px;cursor:pointer"><input type="checkbox" id="lgw-prune-filter-champ"> Championships</label>
+                <br><span style="color:#888;font-size:12px">Championship appearances are excluded by default — they're logged directly from draw results (scorecard_id = 0) and will always look "orphaned" even when correct. Only enable this if you specifically need to clean up championship appearance records.</span>
+            </p>
+            <button type="button" id="lgw-prune-preview-btn" class="button button-secondary"
+                data-nonce="<?php echo esc_attr(wp_create_nonce('lgw_submit_nonce')); ?>">
+                🔍 Preview cleanup
+            </button>
+            <span id="lgw-prune-appearances-status" style="margin-left:10px;font-size:13px"></span>
+
+            <div id="lgw-prune-preview-wrap" style="display:none;margin-top:14px">
+                <p style="margin:0 0 8px;font-size:13px">
+                    <button type="button" id="lgw-prune-select-all" class="button-link" style="font-size:12px">Select all</button>
+                    &nbsp;|&nbsp;
+                    <button type="button" id="lgw-prune-select-none" class="button-link" style="font-size:12px">Select none</button>
+                    &nbsp;&middot;&nbsp;
+                    <span id="lgw-prune-selected-count">0</span> selected
+                </p>
+                <table class="widefat striped" style="max-width:900px;font-size:13px">
+                    <thead><tr>
+                        <th style="width:24px"><input type="checkbox" id="lgw-prune-header-chk"></th>
+                        <th>Player</th><th>Club</th><th>Team</th><th>Match</th><th>Date</th><th>Rink</th><th>Result</th><th>Type</th>
+                    </tr></thead>
+                    <tbody id="lgw-prune-tbody"></tbody>
+                </table>
+                <button type="button" id="lgw-prune-apply-btn" class="button button-primary" style="margin-top:10px">
+                    🧹 Remove selected
+                </button>
+            </div>
+
+            <script>
+            (function(){
+                var previewBtn = document.getElementById('lgw-prune-preview-btn');
+                var applyBtn   = document.getElementById('lgw-prune-apply-btn');
+                var status     = document.getElementById('lgw-prune-appearances-status');
+                var wrap       = document.getElementById('lgw-prune-preview-wrap');
+                var tbody      = document.getElementById('lgw-prune-tbody');
+                var headerChk  = document.getElementById('lgw-prune-header-chk');
+                var selectAll  = document.getElementById('lgw-prune-select-all');
+                var selectNone = document.getElementById('lgw-prune-select-none');
+                var countEl    = document.getElementById('lgw-prune-selected-count');
+                if (!previewBtn) return;
+                var nonce = previewBtn.dataset.nonce;
+
+                function updateCount(){
+                    var n = tbody.querySelectorAll('input[type=checkbox]:checked').length;
+                    countEl.textContent = n;
+                    headerChk.checked = n > 0 && n === tbody.querySelectorAll('input[type=checkbox]').length;
+                }
+
+                function escapeHtml(s){
+                    var d = document.createElement('div');
+                    d.textContent = s == null ? '' : String(s);
+                    return d.innerHTML;
+                }
+
+                previewBtn.addEventListener('click', function(){
+                    status.textContent = '';
+                    var gtLeague = document.getElementById('lgw-prune-filter-league').checked;
+                    var gtCup    = document.getElementById('lgw-prune-filter-cup').checked;
+                    var gtChamp  = document.getElementById('lgw-prune-filter-champ').checked;
+                    if (!gtLeague && !gtCup && !gtChamp) {
+                        status.style.color = 'red';
+                        status.textContent = '❌ Select at least one game type.';
+                        return;
+                    }
+                    previewBtn.disabled = true;
+                    var orig = previewBtn.textContent;
+                    previewBtn.textContent = '⏳ Checking…';
+                    var fd = new FormData();
+                    fd.append('action', 'lgw_prune_orphaned_appearances');
+                    fd.append('nonce', nonce);
+                    fd.append('mode', 'preview');
+                    if (gtLeague) fd.append('game_types[]', 'league');
+                    if (gtCup)    fd.append('game_types[]', 'cup');
+                    if (gtChamp)  fd.append('game_types[]', 'champ');
+                    fetch(ajaxurl, {method:'POST', body:fd})
+                        .then(function(r){ return r.json(); })
+                        .then(function(res){
+                            previewBtn.disabled = false;
+                            previewBtn.textContent = orig;
+                            if (!res.success) {
+                                status.style.color = 'red';
+                                status.textContent = '❌ ' + (res.data || 'Preview failed');
+                                return;
+                            }
+                            var rows = res.data.rows || [];
+                            if (!rows.length) {
+                                wrap.style.display = 'none';
+                                status.style.color = 'green';
+                                status.textContent = '✅ No orphaned appearances found.';
+                                return;
+                            }
+                            status.style.color = '#555';
+                            status.textContent = rows.length + ' orphaned appearance(s) found.';
+                            tbody.innerHTML = '';
+                            rows.forEach(function(row){
+                                var tr = document.createElement('tr');
+                                tr.innerHTML =
+                                    '<td><input type="checkbox" value="' + row.id + '" checked></td>' +
+                                    '<td>' + escapeHtml(row.player_name || '(unknown)') + '</td>' +
+                                    '<td>' + escapeHtml(row.club) + '</td>' +
+                                    '<td>' + escapeHtml(row.team) + '</td>' +
+                                    '<td>' + escapeHtml(row.match_title) + '</td>' +
+                                    '<td>' + escapeHtml(row.match_date) + '</td>' +
+                                    '<td>' + escapeHtml(row.rink) + '</td>' +
+                                    '<td>' + escapeHtml(row.result) + '</td>' +
+                                    '<td>' + escapeHtml(row.game_type) + '</td>';
+                                tbody.appendChild(tr);
+                            });
+                            wrap.style.display = 'block';
+                            updateCount();
+                        })
+                        .catch(function(){
+                            previewBtn.disabled = false;
+                            previewBtn.textContent = orig;
+                            status.style.color = 'red';
+                            status.textContent = '❌ Network error';
+                        });
+                });
+
+                tbody.addEventListener('change', function(e){
+                    if (e.target.type === 'checkbox') updateCount();
+                });
+                headerChk.addEventListener('change', function(){
+                    tbody.querySelectorAll('input[type=checkbox]').forEach(function(c){ c.checked = headerChk.checked; });
+                    updateCount();
+                });
+                selectAll.addEventListener('click', function(){
+                    tbody.querySelectorAll('input[type=checkbox]').forEach(function(c){ c.checked = true; });
+                    updateCount();
+                });
+                selectNone.addEventListener('click', function(){
+                    tbody.querySelectorAll('input[type=checkbox]').forEach(function(c){ c.checked = false; });
+                    updateCount();
+                });
+
+                applyBtn.addEventListener('click', function(){
+                    var ids = Array.prototype.slice.call(tbody.querySelectorAll('input[type=checkbox]:checked')).map(function(c){ return c.value; });
+                    if (!ids.length) {
+                        status.style.color = 'red';
+                        status.textContent = '❌ No appearances selected.';
+                        return;
+                    }
+                    if (!confirm('Remove ' + ids.length + ' selected appearance(s)? This cannot be undone.')) return;
+                    applyBtn.disabled = true;
+                    var orig = applyBtn.textContent;
+                    applyBtn.textContent = '⏳ Cleaning up…';
+                    var fd = new FormData();
+                    fd.append('action', 'lgw_prune_orphaned_appearances');
+                    fd.append('nonce', nonce);
+                    fd.append('mode', 'apply');
+                    ids.forEach(function(id){ fd.append('ids[]', id); });
+                    fetch(ajaxurl, {method:'POST', body:fd})
+                        .then(function(r){ return r.json(); })
+                        .then(function(res){
+                            applyBtn.disabled = false;
+                            applyBtn.textContent = orig;
+                            if (res.success) {
+                                status.style.color = 'green';
+                                status.textContent = '✅ Removed ' + res.data.appearances_removed + ' appearance(s), '
+                                    + res.data.players_removed + ' player(s) with no remaining appearances.';
+                                // Remove the now-deleted rows from the table
+                                ids.forEach(function(id){
+                                    var chk = tbody.querySelector('input[value="' + id + '"]');
+                                    if (chk) chk.closest('tr').remove();
+                                });
+                                updateCount();
+                                if (!tbody.querySelectorAll('tr').length) wrap.style.display = 'none';
+                            } else {
+                                status.style.color = 'red';
+                                status.textContent = '❌ ' + (res.data || 'Cleanup failed');
+                            }
+                        })
+                        .catch(function(){
+                            applyBtn.disabled = false;
+                            applyBtn.textContent = orig;
+                            status.style.color = 'red';
+                            status.textContent = '❌ Network error';
+                        });
+                });
+            })();
+            </script>
+        </div>
 
         <?php
         // ── Auto-merge: dotted initial duplicates ──

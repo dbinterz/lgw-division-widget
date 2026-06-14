@@ -158,6 +158,125 @@ function lgw_sheets_format_date($dmy) {
     return date('D', $ts) . ' ' . ltrim(date('d', $ts), '0') . '-' . date('M-Y', $ts);
 }
 
+
+// ── Clear a result from the sheet (used when a scorecard is deleted) ──────────
+/**
+ * Clears the score/points cells (and Online flag) for a fixture row in the sheet.
+ * Mirrors lgw_sheets_write_result() but blanks the cells instead of writing values.
+ *
+ * @param int    $post_id  The scorecard post being deleted (for logging only).
+ * @param array  $sc       The scorecard data (lgw_scorecard_data meta), captured
+ *                          BEFORE deletion since post meta is gone after delete.
+ * @return bool
+ */
+function lgw_sheets_clear_result($post_id, $sc) {
+    if (!$sc) return false;
+
+    $home_team = trim($sc['home_team'] ?? '');
+    $away_team = trim($sc['away_team'] ?? '');
+    $date_raw  = trim($sc['date']      ?? '');
+    $division  = trim($sc['division']  ?? '');
+
+    if (!$home_team || !$away_team) {
+        lgw_sheets_log($post_id, 'error', 'Clear skipped — missing team names in scorecard');
+        return false;
+    }
+
+    $opts  = get_option('lgw_drive', []);
+    $entry = lgw_sheets_entry_for_division($division, $opts);
+    if (!$entry || empty($entry['tab'])) {
+        lgw_sheets_log($post_id, 'warn', "Clear skipped — no sheet tab mapped for division: $division");
+        return false;
+    }
+    $tab         = trim($entry['tab']);
+    $spreadsheet = trim($entry['spreadsheet_id'] ?? $opts['sheets_id'] ?? '');
+    if (!$spreadsheet) {
+        lgw_sheets_log($post_id, 'error', "Clear skipped — no spreadsheet ID configured for division: $division");
+        return false;
+    }
+
+    $token = lgw_drive_get_access_token();
+    if (!$token) {
+        lgw_sheets_log($post_id, 'error', 'Could not obtain Sheets auth token (clear)');
+        return false;
+    }
+
+    $fixture_date_raw = trim(get_post_meta($post_id, 'lgw_fixture_date', true) ?: $date_raw);
+    $sheet_date = lgw_sheets_format_date($fixture_date_raw);
+
+    $sheet_data = lgw_sheets_fetch($token, $spreadsheet, $tab);
+    if ($sheet_data === false) {
+        lgw_sheets_log($post_id, 'error', "Clear: failed to fetch sheet data for tab: $tab");
+        return false;
+    }
+
+    $cols  = lgw_sheets_detect_cols($sheet_data);
+    $match = lgw_sheets_find_row($sheet_data, $cols, $home_team, $away_team, $sheet_date);
+    if ($match === false && $sheet_date) {
+        $match = lgw_sheets_find_row($sheet_data, $cols, $home_team, $away_team, '');
+    }
+    if ($match === false) {
+        lgw_sheets_log($post_id, 'warn', "Clear: could not find fixture row: '$home_team' v '$away_team' on '$sheet_date' in tab '$tab'");
+        return false;
+    }
+
+    [$row_index, $row_data] = $match;
+
+    $requests = lgw_sheets_build_clear($spreadsheet, $tab, $row_index, $cols);
+    $result   = lgw_sheets_batch_clear($token, $spreadsheet, $requests);
+    if ($result === false) {
+        lgw_sheets_log($post_id, 'error', "Clear batchUpdate failed for row $row_index in tab '$tab'");
+        return false;
+    }
+
+    $csv_url = trim($entry['csv_url'] ?? '');
+    if ($csv_url) {
+        delete_transient('lgw_csv_' . md5($csv_url));
+    }
+
+    lgw_sheets_log($post_id, 'info',
+        "Cleared from sheet: spreadsheet='$spreadsheet', tab='$tab', row=" . ($row_index + 1)
+        . " (scorecard deleted)"
+    );
+    return true;
+}
+
+// ── Build batchUpdate requests that blank score/points/online cells ───────────
+function lgw_sheets_build_clear($spreadsheet, $tab, $row_index, $cols) {
+    $col_letter = function($n) {
+        $letter = '';
+        $n++;
+        while ($n > 0) {
+            $n--;
+            $letter = chr(65 + ($n % 26)) . $letter;
+            $n = (int)($n / 26);
+        }
+        return $letter;
+    };
+
+    $sheet_row = $row_index + 1;
+    $data      = [];
+
+    $cols_to_clear = [$cols['hscore'], $cols['ascore'], $cols['hpts'], $cols['apts']];
+    if ($cols['online'] >= 0) $cols_to_clear[] = $cols['online'];
+
+    foreach ($cols_to_clear as $col_idx) {
+        $a1 = "'" . addslashes($tab) . "'!" . $col_letter($col_idx) . $sheet_row;
+        $data[] = [
+            'range'          => $a1,
+            'majorDimension' => 'ROWS',
+            'values'         => [['']],
+        ];
+    }
+
+    return $data;
+}
+
+// ── Execute Sheets batchUpdate for clearing (same as batch_update) ────────────
+function lgw_sheets_batch_clear($token, $spreadsheet, $data) {
+    return lgw_sheets_batch_update($token, $spreadsheet, $data);
+}
+
 // ── Resolve division name → full sheets config entry ─────────────────────────
 /**
  * Returns the full sheets_tabs entry for a division: {division, tab, csv_url, spreadsheet_id}
