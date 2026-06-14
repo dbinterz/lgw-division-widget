@@ -125,6 +125,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.36]
+### Fixed
+- gchamp Rename Entry only updated the top-level entries list, not group entries/fixtures, per-day KO brackets, or qualifiers — `foreach ( $champ['days'] ?? array() as &$day )` referenced a temporary copy from the `??` operator, so all writes through `$day`/`$group` were discarded. Rewrote the per-day/group loop to iterate `$champ['days']` directly via `!empty()`/`is_array()` checks.
+
 ## [7.6.35]
 ### Fixed
 - Orphaned-appearances tidy-up now defaults to excluding `game_type='champ'` — championship appearances always have `scorecard_id=0` and would always match the "orphaned" criteria even when valid. `lgw_get_orphaned_appearances()` accepts a `$game_types` filter; new UI checkboxes (League/Cup checked, Championships unchecked) control which types preview includes.

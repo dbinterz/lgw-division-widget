@@ -1378,37 +1378,51 @@ function lgw_ajax_gchamp_rename_entry() {
     };
 
     // 2. Per-day groups: entries + fixtures, per-day ko_bracket rounds, per-day qualifiers
-    foreach ( $champ['days'] ?? array() as $di => &$day ) {
-        foreach ( $day['groups'] ?? array() as $gi => &$group ) {
-            foreach ( $group['entries'] ?? array() as $ei => $entry ) {
-                if ( $matches_old( $entry ) ) {
-                    $group['entries'][$ei] = $new_name;
-                    $replaced++;
+    //
+    // IMPORTANT: do NOT write `foreach ( $champ['days'] ?? array() as $di => &$day )`.
+    // The `??` operator produces a temporary value — `&$day` would then reference
+    // an element of that temporary copy, and any writes made through $day (or
+    // references derived from it, like $group below) are silently discarded and
+    // never reach $champ['days']. Same applies one level down for $day['groups'].
+    if ( ! empty( $champ['days'] ) && is_array( $champ['days'] ) ) {
+        foreach ( $champ['days'] as $di => &$day ) {
+            if ( ! empty( $day['groups'] ) && is_array( $day['groups'] ) ) {
+                foreach ( $day['groups'] as $gi => &$group ) {
+                    if ( ! empty( $group['entries'] ) && is_array( $group['entries'] ) ) {
+                        foreach ( $group['entries'] as $ei => $entry ) {
+                            if ( $matches_old( $entry ) ) {
+                                $group['entries'][$ei] = $new_name;
+                                $replaced++;
+                            }
+                        }
+                    }
+                    if ( ! empty( $group['fixtures'] ) ) {
+                        $rename_in_flat_matches( $group['fixtures'] );
+                    }
+                }
+                unset( $group );
+            }
+
+            if ( ! empty( $day['ko_bracket']['rounds'] ) ) {
+                foreach ( $day['ko_bracket']['rounds'] as &$round ) {
+                    if ( ! empty( $round['matches'] ) ) {
+                        $rename_in_flat_matches( $round['matches'] );
+                    }
+                }
+                unset( $round );
+            }
+
+            if ( ! empty( $day['qualifiers'] ) && is_array( $day['qualifiers'] ) ) {
+                foreach ( $day['qualifiers'] as $qi => $q ) {
+                    if ( $matches_old( $q ) ) {
+                        $day['qualifiers'][$qi] = $new_name;
+                        $replaced++;
+                    }
                 }
             }
-            if ( ! empty( $group['fixtures'] ) ) {
-                $rename_in_flat_matches( $group['fixtures'] );
-            }
         }
-        unset( $group );
-
-        if ( ! empty( $day['ko_bracket']['rounds'] ) ) {
-            foreach ( $day['ko_bracket']['rounds'] as &$round ) {
-                if ( ! empty( $round['matches'] ) ) {
-                    $rename_in_flat_matches( $round['matches'] );
-                }
-            }
-            unset( $round );
-        }
-
-        foreach ( $day['qualifiers'] ?? array() as $qi => $q ) {
-            if ( $matches_old( $q ) ) {
-                $day['qualifiers'][$qi] = $new_name;
-                $replaced++;
-            }
-        }
+        unset( $day );
     }
-    unset( $day );
 
     // 3. Top-level knockout bracket (champ.php-style nested [round][match])
     if ( ! empty( $champ['ko_bracket'] ) ) {
