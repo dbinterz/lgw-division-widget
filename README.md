@@ -125,6 +125,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.37]
+### Fixed
+- `A. Other` is now treated as the same player as `A Other` for any team. `lgw_clean_player_name()` now calls `lgw_normalise_player_name()` internally, so dotted-initial normalisation is applied consistently at every call site (appearance logging, new-player detection, admin lookups).
+
 ## [7.6.36]
 ### Fixed
 - gchamp Rename Entry only updated the top-level entries list, not group entries/fixtures, per-day KO brackets, or qualifiers — `foreach ( $champ['days'] ?? array() as &$day )` referenced a temporary copy from the `??` operator, so all writes through `$day`/`$group` were discarded. Rewrote the per-day/group loop to iterate `$champ['days']` directly via `!empty()`/`is_array()` checks.

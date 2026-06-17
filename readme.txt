@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.36
+Stable tag: 7.6.37
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.37 =
+* Fix: player name "A. Other" is now treated as the same player as "A Other" (and any dotted-initial variant) by routing `lgw_clean_player_name()` through `lgw_normalise_player_name()`. Affects new-player detection, appearance logging, and all other call sites consistently.
 
 = 7.6.36 =
 * Fix: gchamp Rename Entry tool updated the top-level entries list but not group entries, fixtures, per-day knockout brackets or qualifiers — caused by `foreach ( $champ['days'] ?? array() as &$day )` taking a reference into a temporary copy produced by the ?? operator, so writes through $day/$group never reached $champ['days']. Restructured to check existence with !empty()/is_array() and iterate the real array directly.

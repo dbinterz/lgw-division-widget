@@ -415,8 +415,10 @@ function lgw_clear_all_champ_appearances( $champ_id ) {
 
 
 function lgw_clean_player_name($name) {
-    // Strip trailing asterisks (e.g. "SJ Curran*") and extra whitespace
-    return trim(rtrim(trim($name), '*'));
+    // Strip trailing asterisks (e.g. "SJ Curran*") and extra whitespace,
+    // then normalise dotted initials so "A. Other" and "A Other" are the same player.
+    $name = trim(rtrim(trim($name), '*'));
+    return lgw_normalise_player_name($name);
 }
 
 function lgw_team_to_club($team) {
