@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.37
+Stable tag: 7.6.41
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,23 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.41 =
+* feat: add Facilities section to Club Directory — greens count, rinks (auto-defaults to greens × 6
+  but can be overridden), floodlights, bar, changing rooms (boolean checkboxes), and car parking
+  (none / on street / private). Stored as facilities key on each lgw_clubs record.
+
+= 7.6.40 =
+* Fix: fatal TypeError on Scorecards admin page (and all LGW admin pages) when lgw_drive.sheets_tabs
+  is stored as a JSON string rather than a decoded array — array_filter() received '{}' and crashed,
+  taking down the entire LGW menu. sheets_tabs is now decoded defensively at all three read sites.
+
+= 7.6.38 =
+* feat: add Club Directory admin page (lgw-clubs.php) — card-based index of all clubs with
+  inline per-club edit panel; stores address, website, and contacts (Secretary, President,
+  Green Keeper plus freeform extras) as additional keys on the lgw_clubs option. Passphrase
+  and badge management unified into the same panel. AJAX save/delete per club — no full-page
+  reload required.
 
 = 7.6.37 =
 * Fix: player name "A. Other" is now treated as the same player as "A Other" (and any dotted-initial variant) by routing `lgw_clean_player_name()` through `lgw_normalise_player_name()`. Affects new-player detection, appearance logging, and all other call sites consistently.
@@ -167,7 +184,6 @@ Parameters:
 * Fix: form guide missing on SSR path — PHP cache render (lgw_cache_render_table) now outputs form pips.
 * Fix: README.md now packaged inside lgw-division-widget/ folder in release zip.
 
-= 7.6.4 =
 * Feature: Concession support — admin can mark any unplayed fixture as conceded via the fixture modal, specifying which team concedes; winner receives max_points pts + 50-shot victory; conceding team receives a -max_points deduction + 50 shots against; both adjustments reflected in standings table, shot difference, W/L record and Pl count; fixture row shows a purple 🏳️ Conceded pill; non-admins see a notice in the fixture modal
 
 = 7.6.2 =

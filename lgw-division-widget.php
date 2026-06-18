@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.6.37
+ * Version: 7.6.41
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.6.37');
+define('LGW_VERSION', '7.6.41');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -81,6 +81,7 @@ $lgw_modules = array(
     'lgw-finals.php',
     'lgw-seasons.php',
     'lgw-div-cache.php',
+    'lgw-clubs.php',
 );
 $lgw_missing = array();
 foreach ($lgw_modules as $lgw_module) {
@@ -1130,6 +1131,10 @@ function lgw_admin_menu() {
         'lgw-players',
         'lgw_players_admin_page'
     );
+    // Clubs — function defined in lgw-clubs.php
+    if (function_exists('lgw_clubs_register_submenu')) {
+        lgw_clubs_register_submenu();
+    }
     // Cups — function defined in lgw-cup.php
     if (function_exists('lgw_cups_register_submenu')) {
         lgw_cups_register_submenu();
@@ -1169,7 +1174,8 @@ function lgw_admin_menu() {
 function lgw_scorecards_admin_page() {
     // ── Data for Quick Score Entry section ────────────────────────────────────
     $drive_opts = lgw_get_option_array('lgw_drive');
-    $tabs       = $drive_opts['sheets_tabs'] ?? array();
+    $tabs       = lgw_get_option_array('lgw_drive')['sheets_tabs'] ?? array();
+    if ( is_string( $tabs ) ) { $tabs = json_decode( $tabs, true ) ?: array(); }
     $divisions  = array_values(array_filter($tabs, function($t) {
         return !empty($t['csv_url']) && !empty($t['division']);
     }));
@@ -2738,6 +2744,7 @@ function lgw_league_setup_divisions_html() {
     $active        = lgw_get_active_season();
     $season_divs   = $active['divisions'] ?? [];
     $existing_tabs = $opts['sheets_tabs'] ?? [];
+    if ( is_string( $existing_tabs ) ) { $existing_tabs = json_decode( $existing_tabs, true ) ?: []; }
 
     // Build lookup by csv_url for existing tab config
     $entry_by_url = [];
@@ -3708,7 +3715,9 @@ function lgw_ajax_save_score_override() {
     if (!empty($opts['sheets_enabled'])) {
         // Find matching division entry by csv_url
         $div_entry = null;
-        foreach (($opts['sheets_tabs'] ?? []) as $entry) {
+        $sheets_tabs_raw = $opts['sheets_tabs'] ?? [];
+        if ( is_string( $sheets_tabs_raw ) ) { $sheets_tabs_raw = json_decode( $sheets_tabs_raw, true ) ?: []; }
+        foreach ($sheets_tabs_raw as $entry) {
             if (esc_url_raw($entry['csv_url'] ?? '') === $csv_url) {
                 $div_entry = $entry;
                 break;

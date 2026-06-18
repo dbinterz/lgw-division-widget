@@ -35,3 +35,7 @@
 .lgw-audit-changes{margin:4px 0 0 18px;padding:0;color:#666}
 .lgw-audit-changes li{margin-bottom:2px}
 .lgw-sc-amended{font-size:10px;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle}
+
+/* ── Club directory page (lgw-clubs.php) ── */
+.lgw-club-card-pin-badge.set   { color: #2e7d32; }
+.lgw-club-card-pin-badge.unset { color: #9e9e9e; }

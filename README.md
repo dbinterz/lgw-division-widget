@@ -121,9 +121,37 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - Fixture modal: shots-defeat now correctly shown as L, not D, even when team won 3 rinks.
 
-## [7.6.4]
 ### Fixed
 - (previous fixes)
+
+## [7.6.41]
+### Added
+- **Club Facilities** section in Club Directory: greens count, rinks (auto-fills as greens × 6,
+  overridable), floodlights, bar, changing rooms (boolean toggles), and car parking (none /
+  on street / private). Stored as `facilities` key on each `lgw_clubs` record — no migration needed.
+
+## [7.6.40]
+### Fixed
+- Fatal `TypeError` on the Scorecards admin page (and all LGW admin pages): `lgw_drive.sheets_tabs`
+  stored as a JSON string caused `array_filter()` to receive `'{}'`, crashing the top-level menu
+  handler and collapsing the entire LGW admin menu. `sheets_tabs` is now decoded defensively at
+  all three read sites in `lgw-division-widget.php`.
+
+## [7.6.39]
+### Fixed
+- Fatal `TypeError` on the Scorecards admin page (and all LGW admin pages): `lgw_drive.sheets_tabs`
+  stored as a JSON string caused `array_filter()` to receive `'{}'`, crashing the top-level menu
+  handler and collapsing the entire LGW admin menu. `sheets_tabs` is now decoded defensively at
+  all three read sites in `lgw-division-widget.php`.
+
+## [7.6.38]
+### Added
+- **Club Directory** (`lgw-clubs.php`): new `🏢 Clubs` admin sub-menu with a card-based index of
+  all clubs. Click any card to open an inline edit panel — no page reload needed.
+- Each club panel covers: name, address, website, passphrase (hashed as before), badge image/type,
+  and contacts (Secretary, President, Green Keeper always shown; extra roles can be added freely).
+- Contact data stored as additional keys on existing `lgw_clubs` WP option — no migration needed.
+- AJAX save and delete per club; grid updates in-place after save.
 
 ## [7.6.37]
 ### Fixed
