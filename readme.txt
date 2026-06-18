@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.41
+Stable tag: 7.6.42
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.42 =
+* chore: update .github/workflows/release.yml to include lgw-clubs.php in zip build and manifest
+  verification steps.
 
 = 7.6.41 =
 * feat: add Facilities section to Club Directory — greens count, rinks (auto-defaults to greens × 6

@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.42]
+### Changed
+- Updated release workflow to include `lgw-clubs.php` in zip build and manifest verification.
+
 ## [7.6.41]
 ### Added
 - **Club Facilities** section in Club Directory: greens count, rinks (auto-fills as greens × 6,
