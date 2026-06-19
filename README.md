@@ -124,6 +124,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.47]
+### Fixed
+- **Orphaned appearances cleanup**: added `scorecard_id > 0` guard to the detection
+  query so only appearances with an explicit (now-missing) scorecard post are flagged.
+  Prevents false positives for old league records logged before scorecard IDs were
+  tracked (`scorecard_id = 0`).
+
 ## [7.6.46]
 ### Changed
 - **Form guide date**: played date now overrides fixture date in form pips across the league

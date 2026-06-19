@@ -492,10 +492,11 @@ function lgw_prune_orphaned_players() {
 
 // ── One-off cleanup: prune appearances for scorecards that no longer exist ────
 /**
- * Finds appearance records whose scorecard_id does not correspond to any
- * existing lgw_scorecard post (including trashed). Covers scorecards that
- * were deleted BEFORE lgw_on_scorecard_deleted() was introduced, or before
- * lgw_scorecard_on_delete() in lgw-division-widget.php existed.
+ * Finds appearance records where scorecard_id > 0 (a specific post was linked)
+ * but that post no longer exists as an lgw_scorecard. Covers scorecards deleted
+ * BEFORE lgw_on_scorecard_deleted() was introduced. Records with scorecard_id = 0
+ * are excluded — they were logged before scorecard IDs were tracked and are not
+ * orphaned in the same sense.
  *
  * @return array List of orphaned appearance rows, each with:
  *   id, player_id, player_name, club, team, match_title, match_date,
@@ -529,7 +530,7 @@ function lgw_get_orphaned_appearances( $game_types = null ) {
              FROM $at a
              LEFT JOIN {$wpdb->posts} sp ON sp.ID = a.scorecard_id AND sp.post_type = 'lgw_scorecard'
              LEFT JOIN $pt p ON p.id = a.player_id
-             WHERE sp.ID IS NULL AND a.game_type IN ($placeholders)
+             WHERE a.scorecard_id > 0 AND sp.ID IS NULL AND a.game_type IN ($placeholders)
              ORDER BY a.match_date DESC, a.id DESC",
             $game_types
         ),
