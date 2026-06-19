@@ -124,6 +124,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.45]
+### Fixed
+- **Undefined function `lgw_get_option_array()`**: replaced all 8 call sites in `lgw-div-cache.php`
+  with `get_option( '...', [] )` — affects `lgw_seasons`, `lgw_drive`, `lgw_score_overrides`,
+  `lgw_badges`, and `lgw_club_badges`. Resolves CI test failure "Call to undefined function".
+
 ## [7.6.44]
 ### Fixed
 - **Move/Withdraw "Entry not found in group"**: `sanitize_text_field()` was collapsing internal
