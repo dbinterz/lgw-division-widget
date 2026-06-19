@@ -1292,18 +1292,6 @@
           +'</div><hr class="lgw-sc-divider">';
       }
 
-      if(!canSubmit){
-        var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
-          + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
-          + concessionPanel
-          + postponePanel
-          + '<p class="lgw-sc-none">No scorecard submitted yet.</p>';
-        openModal(titleHtml, bodyHtml, widget);
-        bindConcedePanel(home, away, date, pdKey2, concessionEntry2, divisionTitle);
-        bindPostponePanel(home, away, date, pdKey2, postEntry2);
-        return;
-      }
-
       var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
         + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
         + concessionPanel
@@ -1318,16 +1306,16 @@
       var container = document.getElementById('lgw-sc-modal-submit');
       if(!container) return;
 
-      if(typeof window.lgwOpenSubmitInModal === 'function'){
-        window.lgwOpenSubmitInModal(container, {
-          home: home,
-          away: away,
-          date: date,
-          division: division || '',
-          maxPts: maxPts,
-          isAdmin: effectiveAdmin,
+      // Check for an existing pending scorecard first; fall back to submission form if none found.
+      if(typeof window.lgwFetchScorecardOrSubmit === 'function'){
+        window.lgwFetchScorecardOrSubmit(home, away, date, container, {
+          canSubmit:      canSubmit,
+          division:       division || '',
+          maxPts:         maxPts,
+          isAdmin:        effectiveAdmin,
           submissionMode: submissionMode,
-          authClub: widgetAuthClub,
+          authClub:       widgetAuthClub,
+          context:        '',
         });
       } else {
         container.innerHTML='<p class="lgw-sc-none">Scorecard submission not available.</p>';

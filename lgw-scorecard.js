@@ -1309,27 +1309,71 @@
       }
       if (res.success && res.data) {
         // Scorecard exists — show it with inline confirm/amend if pending and second club
-        var scData      = res.data;
+        var scData       = res.data;
         var resolvedClub = opts.authClub || authClub || '';
-        containerEl.innerHTML = lgwRenderScorecardHtml(scData, {
-          authClub:       resolvedClub,
-          isAdmin:        opts.isAdmin,
-          canSubmit:      opts.canSubmit,
-          submissionMode: opts.submissionMode,
-          context:        opts.context || '',
-        });
-        // Bind confirm/amend actions if rendered
-        var reviewEl = containerEl.querySelector('.lgw-sc-review-inline');
-        if (reviewEl) {
-          lgwBindInlineReview(reviewEl, scData, containerEl, opts, home, away, date);
-        }
-        // If scorecard is pending and no club is authenticated, show a compact
-        // login gate so the second club can confirm/amend from this modal.
-        var scStatus = scData['_status'] || 'pending';
+        var scStatus     = scData['_status'] || 'pending';
         var canConfirmMode = opts.submissionMode !== 'disabled'
           && (opts.submissionMode !== 'admin_only' || opts.isAdmin);
-        if (scStatus === 'pending' && !resolvedClub && canConfirmMode) {
-          lgwRenderModalLoginGate(containerEl, scData, opts, home, away, date);
+
+        function renderScorecard(targetEl) {
+          targetEl.innerHTML = lgwRenderScorecardHtml(scData, {
+            authClub:       resolvedClub,
+            isAdmin:        opts.isAdmin,
+            canSubmit:      opts.canSubmit,
+            submissionMode: opts.submissionMode,
+            context:        opts.context || '',
+          });
+          var reviewEl = targetEl.querySelector('.lgw-sc-review-inline');
+          if (reviewEl) lgwBindInlineReview(reviewEl, scData, targetEl, opts, home, away, date);
+          if (scStatus === 'pending' && !resolvedClub && canConfirmMode) {
+            lgwRenderModalLoginGate(targetEl, scData, opts, home, away, date);
+          }
+        }
+
+        // Show a mode toggle when the scorecard is pending and submission is allowed,
+        // so the user can switch between confirming the existing scorecard and
+        // submitting their own independent version.
+        if (scStatus === 'pending' && opts.canSubmit) {
+          containerEl.innerHTML =
+            '<div class="lgw-sc-mode-toggle">'
+            +'<button class="lgw-sc-mode-btn lgw-sc-mode-active" data-mode="confirm">📋 View &amp; confirm</button>'
+            +'<button class="lgw-sc-mode-btn" data-mode="submit">✏️ Submit my own</button>'
+            +'</div>'
+            +'<div class="lgw-sc-mode-panel" data-panel="confirm"></div>'
+            +'<div class="lgw-sc-mode-panel" data-panel="submit" style="display:none"></div>';
+
+          var confirmPanel  = containerEl.querySelector('[data-panel="confirm"]');
+          var submitPanel   = containerEl.querySelector('[data-panel="submit"]');
+          var toggleBtns    = containerEl.querySelectorAll('.lgw-sc-mode-btn');
+          var submitRendered = false;
+
+          renderScorecard(confirmPanel);
+
+          toggleBtns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              var mode = this.dataset.mode;
+              toggleBtns.forEach(function(b) { b.classList.remove('lgw-sc-mode-active'); });
+              this.classList.add('lgw-sc-mode-active');
+              confirmPanel.style.display = mode === 'confirm' ? '' : 'none';
+              submitPanel.style.display  = mode === 'submit'  ? '' : 'none';
+              if (mode === 'submit' && !submitRendered) {
+                submitRendered = true;
+                if (typeof window.lgwOpenSubmitInModal === 'function') {
+                  window.lgwOpenSubmitInModal(submitPanel, {
+                    home: home, away: away, date: date,
+                    division: opts.division || '',
+                    maxPts: (opts.maxPts !== undefined && opts.maxPts !== null) ? opts.maxPts : 7,
+                    isAdmin: opts.isAdmin,
+                    submissionMode: opts.submissionMode,
+                    authClub: opts.authClub,
+                    context: opts.context || '',
+                  });
+                }
+              }
+            });
+          });
+        } else {
+          renderScorecard(containerEl);
         }
       } else if (opts.canSubmit) {
         // No scorecard yet — offer submission

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.49
+Stable tag: 7.6.51
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,17 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.51 =
+* feat: pending scorecard view now shows a "View & confirm / Submit my own" mode
+  toggle so the opposing club can choose to either confirm the existing scorecard
+  or submit their own independent version from the same fixture modal.
+
+= 7.6.50 =
+* fix: unplayed fixture modal now checks for an existing pending scorecard before
+  showing the submission form. If the other club has already submitted, the opposing
+  club sees the scorecard with agree/amend options (or a login gate) instead of a
+  blank entry form.
 
 = 7.6.49 =
 * feat: player export now respects active filters — club, team, and name filters

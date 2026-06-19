@@ -124,6 +124,20 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.51]
+### Added
+- **Mode toggle for pending scorecards**: when a pending scorecard is found in the
+  fixture modal, a "📋 View & confirm / ✏️ Submit my own" toggle appears so the
+  opposing club can choose to confirm the existing scorecard or enter their own
+  independent version without first seeing the submitted scores.
+
+## [7.6.50]
+### Fixed
+- **Unplayed fixture modal shows pending scorecard**: clicking an unplayed fixture
+  now checks for an existing pending scorecard before showing the blank submission
+  form. If the other club has already submitted, the opposing club sees the scorecard
+  with agree/amend options and a login gate, rather than being shown an empty form.
+
 ## [7.6.49]
 ### Added
 - **Filtered player export**: the Excel export button now passes the active club,

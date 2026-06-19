@@ -238,6 +238,12 @@
 /* ── Actions row ── */
 .lgw-prev-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid #e8edf8}
 
+/* ── Pending-scorecard mode toggle (confirm vs submit my own) ────────────────── */
+.lgw-sc-mode-toggle{display:flex;gap:6px;margin-bottom:14px;border-bottom:2px solid #e8edf8;padding-bottom:10px}
+.lgw-sc-mode-btn{background:none;border:2px solid transparent;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:700;font-family:inherit;color:#555;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.lgw-sc-mode-btn:hover{background:#f0f3fa;color:#1a2e5a}
+.lgw-sc-mode-active{background:#e8edf8!important;color:#1a2e5a!important;border-color:#b2c0e0!important}
+
 /* ── Inline confirm/amend in fixture modal ───────────────────────────────────── */
 .lgw-sc-review-inline{margin-top:14px;padding-top:12px;border-top:2px solid #e8edf8}
 .lgw-sc-review-prompt{font-size:13px;color:#444;margin:0 0 10px}
