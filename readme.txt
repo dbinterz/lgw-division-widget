@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.42
+Stable tag: 7.6.44
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,23 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.44 =
+* fix: lgw-gchamp move/withdraw — "Entry not found in group" resolved. sanitize_text_field()
+  was collapsing internal whitespace (e.g. double spaces) in the received entry name, causing
+  a strict-comparison mismatch against the stored string. Now uses trim(wp_unslash()) and
+  resolves the canonical stored entry via lgw_gchamp_norm_entry() (same approach as the
+  rename function), ensuring all downstream array_filter operations use the exact stored string.
+
+= 7.6.43 =
+* feat: lgw-gchamp — Manual Group Adjustments panel: move an entry between groups on the same day
+  (removes their old fixtures, generates new fixtures vs all target-group members) or withdraw
+  a dropped entry entirely (removes from group, day entries, and top-level entries list). Both
+  actions reset the day KO bracket which must be re-seeded afterwards. Scored fixtures for the
+  moved/withdrawn entry require a second confirmation before deletion.
+* feat: lgw-gchamp — Copy Championship: duplicate any group championship to a new ID and title
+  (preserves draw, scores, and all settings). Available from both the championships list and the
+  edit page. Useful for testing group adjustments on a copy before touching a live competition.
 
 = 7.6.42 =
 * chore: update .github/workflows/release.yml to include lgw-clubs.php in zip build and manifest

@@ -124,6 +124,25 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.44]
+### Fixed
+- **Move/Withdraw "Entry not found in group"**: `sanitize_text_field()` was collapsing internal
+  whitespace in the received entry name (e.g. a double space becomes single), causing a strict
+  mismatch against the string as stored. Both handlers now use `trim(wp_unslash())` and resolve
+  the canonical stored entry via `lgw_gchamp_norm_entry()` before any comparison or removal —
+  the same normalised-comparison approach used by the working rename function.
+
+## [7.6.43]
+### Added
+- **Manual Group Adjustments** panel in `lgw-gchamp` admin: move an entry between groups on the
+  same day (removes their old fixtures, generates new fixtures vs all target-group members) or
+  withdraw a dropped entry entirely (removes from group, day, and top-level entries list). Both
+  actions reset the day KO bracket, which must be re-seeded afterwards. Scored fixtures require
+  a second confirmation before deletion.
+- **Copy Championship** in `lgw-gchamp`: duplicate any group championship to a new ID and title,
+  preserving the full draw, scores, and settings. Available from the championships list and the
+  edit page — useful for testing group adjustments on a copy before touching a live competition.
+
 ## [7.6.42]
 ### Changed
 - Updated release workflow to include `lgw-clubs.php` in zip build and manifest verification.

@@ -319,6 +319,10 @@ function lgw_gchamp_list_section() {
             <td style="white-space:nowrap">
                 <a href="<?php echo esc_url( admin_url( 'admin.php?page=lgw-champs&gedit=' . urlencode( $id ) ) ); ?>"
                    class="button button-small">Edit</a>
+                <a href="#"
+                   class="button button-small lgw-gchamp-copy-btn"
+                   data-id="<?php echo esc_attr( $id ); ?>"
+                   data-title="<?php echo esc_attr( $champ['title'] ?? $id ); ?>">Copy</a>
                 <a href="<?php echo esc_url( wp_nonce_url(
                     admin_url( 'admin.php?page=lgw-champs&action=gdelete&gid=' . urlencode( $id ) ),
                     'lgw_gchamp_delete_' . $id
@@ -333,6 +337,40 @@ function lgw_gchamp_list_section() {
         </tbody>
     </table>
     <?php endif;
+    ?>
+    <script>
+    (function(){
+        var ajaxUrl = '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
+        var nonce   = '<?php echo esc_js( wp_create_nonce( 'lgw_gchamp_draw' ) ); ?>';
+        document.querySelectorAll( '.lgw-gchamp-copy-btn' ).forEach( function( btn ) {
+            btn.addEventListener( 'click', function( e ) {
+                e.preventDefault();
+                var srcId    = btn.getAttribute( 'data-id' );
+                var srcTitle = btn.getAttribute( 'data-title' );
+                var newId = prompt( 'New championship ID (lowercase, hyphens only):', srcId + '-copy' );
+                if ( ! newId ) return;
+                newId = newId.trim().toLowerCase().replace( /[^a-z0-9-]/g, '-' ).replace( /^-+|-+$/g, '' );
+                if ( ! newId ) { alert( 'Invalid ID.' ); return; }
+                var newTitle = prompt( 'New championship title:', srcTitle + ' (Copy)' );
+                if ( newTitle === null ) return;
+                var fd = new FormData();
+                fd.append( 'action',    'lgw_gchamp_copy' );
+                fd.append( 'nonce',     nonce );
+                fd.append( 'source_id', srcId );
+                fd.append( 'new_id',    newId );
+                fd.append( 'new_title', newTitle );
+                fetch( ajaxUrl, { method: 'POST', body: fd } )
+                    .then( function( r ) { return r.json(); } )
+                    .then( function( data ) {
+                        if ( ! data.success ) { alert( 'Error: ' + ( data.data || 'Unknown' ) ); return; }
+                        window.location.href = data.data.edit_url;
+                    } )
+                    .catch( function( err ) { alert( 'Failed: ' + err.message ); } );
+            } );
+        } );
+    })();
+    </script>
+    <?php
 }
 
 // ── Edit / New page ───────────────────────────────────────────────────────────
@@ -355,7 +393,17 @@ function lgw_gchamp_edit_page( $champ_id ) {
     ?>
     <div class="wrap">
     <?php lgw_page_header( $is_new ? 'New Group Championship' : 'Edit: ' . ( $champ['title'] ?? $champ_id ) ); ?>
-    <p><a href="<?php echo esc_url( admin_url( 'admin.php?page=lgw-champs' ) ); ?>">← Back to championships</a></p>
+    <p>
+        <a href="<?php echo esc_url( admin_url( 'admin.php?page=lgw-champs' ) ); ?>">← Back to championships</a>
+        <?php if ( ! $is_new ): ?>
+        &nbsp;|&nbsp;
+        <a href="#" class="lgw-gchamp-copy-edit-btn"
+           data-id="<?php echo esc_attr( $champ_id ); ?>"
+           data-title="<?php echo esc_attr( $champ['title'] ?? $champ_id ); ?>"
+           data-ajax-url="<?php echo esc_attr( admin_url( 'admin-ajax.php' ) ); ?>"
+           data-nonce="<?php echo esc_attr( wp_create_nonce( 'lgw_gchamp_draw' ) ); ?>">📋 Copy this championship</a>
+        <?php endif; ?>
+    </p>
     <?php if ( isset( $_GET['saved'] ) ): ?><div class="notice notice-success is-dismissible"><p>Saved.</p></div><?php endif; ?>
     <?php if ( isset( $_GET['entry_format_error'] ) ): ?>
     <div class="notice notice-error is-dismissible">
@@ -956,6 +1004,190 @@ function lgw_gchamp_edit_page( $champ_id ) {
         }
         if(btn)btn.addEventListener('click',function(){if(hasKo&&!confirm('Re-seeding will clear the existing bracket.\n\nContinue?'))return;doSeed();});
         if(reseed)reseed.addEventListener('click',function(e){e.preventDefault();if(!confirm('Re-seeding will clear the existing bracket.\n\nContinue?'))return;doSeed();});
+    })();
+    </script>
+    <?php endif;?>
+
+    <?php /* ── Manual Group Adjustments ── */ ?>
+    <?php if(!$is_new&&$drawn&&!empty($champ['days'])):?>
+    <hr style="margin:32px 0">
+    <h2 style="color:#072a82;margin-bottom:4px">✏️ Manual Group Adjustments</h2>
+    <p style="color:#555;font-size:13px;margin-top:0">
+        Move an entry between groups on the same day, or withdraw an entry that has dropped out.
+        Moving or withdrawing clears <em>that entry's fixtures only</em> — scores for other fixtures are preserved.
+        The day's knockout bracket is reset and will need to be re-seeded after any changes.
+    </p>
+    <details id="lgw-gchamp-group-editor">
+        <summary style="cursor:pointer;font-weight:600;color:#072a82;user-select:none;padding:6px 0">Open group editor ▸</summary>
+        <div style="margin-top:12px">
+        <?php foreach($champ['days'] as $day_idx=>$day): ?>
+        <div style="margin-bottom:20px">
+            <strong style="font-size:14px;color:#072a82"><?php echo esc_html($day['name']??'');?></strong>
+            <?php if(!empty($day['date'])):?><span style="margin-left:6px;color:#888;font-size:12px"><?php echo esc_html($day['date']);?></span><?php endif;?>
+            <table class="widefat" style="margin-top:8px;font-size:13px;max-width:820px">
+                <thead><tr>
+                    <th style="width:160px">Group</th>
+                    <th>Entry</th>
+                    <th style="width:220px">Move to group</th>
+                    <th style="width:120px">Withdraw</th>
+                </tr></thead>
+                <tbody>
+                <?php foreach($day['groups']??array() as $gi=>$group):
+                    $other_groups=array();
+                    foreach($day['groups'] as $ogi=>$og){
+                        if($ogi!==$gi) $other_groups[$ogi]=$og['name']??('Group '.chr(65+$ogi));
+                    }
+                    foreach($group['entries']??array() as $entry):
+                ?>
+                <tr>
+                    <td style="color:#666;vertical-align:middle"><?php echo esc_html($group['name']??('Group '.chr(65+$gi)));?></td>
+                    <td style="vertical-align:middle;font-weight:600"><?php echo esc_html($entry);?></td>
+                    <td style="vertical-align:middle">
+                        <?php if(!empty($other_groups)): ?>
+                        <div style="display:flex;align-items:center;gap:4px">
+                        <select class="lgw-gchamp-move-target" style="font-size:12px;flex:1">
+                            <option value="">— select target —</option>
+                            <?php foreach($other_groups as $ogi=>$ogname): ?>
+                            <option value="<?php echo esc_attr($ogi);?>"><?php echo esc_html($ogname);?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="button" class="button button-small lgw-gchamp-move-btn"
+                            data-champ-id="<?php echo esc_attr($champ_id);?>"
+                            data-day-id="<?php echo esc_attr($day_idx);?>"
+                            data-entry="<?php echo esc_attr($entry);?>"
+                            data-source-gid="<?php echo esc_attr($gi);?>">Move</button>
+                        </div>
+                        <?php else: ?>
+                        <span style="color:#999;font-size:12px">Only group on day</span>
+                        <?php endif; ?>
+                    </td>
+                    <td style="vertical-align:middle">
+                        <button type="button" class="button button-small button-link-delete lgw-gchamp-withdraw-btn"
+                            data-champ-id="<?php echo esc_attr($champ_id);?>"
+                            data-day-id="<?php echo esc_attr($day_idx);?>"
+                            data-group-id="<?php echo esc_attr($gi);?>"
+                            data-entry="<?php echo esc_attr($entry);?>">Withdraw</button>
+                        <span class="lgw-gchamp-adj-status" style="font-size:12px;margin-left:6px;display:inline-block"></span>
+                    </td>
+                </tr>
+                <?php endforeach; endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endforeach; ?>
+        </div>
+    </details>
+    <script>
+    (function(){
+        var ajaxUrl='<?php echo esc_js(admin_url('admin-ajax.php'));?>';
+        var nonce='<?php echo esc_js(wp_create_nonce('lgw_gchamp_score'));?>';
+
+        function setStatus(row,msg,color){
+            var st=row.querySelector('.lgw-gchamp-adj-status');
+            if(st){st.textContent=msg;st.style.color=color||'#555';}
+        }
+
+        function doMove(btn,confirmed){
+            var row=btn.closest('tr');
+            var sel=row.querySelector('.lgw-gchamp-move-target');
+            var targetGid=sel?sel.value:'';
+            if(!targetGid){setStatus(row,'Select a target group.','#c00');return;}
+            btn.disabled=true;setStatus(row,'Moving…','#555');
+            var fd=new FormData();
+            fd.append('action','lgw_gchamp_move_entry');
+            fd.append('nonce',nonce);
+            fd.append('champ_id',btn.getAttribute('data-champ-id'));
+            fd.append('day_id',btn.getAttribute('data-day-id'));
+            fd.append('entry',btn.getAttribute('data-entry'));
+            fd.append('source_group_id',btn.getAttribute('data-source-gid'));
+            fd.append('target_group_id',targetGid);
+            if(confirmed)fd.append('confirmed','1');
+            fetch(ajaxUrl,{method:'POST',body:fd})
+                .then(function(r){return r.json();})
+                .then(function(data){
+                    btn.disabled=false;
+                    if(!data.success){
+                        if(data.data&&data.data.code==='scores_exist'){
+                            if(confirm('⚠ '+data.data.message))doMove(btn,true);
+                            else setStatus(row,'','');
+                            return;
+                        }
+                        setStatus(row,data.data||'Error.','#c00');return;
+                    }
+                    setStatus(row,'✓ Moved','#138211');
+                    setTimeout(function(){window.location.reload();},900);
+                })
+                .catch(function(err){btn.disabled=false;setStatus(row,'Failed: '+err.message,'#c00');});
+        }
+
+        function doWithdraw(btn,confirmed){
+            var row=btn.closest('tr');
+            var entry=btn.getAttribute('data-entry');
+            if(!confirmed&&!confirm('Withdraw “'+entry+'”?\nTheir fixtures will be deleted. This cannot be undone.'))return;
+            btn.disabled=true;setStatus(row,'Withdrawing…','#555');
+            var fd=new FormData();
+            fd.append('action','lgw_gchamp_withdraw_entry');
+            fd.append('nonce',nonce);
+            fd.append('champ_id',btn.getAttribute('data-champ-id'));
+            fd.append('day_id',btn.getAttribute('data-day-id'));
+            fd.append('group_id',btn.getAttribute('data-group-id'));
+            fd.append('entry',entry);
+            if(confirmed)fd.append('confirmed','1');
+            fetch(ajaxUrl,{method:'POST',body:fd})
+                .then(function(r){return r.json();})
+                .then(function(data){
+                    btn.disabled=false;
+                    if(!data.success){
+                        if(data.data&&data.data.code==='scores_exist'){
+                            if(confirm('⚠ '+data.data.message))doWithdraw(btn,true);
+                            else setStatus(row,'','');
+                            return;
+                        }
+                        setStatus(row,data.data||'Error.','#c00');return;
+                    }
+                    setStatus(row,'✓ Withdrawn','#138211');
+                    setTimeout(function(){window.location.reload();},900);
+                })
+                .catch(function(err){btn.disabled=false;setStatus(row,'Failed: '+err.message,'#c00');});
+        }
+
+        document.querySelectorAll('.lgw-gchamp-move-btn').forEach(function(b){
+            b.addEventListener('click',function(){doMove(b,false);});
+        });
+        document.querySelectorAll('.lgw-gchamp-withdraw-btn').forEach(function(b){
+            b.addEventListener('click',function(){doWithdraw(b,false);});
+        });
+
+        // Copy this championship (edit page link)
+        var copyEditBtn=document.querySelector('.lgw-gchamp-copy-edit-btn');
+        if(copyEditBtn){
+            copyEditBtn.addEventListener('click',function(e){
+                e.preventDefault();
+                var srcId=copyEditBtn.getAttribute('data-id');
+                var srcTitle=copyEditBtn.getAttribute('data-title');
+                var copyAjax=copyEditBtn.getAttribute('data-ajax-url');
+                var copyNonce=copyEditBtn.getAttribute('data-nonce');
+                var newId=prompt('New championship ID (lowercase, hyphens only):',srcId+'-copy');
+                if(!newId)return;
+                newId=newId.trim().toLowerCase().replace(/[^a-z0-9-]/g,'-').replace(/^-+|-+$/g,'');
+                if(!newId){alert('Invalid ID.');return;}
+                var newTitle=prompt('New championship title:',srcTitle+' (Copy)');
+                if(newTitle===null)return;
+                var fd=new FormData();
+                fd.append('action','lgw_gchamp_copy');
+                fd.append('nonce',copyNonce);
+                fd.append('source_id',srcId);
+                fd.append('new_id',newId);
+                fd.append('new_title',newTitle);
+                fetch(copyAjax,{method:'POST',body:fd})
+                    .then(function(r){return r.json();})
+                    .then(function(data){
+                        if(!data.success){alert('Error: '+(data.data||'Unknown'));return;}
+                        window.location.href=data.data.edit_url;
+                    })
+                    .catch(function(err){alert('Failed: '+err.message);});
+            });
+        }
     })();
     </script>
     <?php endif;?>
@@ -1717,6 +1949,233 @@ function lgw_ajax_gchamp_clear_ko_scores() {
 
     update_option( 'lgw_gchamp_' . $champ_id, $champ );
     wp_send_json_success( array( 'day_id' => $day_id ) );
+}
+
+
+// ── Helper: check if any fixtures for a named entry in a group have scores ────
+function lgw_gchamp_entry_has_scores( array $group, string $entry ): bool {
+    foreach ( $group['fixtures'] ?? array() as $fx ) {
+        if ( ( $fx['home'] === $entry || $fx['away'] === $entry )
+             && ( $fx['home_score'] !== null || $fx['away_score'] !== null ) ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ── AJAX: copy a group championship ──────────────────────────────────────────
+add_action( 'wp_ajax_lgw_gchamp_copy', 'lgw_ajax_gchamp_copy' );
+function lgw_ajax_gchamp_copy() {
+    check_ajax_referer( 'lgw_gchamp_draw', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised' );
+
+    $source_id = sanitize_key( $_POST['source_id'] ?? '' );
+    $new_id    = sanitize_key( $_POST['new_id']    ?? '' );
+    $new_title = sanitize_text_field( wp_unslash( $_POST['new_title'] ?? '' ) );
+
+    if ( ! $source_id || ! $new_id ) wp_send_json_error( 'Missing parameters' );
+    if ( get_option( 'lgw_gchamp_' . $new_id ) !== false ) {
+        wp_send_json_error( 'ID "' . esc_html( $new_id ) . '" is already in use — choose another.' );
+    }
+    $source = get_option( 'lgw_gchamp_' . $source_id, array() );
+    if ( empty( $source ) ) wp_send_json_error( 'Source championship not found' );
+
+    $copy          = $source;
+    $copy['id']    = $new_id;
+    $copy['title'] = $new_title ?: ( ( $source['title'] ?? '' ) . ' (Copy)' );
+
+    update_option( 'lgw_gchamp_' . $new_id, $copy );
+    wp_send_json_success( array(
+        'new_id'   => $new_id,
+        'edit_url' => admin_url( 'admin.php?page=lgw-champs&gedit=' . $new_id . '&saved=1' ),
+    ) );
+}
+
+// ── AJAX: move an entry from one group to another on the same day ─────────────
+add_action( 'wp_ajax_lgw_gchamp_move_entry', 'lgw_ajax_gchamp_move_entry' );
+function lgw_ajax_gchamp_move_entry() {
+    check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised' );
+
+    $champ_id    = sanitize_key( $_POST['champ_id']         ?? '' );
+    $day_id      = intval( $_POST['day_id']                  ?? -1 );
+    $entry_query = trim( wp_unslash( $_POST['entry']         ?? '' ) );
+    $source_gid  = intval( $_POST['source_group_id']         ?? -1 );
+    $target_gid  = intval( $_POST['target_group_id']         ?? -1 );
+    $confirmed   = ! empty( $_POST['confirmed'] );
+
+    if ( ! $champ_id || $day_id < 0 || ! $entry_query || $source_gid < 0 || $target_gid < 0 ) {
+        wp_send_json_error( 'Missing parameters' );
+    }
+    if ( $source_gid === $target_gid ) wp_send_json_error( 'Source and target groups are the same' );
+
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) )                    wp_send_json_error( 'Championship not found' );
+    if ( ! isset( $champ['days'][$day_id] ) ) wp_send_json_error( 'Day not found' );
+    if ( ! isset( $champ['days'][$day_id]['groups'][$source_gid] ) ) wp_send_json_error( 'Source group not found' );
+    if ( ! isset( $champ['days'][$day_id]['groups'][$target_gid] ) ) wp_send_json_error( 'Target group not found' );
+
+    $src_group = $champ['days'][$day_id]['groups'][$source_gid];
+    $tgt_group = $champ['days'][$day_id]['groups'][$target_gid];
+
+    // Resolve canonical stored entry via normalised comparison (avoids whitespace mismatches)
+    $norm_query = lgw_gchamp_norm_entry( $entry_query );
+    $entry      = null;
+    foreach ( $src_group['entries'] ?? array() as $stored ) {
+        if ( lgw_gchamp_norm_entry( $stored ) === $norm_query ) { $entry = $stored; break; }
+    }
+    if ( $entry === null ) {
+        wp_send_json_error( 'Entry "' . esc_html( $entry_query ) . '" not found in source group' );
+    }
+    if ( count( $src_group['entries'] ?? array() ) < 2 ) {
+        wp_send_json_error( 'Cannot move — source group would have fewer than 1 entry remaining' );
+    }
+
+    $has_scores = lgw_gchamp_entry_has_scores( $src_group, $entry );
+    if ( $has_scores && ! $confirmed ) {
+        wp_send_json_error( array(
+            'code'    => 'scores_exist',
+            'message' => '"' . esc_html( $entry ) . '" has scored fixtures that will be deleted when moved. Continue?',
+        ) );
+    }
+
+    // Remove entry from source group (entries list + their fixtures)
+    $champ['days'][$day_id]['groups'][$source_gid]['entries'] = array_values( array_filter(
+        $src_group['entries'],
+        fn( $e ) => $e !== $entry
+    ) );
+    $champ['days'][$day_id]['groups'][$source_gid]['fixtures'] = array_values( array_filter(
+        $src_group['fixtures'] ?? array(),
+        fn( $fx ) => $fx['home'] !== $entry && $fx['away'] !== $entry
+    ) );
+
+    // Add entry to target group and generate new fixtures (entry vs every existing target member)
+    $tgt_entries  = $tgt_group['entries']  ?? array();
+    $tgt_fixtures = $tgt_group['fixtures'] ?? array();
+
+    $max_round   = -1;
+    $max_fix_idx = -1;
+    foreach ( $tgt_fixtures as $fx ) {
+        $max_round = max( $max_round, intval( $fx['round'] ?? 0 ) );
+        if ( preg_match( '/f(\d+)$/', $fx['pos_key'] ?? '', $m ) ) {
+            $max_fix_idx = max( $max_fix_idx, intval( $m[1] ) );
+        }
+    }
+    $next_round   = $max_round + 1;
+    $next_fix_idx = $max_fix_idx + 1;
+    $gkey         = $day_id * 100 + $target_gid;
+
+    foreach ( $tgt_entries as $member ) {
+        $tgt_fixtures[] = array(
+            'round'      => $next_round,
+            'home'       => $entry,
+            'away'       => $member,
+            'home_score' => null,
+            'away_score' => null,
+            'pos_key'    => 'g' . $gkey . ':r' . $next_round . ':f' . $next_fix_idx,
+        );
+        $next_round++;
+        $next_fix_idx++;
+    }
+    $tgt_entries[] = $entry;
+
+    $champ['days'][$day_id]['groups'][$target_gid]['entries']  = $tgt_entries;
+    $champ['days'][$day_id]['groups'][$target_gid]['fixtures'] = $tgt_fixtures;
+
+    // Reset day-level completion so standings are recalculated fresh
+    $champ['days'][$day_id]['day_complete']  = false;
+    $champ['days'][$day_id]['qualifiers']    = array();
+    $champ['days'][$day_id]['ko_bracket']    = null;
+    $champ['days'][$day_id]['ko_complete']   = false;
+    $champ['days'][$day_id]['ko_qualifiers'] = array();
+
+    $all_complete = true;
+    foreach ( $champ['days'] as $d ) { if ( empty( $d['day_complete'] ) ) { $all_complete = false; break; } }
+    $champ['group_stage_complete'] = $all_complete;
+
+    update_option( 'lgw_gchamp_' . $champ_id, $champ );
+    wp_send_json_success( array(
+        'message' => 'Moved "' . esc_html( $entry ) . '" — day KO bracket reset, re-seed when ready.',
+    ) );
+}
+
+// ── AJAX: withdraw an entry from a group championship ────────────────────────
+add_action( 'wp_ajax_lgw_gchamp_withdraw_entry', 'lgw_ajax_gchamp_withdraw_entry' );
+function lgw_ajax_gchamp_withdraw_entry() {
+    check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised' );
+
+    $champ_id    = sanitize_key( $_POST['champ_id']  ?? '' );
+    $day_id      = intval( $_POST['day_id']           ?? -1 );
+    $group_id    = intval( $_POST['group_id']         ?? -1 );
+    $entry_query = trim( wp_unslash( $_POST['entry']  ?? '' ) );
+    $confirmed   = ! empty( $_POST['confirmed'] );
+
+    if ( ! $champ_id || $day_id < 0 || $group_id < 0 || ! $entry_query ) wp_send_json_error( 'Missing parameters' );
+
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) )                                           wp_send_json_error( 'Championship not found' );
+    if ( ! isset( $champ['days'][$day_id] ) )                       wp_send_json_error( 'Day not found' );
+    if ( ! isset( $champ['days'][$day_id]['groups'][$group_id] ) )  wp_send_json_error( 'Group not found' );
+
+    $group = $champ['days'][$day_id]['groups'][$group_id];
+
+    // Resolve canonical stored entry via normalised comparison (avoids whitespace mismatches)
+    $norm_query = lgw_gchamp_norm_entry( $entry_query );
+    $entry      = null;
+    foreach ( $group['entries'] ?? array() as $stored ) {
+        if ( lgw_gchamp_norm_entry( $stored ) === $norm_query ) { $entry = $stored; break; }
+    }
+    if ( $entry === null ) wp_send_json_error( 'Entry not found in group' );
+    if ( count( $group['entries'] ?? array() ) < 2 ) wp_send_json_error( 'Cannot withdraw — group would have fewer than 1 entry remaining' );
+
+    $has_scores = lgw_gchamp_entry_has_scores( $group, $entry );
+    if ( $has_scores && ! $confirmed ) {
+        wp_send_json_error( array(
+            'code'    => 'scores_exist',
+            'message' => '"' . esc_html( $entry ) . '" has scored fixtures that will be deleted on withdrawal. Continue?',
+        ) );
+    }
+
+    // Remove from group
+    $champ['days'][$day_id]['groups'][$group_id]['entries']  = array_values( array_filter(
+        $group['entries'],
+        fn( $e ) => $e !== $entry
+    ) );
+    $champ['days'][$day_id]['groups'][$group_id]['fixtures'] = array_values( array_filter(
+        $group['fixtures'] ?? array(),
+        fn( $fx ) => $fx['home'] !== $entry && $fx['away'] !== $entry
+    ) );
+
+    // Remove from day entries (flat list) and top-level entries
+    $champ['days'][$day_id]['entries'] = array_values( array_filter(
+        $champ['days'][$day_id]['entries'] ?? array(),
+        fn( $e ) => $e !== $entry
+    ) );
+    $champ['entries'] = array_values( array_filter(
+        $champ['entries'] ?? array(),
+        fn( $e ) => $e !== $entry
+    ) );
+
+    // Reset day-level completion
+    $champ['days'][$day_id]['day_complete']  = false;
+    $champ['days'][$day_id]['qualifiers']    = array();
+    $champ['days'][$day_id]['ko_bracket']    = null;
+    $champ['days'][$day_id]['ko_complete']   = false;
+    $champ['days'][$day_id]['ko_qualifiers'] = array();
+
+    $all_complete = true;
+    foreach ( $champ['days'] as $d ) { if ( empty( $d['day_complete'] ) ) { $all_complete = false; break; } }
+    $champ['group_stage_complete'] = $all_complete;
+
+    if ( function_exists( 'lgw_clear_all_champ_appearances' ) ) {
+        // Clear just this entry's appearances — use rename approach as a proxy (no dedicated single-entry clear)
+    }
+
+    update_option( 'lgw_gchamp_' . $champ_id, $champ );
+    wp_send_json_success( array(
+        'message' => '"' . esc_html( $entry ) . '" withdrawn. Their fixtures have been removed.',
+    ) );
 }
 
 
