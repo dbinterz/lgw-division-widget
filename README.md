@@ -124,6 +124,14 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.48]
+### Fixed
+- **Orphaned appearances — binned scorecards**: the LEFT JOIN previously matched
+  trashed (`post_status = 'trash'`) scorecard posts, so appearance records linked
+  to a binned scorecard were not flagged. Added `AND sp.post_status != 'trash'`
+  to the join condition so both permanently deleted and binned scorecards surface
+  their orphaned appearance records in the cleanup preview.
+
 ## [7.6.47]
 ### Fixed
 - **Orphaned appearances cleanup**: added `scorecard_id > 0` guard to the detection

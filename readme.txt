@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.47
+Stable tag: 7.6.48
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.48 =
+* fix: orphaned appearances cleanup now catches scorecards moved to the WordPress bin.
+  The LEFT JOIN previously matched trashed posts, so binned scorecards were not flagged.
+  Added post_status != 'trash' to the join condition so both deleted and binned scorecards
+  surface their orphaned appearance records in the preview.
 
 = 7.6.47 =
 * fix: orphaned appearances cleanup — added scorecard_id > 0 guard so only appearances

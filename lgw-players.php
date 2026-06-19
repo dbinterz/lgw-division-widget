@@ -528,7 +528,7 @@ function lgw_get_orphaned_appearances( $game_types = null ) {
                     a.match_title, a.match_date, a.rink, a.scorecard_id,
                     a.result, a.game_type
              FROM $at a
-             LEFT JOIN {$wpdb->posts} sp ON sp.ID = a.scorecard_id AND sp.post_type = 'lgw_scorecard'
+             LEFT JOIN {$wpdb->posts} sp ON sp.ID = a.scorecard_id AND sp.post_type = 'lgw_scorecard' AND sp.post_status != 'trash'
              LEFT JOIN $pt p ON p.id = a.player_id
              WHERE a.scorecard_id > 0 AND sp.ID IS NULL AND a.game_type IN ($placeholders)
              ORDER BY a.match_date DESC, a.id DESC",
@@ -2526,7 +2526,7 @@ function lgw_players_admin_page() {
         <!-- ── Tidy up: orphaned appearances from previously deleted scorecards ── -->
         <div style="background:#f0f6ff;border:1px solid #b3d1ff;border-radius:6px;padding:16px 20px;margin-bottom:20px">
             <h3 style="margin:0 0 8px">🧹 Tidy up: appearances from deleted scorecards</h3>
-            <p style="margin:0 0 12px;font-size:13px">If scorecards were deleted before automatic appearance cleanup was added, their player appearance records may still be counted in stats. Click below to preview affected appearance records, choose which to remove, then run the cleanup. Any players left with zero appearances afterwards are also removed.</p>
+            <p style="margin:0 0 12px;font-size:13px">If scorecards were deleted or moved to the bin before automatic appearance cleanup was added, their player appearance records may still be counted in stats. Click below to preview affected appearance records, choose which to remove, then run the cleanup. Any players left with zero appearances afterwards are also removed.</p>
             <p style="margin:0 0 10px;font-size:13px">
                 <strong>Include game types:</strong>
                 <label style="margin-left:8px;cursor:pointer"><input type="checkbox" id="lgw-prune-filter-league" checked> League</label>
