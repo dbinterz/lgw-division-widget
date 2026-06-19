@@ -124,6 +124,16 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.46]
+### Changed
+- **Form guide date**: played date now overrides fixture date in form pips across the league
+  table, fixtures modal, and scorecard modal. Both the tooltip text and the `data-sc-date`
+  attribute (used for scorecard lookup on pip click) now reflect the actual date played when
+  it differs from the scheduled fixture date. Results are also re-sorted by effective played
+  date before the last-5 slice, so a rescheduled fixture appears in correct chronological
+  order. Fixed in both `lgw_cache_build_form_map()` (SSR, `lgw-div-cache.php`) and
+  `buildFormMap()` (client-side, `lgw-widget.js`).
+
 ## [7.6.45]
 ### Fixed
 - **Undefined function `lgw_get_option_array()`**: replaced all 8 call sites in `lgw-div-cache.php`

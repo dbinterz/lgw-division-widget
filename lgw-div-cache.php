@@ -1143,7 +1143,8 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
  * @return array  Keyed by UPPERCASE team name => array of up to 5 ['r'=>W/D/L,'tip'=>string]
  */
 function lgw_cache_build_form_map( $fixtures ) {
-    $by_team = [];
+    $by_team    = [];
+    $played_dates = function_exists( 'lgw_build_played_dates_map' ) ? lgw_build_played_dates_map() : [];
 
     foreach ( $fixtures as $fx ) {
         if ( empty( $fx['played'] ) ) continue;
@@ -1158,6 +1159,10 @@ function lgw_cache_build_form_map( $fixtures ) {
 
         if ( ! $home || ! $away ) continue;
 
+        // Use played date if it differs from the fixture date
+        $pd_key         = strtolower( $home . '||' . $away . '||' . $date );
+        $effective_date = $played_dates[ $pd_key ] ?? $date;
+
         $ms = is_numeric( $sh ) ? floatval( $sh ) : null;
         $os = is_numeric( $sa ) ? floatval( $sa ) : null;
 
@@ -1170,18 +1175,23 @@ function lgw_cache_build_form_map( $fixtures ) {
             ? ( $os > $ms ? 'W' : ( $os < $ms ? 'L' : 'D' ) )
             : ( intval( $pa ) >= 4 ? 'W' : ( intval( $pa ) === 3 ? 'D' : 'L' ) );
 
-        $tip_home = $result_home . ' v ' . $away . ' (' . $sh . '-' . $sa . ') ' . $date;
-        $tip_away = $result_away . ' v ' . $home . ' (' . $sa . '-' . $sh . ') ' . $date;
+        $tip_home = $result_home . ' v ' . $away . ' (' . $sh . '-' . $sa . ') ' . $effective_date;
+        $tip_away = $result_away . ' v ' . $home . ' (' . $sa . '-' . $sh . ') ' . $effective_date;
 
         $hu = strtoupper( $home );
         $au = strtoupper( $away );
-        $by_team[ $hu ][] = [ 'r' => $result_home, 'tip' => $tip_home, 'home' => $home, 'away' => $away, 'date' => $date ];
-        $by_team[ $au ][] = [ 'r' => $result_away, 'tip' => $tip_away, 'home' => $home, 'away' => $away, 'date' => $date ];
+        $by_team[ $hu ][] = [ 'r' => $result_home, 'tip' => $tip_home, 'home' => $home, 'away' => $away, 'date' => $effective_date ];
+        $by_team[ $au ][] = [ 'r' => $result_away, 'tip' => $tip_away, 'home' => $home, 'away' => $away, 'date' => $effective_date ];
     }
 
-    // Keep only last 5
+    // Sort by effective (played) date, then keep only last 5
     $out = [];
     foreach ( $by_team as $key => $arr ) {
+        usort( $arr, function( $a, $b ) {
+            $ta = function_exists( 'lgw_parse_any_date' ) ? ( lgw_parse_any_date( $a['date'] ) ?: 0 ) : 0;
+            $tb = function_exists( 'lgw_parse_any_date' ) ? ( lgw_parse_any_date( $b['date'] ) ?: 0 ) : 0;
+            return $ta - $tb;
+        } );
         $out[ $key ] = array_slice( $arr, max( 0, count( $arr ) - 5 ) );
     }
     return $out;

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.45
+Stable tag: 7.6.46
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,13 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.46 =
+* feat: form guide — date played now takes priority over fixture date in form pips (league table,
+  fixtures modal, scorecard modal). Tooltip and data-sc-date now reflect the actual played date
+  when it differs from the scheduled fixture date. Results are also re-sorted by effective played
+  date before the last-5 slice so a rescheduled fixture appears in its correct chronological
+  position. Affects both SSR (lgw-div-cache.php) and client-side (lgw-widget.js) form map builders.
 
 = 7.6.45 =
 * fix: lgw-div-cache — replace all calls to undefined lgw_get_option_array() with get_option()

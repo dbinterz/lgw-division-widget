@@ -597,8 +597,15 @@
 
 
   // ── Build form map: last 5 results per team ───────────────────────────────
+  function parseSortableDate(str){
+    if(!str) return 0;
+    var m=str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(m) return new Date(parseInt(m[3]),parseInt(m[2])-1,parseInt(m[1])).getTime();
+    try{var p=str.split(' ')[1].split('-');return new Date(p[1]+' '+p[0]+' '+p[2]).getTime();}catch(e){}
+    return 0;
+  }
+
   function buildFormMap(groups){
-    // Collect all played matches in chronological order (groups are date-ordered)
     var byTeam={};
     groups.forEach(function(g){
       g.matches.forEach(function(m){
@@ -617,25 +624,28 @@
           if(p===3) return 'D';
           return 'L';
         }
+        var pdKey=(m.homeTeam+'||'+m.awayTeam+'||'+g.date).toLowerCase();
+        var effectiveDate=playedDates[pdKey]||g.date;
         function tip(isMine){
           var opp=isMine?m.awayTeam:m.homeTeam;
           var sh=isMine?m.shotsHome:m.shotsAway;
           var sa=isMine?m.shotsAway:m.shotsHome;
-          return result(isMine)+' v '+opp+' ('+sh+'-'+sa+') '+g.date;
+          return result(isMine)+' v '+opp+' ('+sh+'-'+sa+') '+effectiveDate;
         }
         function push(team,isMine){
           var k=team.toUpperCase();
           if(!byTeam[k]) byTeam[k]=[];
-          byTeam[k].push({r:result(isMine),tip:tip(isMine),home:m.homeTeam,away:m.awayTeam,date:g.date});
+          byTeam[k].push({r:result(isMine),tip:tip(isMine),home:m.homeTeam,away:m.awayTeam,date:effectiveDate});
         }
         push(m.homeTeam,true);
         push(m.awayTeam,false);
       });
     });
-    // Keep only last 5
+    // Sort by effective (played) date, then keep only last 5
     var out={};
     Object.keys(byTeam).forEach(function(k){
       var arr=byTeam[k];
+      arr.sort(function(a,b){return parseSortableDate(a.date)-parseSortableDate(b.date);});
       out[k]=arr.slice(Math.max(0,arr.length-5));
     });
     return out;
