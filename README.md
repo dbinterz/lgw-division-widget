@@ -124,6 +124,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.49]
+### Added
+- **Filtered player export**: the Excel export button now passes the active club,
+  team, and name filters through to the export handler. The downloaded spreadsheet
+  contains only the filtered player set, so you can export a single club's list to
+  send for duplicate review.
+
 ## [7.6.48]
 ### Fixed
 - **Orphaned appearances — binned scorecards**: the LEFT JOIN previously matched

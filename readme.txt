@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.48
+Stable tag: 7.6.49
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.49 =
+* feat: player export now respects active filters — club, team, and name filters
+  applied in the admin list are passed through to the Excel export, so the
+  downloaded file contains only the filtered players and their per-match columns.
 
 = 7.6.48 =
 * fix: orphaned appearances cleanup now catches scorecards moved to the WordPress bin.

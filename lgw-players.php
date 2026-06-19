@@ -1649,6 +1649,22 @@ function lgw_players_admin_page() {
         if (clearBtn) clearBtn.style.display = 'none';
     }
 
+    // ── Filtered export ───────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', function() {
+        var expBtn = document.getElementById('lgw-export-btn');
+        if (!expBtn) return;
+        expBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var url = this.dataset.baseUrl;
+            var fc = document.getElementById('lgw-filter-club');
+            var ft = document.getElementById('lgw-filter-team');
+            var fn = document.getElementById('lgw-filter-name');
+            if (fc && fc.value) url += '&filter_club=' + encodeURIComponent(fc.value);
+            if (ft && ft.value) url += '&filter_team=' + encodeURIComponent(ft.value);
+            if (fn && fn.value.trim()) url += '&filter_name=' + encodeURIComponent(fn.value.trim());
+            window.location.href = url;
+        });
+    });
 
     var lgwPlayersNonce = '<?php echo wp_create_nonce('lgw_players_nonce'); ?>';
     var lgwAjaxUrl      = '<?php echo admin_url('admin-ajax.php'); ?>';
@@ -2359,7 +2375,10 @@ function lgw_players_admin_page() {
                     $export_url = add_query_arg('season', $viewing_season_id, $export_url);
                 }
                 ?>
-                <a href="<?php echo esc_url($export_url); ?>" class="button button-primary">⬇ Export to Excel</a>
+                <a href="<?php echo esc_url($export_url); ?>"
+                   id="lgw-export-btn"
+                   data-base-url="<?php echo esc_attr($export_url); ?>"
+                   class="button button-primary">⬇ Export to Excel</a>
             </p>
         <?php endif; ?>
     </div>
@@ -2881,18 +2900,46 @@ function lgw_export_players_xlsx() {
         );
     }
     $label  = !empty($season['label']) ? ' - ' . $season['label'] : '';
-    $filename = 'lgw-players' . str_replace('/', '-', $label) . '.xls';
 
-    // ── Fetch all players ─────────────────────────────────────────────────────
-    $all_players = $wpdb->get_results(
-        "SELECT id, club, name, starred, female FROM $pt ORDER BY club, name"
-    );
+    // ── Optional player filters (passed from filtered admin view) ─────────────
+    $filter_club = sanitize_text_field($_GET['filter_club'] ?? '');
+    $filter_team = sanitize_text_field($_GET['filter_team'] ?? '');
+    $filter_name = sanitize_text_field($_GET['filter_name'] ?? '');
 
-    // ── Fetch all appearances within season ───────────────────────────────────
+    $filter_suffix = '';
+    if ($filter_club) $filter_suffix .= ' - ' . $filter_club;
+    if ($filter_team) $filter_suffix .= ' - ' . $filter_team;
+    if ($filter_name) $filter_suffix .= ' - ' . $filter_name;
+    $filename = 'lgw-players' . str_replace(['/', '\\'], '-', $label . $filter_suffix) . '.xls';
+
+    // ── Fetch players (respecting filters) ────────────────────────────────────
+    $pw_parts = [];
+    $pw_vals  = [];
+    if ($filter_club) {
+        $pw_parts[] = 'p.club = %s';
+        $pw_vals[]  = $filter_club;
+    }
+    if ($filter_name) {
+        $pw_parts[] = 'p.name LIKE %s';
+        $pw_vals[]  = '%' . $wpdb->esc_like($filter_name) . '%';
+    }
+    if ($filter_team) {
+        $pw_parts[] = "EXISTS (SELECT 1 FROM $at ta WHERE ta.player_id = p.id AND ta.team = %s)";
+        $pw_vals[]  = $filter_team;
+    }
+    $pw_sql = $pw_parts ? ('WHERE ' . implode(' AND ', $pw_parts)) : '';
+
+    $all_players = $pw_vals
+        ? $wpdb->get_results($wpdb->prepare("SELECT id, club, name, starred, female FROM $pt p $pw_sql ORDER BY p.club, p.name", ...$pw_vals))
+        : $wpdb->get_results("SELECT id, club, name, starred, female FROM $pt ORDER BY club, name");
+
+    // ── Fetch appearances (scoped to filtered player set when filtered) ────────
+    $player_ids   = array_map(function($pl){ return intval($pl->id); }, $all_players);
+    $pid_in_sql   = $player_ids ? 'AND a.player_id IN (' . implode(',', $player_ids) . ')' : 'AND 1=0';
     $app_rows = $wpdb->get_results(
         "SELECT a.player_id, a.team, a.match_date, a.match_title, a.scorecard_id
          FROM $at a
-         " . ($season_where ? "WHERE 1=1 $season_where" : "") . "
+         " . ($season_where ? "WHERE 1=1 $season_where $pid_in_sql" : "WHERE 1=1 $pid_in_sql") . "
          ORDER BY a.match_date, a.match_title"
     );
 
@@ -2961,7 +3008,7 @@ function lgw_export_players_xlsx() {
                 SUM(CASE WHEN a.game_type='cup' AND a.shots_for IS NOT NULL THEN a.shots_for ELSE 0 END) as cup_sf,
                 SUM(CASE WHEN a.game_type='cup' AND a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as cup_sa
          FROM $at a
-         " . ($season_where ? "WHERE 1=1 $season_where" : "") . "
+         " . ($season_where ? "WHERE 1=1 $season_where $pid_in_sql" : "WHERE 1=1 $pid_in_sql") . "
          GROUP BY a.player_id"
     );
     $player_stats = array();
