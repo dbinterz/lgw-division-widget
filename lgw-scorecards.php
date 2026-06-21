@@ -1000,6 +1000,32 @@ function lgw_ajax_get_scorecard() {
     wp_send_json_success($sc);
 }
 
+// ── AJAX: Player names for a team (autocomplete in scorecard entry grid) ──────
+add_action('wp_ajax_nopriv_lgw_get_team_players', 'lgw_ajax_get_team_players');
+add_action('wp_ajax_lgw_get_team_players',        'lgw_ajax_get_team_players');
+function lgw_ajax_get_team_players() {
+    $team = sanitize_text_field($_GET['team'] ?? '');
+    if (!$team) { wp_send_json_success([]); return; }
+
+    $clubs = lgw_get_clubs();
+    $matched_club = '';
+    foreach ($clubs as $c) {
+        if (lgw_club_matches_team($c['name'], $team)) {
+            $matched_club = $c['name'];
+            break;
+        }
+    }
+    if (!$matched_club) { wp_send_json_success([]); return; }
+
+    global $wpdb;
+    $pt    = lgw_players_table();
+    $names = $wpdb->get_col($wpdb->prepare(
+        "SELECT name FROM $pt WHERE club = %s ORDER BY name",
+        $matched_club
+    ));
+    wp_send_json_success($names ?: []);
+}
+
 // ── Shortcode: submission form ────────────────────────────────────────────────
 add_shortcode('lgw_submit', 'lgw_submit_shortcode');
 function lgw_submit_shortcode($atts) {

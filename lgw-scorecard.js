@@ -1520,18 +1520,61 @@
     var scContext  = opts.context || 'league';
     var currentClub = opts.authClub || authClub || '';
 
+    // ── Helper: fetch player names for a team and populate a datalist ────────
+    function lgwFetchTeamPlayers(team, datalistId) {
+      if (!team) return;
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', ajaxUrl + '?action=lgw_get_team_players&team=' + encodeURIComponent(team) + '&_=' + Date.now());
+      xhr.onload = function() {
+        var res;
+        try { res = JSON.parse(xhr.responseText || '{}'); } catch(e) { return; }
+        if (!res.success || !Array.isArray(res.data)) return;
+        var dl = document.getElementById(datalistId);
+        if (!dl) return;
+        dl.innerHTML = res.data.map(function(n){ return '<option value="'+esc(n)+'">'; }).join('');
+      };
+      xhr.send();
+    }
+
     // ── Helper: render the inline scorecard form (pre-filled, locked meta) ────
     function renderModalForm(club) {
-      var rinkRows = '';
+      var POSITIONS = ['Lead','Second','Third','Skip'];
+      // Datalists populated asynchronously; one per side shared across all rinks
+      var rinkCards = '<datalist id="lgw-dl-home"></datalist><datalist id="lgw-dl-away"></datalist>';
       for(var r = 1; r <= 4; r++){
-        rinkRows +=
-          '<tr class="lgw-modal-rink-row" data-rink="'+r+'">'
-          +'<td class="lgw-modal-rink-num">'+r+'</td>'
-          +'<td><textarea class="lgw-modal-players lgw-modal-players-home lgw-autoresize" placeholder="Player names, comma separated" data-rink="'+r+'" rows="1"></textarea></td>'
-          +'<td style="text-align:center"><input type="number" class="lgw-score-home" data-rink="'+r+'" min="0" step="0.5" style="width:60px;text-align:center"></td>'
-          +'<td style="text-align:center"><input type="number" class="lgw-score-away" data-rink="'+r+'" min="0" step="0.5" style="width:60px;text-align:center"></td>'
-          +'<td><textarea class="lgw-modal-players lgw-modal-players-away lgw-autoresize" placeholder="Player names, comma separated" data-rink="'+r+'" rows="1"></textarea></td>'
-          +'</tr>';
+        var homeSide = '', awaySide = '';
+        for(var pos = 0; pos < 4; pos++){
+          var posLabel = POSITIONS[pos];
+          homeSide += '<div class="lgw-player-row">'
+            +'<span class="lgw-pos-label">'+posLabel+'</span>'
+            +'<input type="text" class="lgw-player-name-input" data-rink="'+r+'" data-side="home" data-pos="'+pos+'" list="lgw-dl-home" autocomplete="off" spellcheck="false">'
+            +'</div>';
+          awaySide += '<div class="lgw-player-row">'
+            +'<span class="lgw-pos-label">'+posLabel+'</span>'
+            +'<input type="text" class="lgw-player-name-input" data-rink="'+r+'" data-side="away" data-pos="'+pos+'" list="lgw-dl-away" autocomplete="off" spellcheck="false">'
+            +'</div>';
+        }
+        rinkCards +=
+          '<div class="lgw-rink-card lgw-modal-rink-row" data-rink="'+r+'">'
+          +'<div class="lgw-rink-hdr">'
+            +'<span class="lgw-rink-num">Rink '+r+'</span>'
+            +'<div class="lgw-rink-scores">'
+              +'<input type="number" class="lgw-score-home lgw-score-box" data-rink="'+r+'" min="0" step="0.5" placeholder="–">'
+              +'<span class="lgw-rink-score-sep">–</span>'
+              +'<input type="number" class="lgw-score-away lgw-score-box" data-rink="'+r+'" min="0" step="0.5" placeholder="–">'
+            +'</div>'
+          +'</div>'
+          +'<div class="lgw-rink-players">'
+            +'<div class="lgw-rink-side">'
+              +'<div class="lgw-rink-side-title">'+esc(home)+'</div>'
+              +homeSide
+            +'</div>'
+            +'<div class="lgw-rink-side">'
+              +'<div class="lgw-rink-side-title">'+esc(away)+'</div>'
+              +awaySide
+            +'</div>'
+          +'</div>'
+          +'</div>';
       }
 
       var adminForRow = '';
@@ -1641,17 +1684,8 @@
           +'<input type="text" id="lgw-modal-submitter" placeholder="e.g. John Smith" style="width:100%;padding:7px 10px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px;font-family:inherit"></div>'
         +'</div>'
         +adminForRow
-        // ── Rink table ──
-        +'<div style="overflow-x:auto;margin-bottom:14px">'
-        +'<table class="lgw-modal-rink-table">'
-        +'<thead><tr><th style="width:36px">Rink</th>'
-          +'<th style="text-align:left">'+esc(home)+' Players</th>'
-          +'<th style="width:70px;text-align:center">Home</th>'
-          +'<th style="width:70px;text-align:center">Away</th>'
-          +'<th style="text-align:left">'+esc(away)+' Players</th>'
-        +'</tr></thead>'
-        +'<tbody>'+rinkRows+'</tbody>'
-        +'</table></div>'
+        // ── Rink cards ──
+        +'<div class="lgw-modal-rinks">'+rinkCards+'</div>'
         // ── Totals ──
         +'<div style="display:grid;grid-template-columns:'+( maxPts > 0 ? '1fr 1fr 1fr 1fr' : '1fr 1fr' )+';gap:8px;margin-bottom:6px">'
         +'<div class="lgw-modal-sc-field"><label class="lgw-modal-sc-label">Home Total Shots</label>'
@@ -1692,19 +1726,29 @@
       mset('lgw-modal-away-total',  sc.away_total);
       mset('lgw-modal-home-pts',    sc.home_points);
       mset('lgw-modal-away-pts',    sc.away_points);
-      // Rinks
+      // Rinks — distribute player names into positional grid slots
+      // Short-rink rule: 3 players → Lead/Second/Skip (Third empty)
+      //                  2 players → Lead/Skip
+      //                  1 player  → Lead only
+      var shortRinkSlots = {1:[0], 2:[0,3], 3:[0,1,3]};
+      function fillPlayerSlots(row, side, players) {
+        var filled = (players || []).filter(function(n){ return n && n.trim(); });
+        var slots  = filled.length >= 4 ? [0,1,2,3] : (shortRinkSlots[filled.length] || []);
+        for (var p = 0; p < 4; p++) {
+          var inp = row.querySelector('[data-side="'+side+'"][data-pos="'+p+'"]');
+          if (inp) inp.value = '';
+        }
+        slots.forEach(function(pos, i) {
+          var inp = row.querySelector('[data-side="'+side+'"][data-pos="'+pos+'"]');
+          if (inp && filled[i] !== undefined) inp.value = filled[i];
+        });
+      }
       (sc.rinks || []).forEach(function(rk){
         var r = rk.rink;
         var row = el.querySelector('.lgw-modal-rink-row[data-rink="'+r+'"]');
         if (!row) return;
-        // Players — join array into comma-separated string
-        var hpEl = row.querySelector('.lgw-modal-players-home');
-        var apEl = row.querySelector('.lgw-modal-players-away');
-        if (hpEl && rk.home_players && rk.home_players.length) hpEl.value = rk.home_players.join(', ');
-        if (apEl && rk.away_players && rk.away_players.length) apEl.value = rk.away_players.join(', ');
-        // Trigger auto-resize
-        if(hpEl && hpEl.tagName === 'TEXTAREA') setTimeout(function(){ hpEl.style.height='auto'; hpEl.style.height=hpEl.scrollHeight+'px'; },0);
-        if(apEl && apEl.tagName === 'TEXTAREA') setTimeout(function(){ apEl.style.height='auto'; apEl.style.height=apEl.scrollHeight+'px'; },0);
+        fillPlayerSlots(row, 'home', rk.home_players);
+        fillPlayerSlots(row, 'away', rk.away_players);
         var hs = row.querySelector('.lgw-score-home');
         var as = row.querySelector('.lgw-score-away');
         if (hs && rk.home_score !== null && rk.home_score !== undefined) hs.value = rk.home_score;
@@ -1722,14 +1766,17 @@
       var rinks = [];
       el.querySelectorAll('.lgw-modal-rink-row').forEach(function(row){
         var r = row.getAttribute('data-rink');
-        var hpInput = row.querySelector('.lgw-modal-players-home');
-        var apInput = row.querySelector('.lgw-modal-players-away');
-        var hpRaw = hpInput ? hpInput.value : '';
-        var apRaw = apInput ? apInput.value : '';
+        var hp = [], ap = [];
+        for (var pos = 0; pos < 4; pos++) {
+          var hi = row.querySelector('[data-side="home"][data-pos="'+pos+'"]');
+          var ai = row.querySelector('[data-side="away"][data-pos="'+pos+'"]');
+          hp.push(hi ? hi.value.trim() : '');
+          ap.push(ai ? ai.value.trim() : '');
+        }
         rinks.push({
-          rink:         parseInt(r,10),
-          home_players: hpRaw.split(',').map(function(s){return s.trim();}).filter(Boolean),
-          away_players: apRaw.split(',').map(function(s){return s.trim();}).filter(Boolean),
+          rink:         parseInt(r, 10),
+          home_players: hp,
+          away_players: ap,
           home_score:   (function(v){return v===''||v===null?null:parseFloat(v);})(
                           (row.querySelector('.lgw-score-home')||{}).value),
           away_score:   (function(v){return v===''||v===null?null:parseFloat(v);})(
@@ -1841,6 +1888,8 @@
             authClub = currentClub;
             containerEl.innerHTML = renderModalForm(currentClub);
             bindModalForm(containerEl);
+            lgwFetchTeamPlayers(home, 'lgw-dl-home');
+            lgwFetchTeamPlayers(away, 'lgw-dl-away');
           } else {
             showStatus(errEl, res.data || 'Incorrect club or passphrase', 'error');
           }
@@ -1868,6 +1917,8 @@
     // Involved club or admin — show form directly
     containerEl.innerHTML = renderModalForm(isAdm ? 'Admin' : currentClub);
     bindModalForm(containerEl);
+    lgwFetchTeamPlayers(home, 'lgw-dl-home');
+    lgwFetchTeamPlayers(away, 'lgw-dl-away');
     // Pre-fill with existing scorecard data if provided (amend flow)
     if(opts.prefill) {
       setTimeout(function(){ populateModalForm(containerEl, opts.prefill); }, 50);
@@ -2170,12 +2221,8 @@
         }
       }
 
-      el.querySelectorAll('.lgw-autoresize').forEach(function(ta){
-        ta.addEventListener('input', function(){
-          autoResize(ta);
-          updateDupWarnings();
-        });
-        setTimeout(function(){ autoResize(ta); }, 0);
+      el.querySelectorAll('.lgw-player-name-input').forEach(function(inp){
+        inp.addEventListener('input', function(){ updateDupWarnings(); });
       });
 
       // ── Rink score → totals auto-sum (modal) ─────────────────────────────

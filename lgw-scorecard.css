@@ -167,28 +167,36 @@
 .lgw-modal-sc-field input[readonly]{background:#f6f7f7;color:#666;cursor:default}
 .lgw-modal-sc-field{margin-bottom:0}
 
-/* ── Rink table ── */
-.lgw-modal-rink-table{width:100%;border-collapse:collapse;font-size:12px;min-width:520px}
-.lgw-modal-rink-table th{padding:6px 8px;background:#1a2e5a;color:#fff;font-weight:700;text-align:left;white-space:nowrap}
-.lgw-modal-rink-table td{padding:5px 6px;border-bottom:1px solid #e8edf8;vertical-align:middle}
-.lgw-modal-rink-num{text-align:center;font-weight:700;color:#1a2e5a;width:36px}
-.lgw-modal-rink-table input[type=text]{width:100%;padding:5px 7px;border:1px solid #d0d5e8;border-radius:4px;font-size:12px;font-family:inherit}
-.lgw-modal-rink-table input[type=number]{width:60px;padding:5px 4px;border:1px solid #d0d5e8;border-radius:4px;font-size:13px;text-align:center;font-family:inherit}
-.lgw-modal-rink-table input:focus{outline:none;border-color:#1a2e5a}
+/* ── Rink cards ── */
+.lgw-modal-rinks{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.lgw-rink-card{border:1px solid #d0d5e8;border-radius:8px;overflow:hidden}
+.lgw-rink-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#1a2e5a;color:#fff}
+.lgw-rink-num{font-size:13px;font-weight:700;letter-spacing:.02em}
+.lgw-rink-scores{display:flex;align-items:center;gap:8px}
+.lgw-score-box{width:54px;padding:5px 6px;border:1px solid rgba(255,255,255,.4);border-radius:4px;font-size:16px;font-weight:700;text-align:center;font-family:inherit;background:rgba(255,255,255,.15);color:#fff}
+.lgw-score-box::placeholder{color:rgba(255,255,255,.4)}
+.lgw-score-box:focus{outline:none;border-color:#fff;background:rgba(255,255,255,.25)}
+.lgw-score-box::-webkit-inner-spin-button,.lgw-score-box::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.lgw-score-box[type=number]{-moz-appearance:textfield}
+.lgw-rink-score-sep{font-size:14px;font-weight:700;color:rgba(255,255,255,.6)}
+.lgw-rink-players{display:grid;grid-template-columns:1fr 1fr}
+.lgw-rink-side{padding:10px 12px}
+.lgw-rink-side:first-child{border-right:1px solid #e8edf8}
+.lgw-rink-side-title{font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lgw-player-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.lgw-player-row:last-child{margin-bottom:0}
+.lgw-pos-label{font-size:10px;font-weight:700;color:#aaa;width:40px;flex-shrink:0;text-transform:uppercase;letter-spacing:.03em}
+.lgw-player-name-input{flex:1;min-width:0;padding:5px 7px;border:1px solid #d0d5e8;border-radius:4px;font-size:12px;font-family:inherit;color:#1a1a1a;background:#fff}
+.lgw-player-name-input:focus{outline:none;border-color:#1a2e5a}
+@media(max-width:500px){
+  .lgw-rink-players{grid-template-columns:1fr}
+  .lgw-rink-side:first-child{border-right:none;border-bottom:1px solid #e8edf8}
+}
 
 /* ── Club bar inside modal ── */
 .lgw-modal-sc-form .lgw-club-bar{background:#e8edf8;padding:8px 12px;border-radius:6px;display:flex;align-items:center;justify-content:space-between;font-size:13px}
 .lgw-sc-submitter{display:block;font-size:11px;color:#888;margin-top:3px}
 
-/* ── Auto-resize player name textareas ───────────────────────────────────────── */
-.lgw-autoresize{
-  width:100%;min-height:32px;padding:5px 7px;
-  border:1px solid #d0d5e8;border-radius:4px;
-  font-size:12px;font-family:inherit;line-height:1.4;
-  resize:none;overflow:hidden;box-sizing:border-box;
-  transition:border-color .15s
-}
-.lgw-autoresize:focus{outline:none;border-color:#1a2e5a}
 
 /* ── Confirmation preview overlay ────────────────────────────────────────────── */
 .lgw-prev-overlay{
