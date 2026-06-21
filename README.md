@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.58]
+### Added
+- **Per-club scorecard submission toggle**: a new "Scorecard Submission" section in the club edit form (Clubs admin page) adds a checkbox — "This club can submit scorecards". When enabled, that club bypasses the global `admin_only` restriction and can submit scorecards directly. Global `disabled` still prevents all submissions. The flag is stored in `lgw_clubs` as `can_submit` and surfaced as `clubCanSubmit` in `lgwData`, `lgwSubmit`, and `lgwCupData`. A 📋 icon appears on the club card in the grid when the flag is set.
+
 ## [7.6.57]
 ### Added
 - **Female player toggle**: each player row now has a ♀ button. Clicking it marks the player as female (appends `*` to the name), which `lgw_log_appearances()` already uses to set the `female` flag on the player record.

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.57
+Stable tag: 7.6.58
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,14 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.58 =
+* feat(clubs): per-club scorecard submission toggle. A new "Scorecard
+  Submission" section in the club edit form adds a "can submit" checkbox.
+  When ticked, that club can submit scorecards even when the global
+  submission mode is Admin Only. Global Disabled still overrides all clubs.
+  The flag is visible on the clubs grid card (📋 icon). Affects both
+  division widget and cup bracket submission paths.
 
 = 7.6.57 =
 * feat(scorecard): female player toggle (♀ button) on every player row;

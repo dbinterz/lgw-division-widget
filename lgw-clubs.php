@@ -81,6 +81,7 @@ function lgw_ajax_save_club() {
     $fac_parking     = in_array( $fac_parking_raw, array( 'none', 'street', 'private' ), true ) ? $fac_parking_raw : 'none';
     $fac_bar         = ! empty( $_POST['fac_bar'] );
     $fac_changing    = ! empty( $_POST['fac_changing'] );
+    $can_submit      = ! empty( $_POST['can_submit'] );
 
     if ( $name === '' ) wp_send_json_error( 'Club name cannot be empty.' );
 
@@ -102,6 +103,7 @@ function lgw_ajax_save_club() {
         'pin'         => $new_hash,
         'address'     => $address,
         'website'     => $website,
+        'can_submit'  => $can_submit,
         'contacts'    => $contacts,
         'facilities'  => array(
             'greens'      => $fac_greens,
@@ -224,6 +226,10 @@ function lgw_clubs_admin_page() {
                     <span class="lgw-club-card-pin-badge <?php echo $has_pin ? 'set' : 'unset'; ?>" title="<?php echo $has_pin ? 'Passphrase set' : 'No passphrase'; ?>">
                         <?php echo $has_pin ? '🔑' : '🔓'; ?>
                     </span>
+                    <?php if ( ! empty( $club['can_submit'] ) ) : ?>
+                    <span title="Scorecard submission enabled" style="font-size:14px;flex-shrink:0">📋</span>
+                    <?php endif; ?>
+
                 </div>
             </div>
         <?php endforeach; ?>
@@ -260,13 +266,14 @@ function lgw_clubs_admin_page() {
             $slug = sanitize_key( sanitize_title( $c['name'] ) );
             $bl   = $badge_lookup[ strtolower($c['name']) ] ?? null;
             return array(
-                'slug'      => $slug,
-                'name'      => $c['name'],
-                'pin_set'   => ! empty( $c['pin'] ),
-                'address'   => $c['address']  ?? '',
-                'website'   => $c['website']  ?? '',
-                'badge_url' => $bl ? $bl['url']  : '',
-                'badge_type'=> $bl ? $bl['type'] : 'club',
+                'slug'       => $slug,
+                'name'       => $c['name'],
+                'pin_set'    => ! empty( $c['pin'] ),
+                'can_submit' => ! empty( $c['can_submit'] ),
+                'address'    => $c['address']  ?? '',
+                'website'    => $c['website']  ?? '',
+                'badge_url'  => $bl ? $bl['url']  : '',
+                'badge_type' => $bl ? $bl['type'] : 'club',
                 'contacts'   => $c['contacts']   ?? array(),
                 'facilities' => $c['facilities'] ?? array(),
             );
@@ -286,6 +293,7 @@ function lgw_clubs_render_form( $club, $slug, $badge_info, $is_new = false ) {
     $address     = $club ? ( $club['address'] ?? '' ) : '';
     $website     = $club ? ( $club['website'] ?? '' ) : '';
     $has_pin     = $club && ! empty( $club['pin'] );
+    $can_submit  = $club ? ! empty( $club['can_submit'] ) : false;
     $badge_url   = $badge_info ? ( $badge_info['url']  ?? '' ) : '';
     $badge_type  = $badge_info ? ( $badge_info['type'] ?? 'club' ) : 'club';
     $contacts    = $club ? ( $club['contacts'] ?? array() ) : array();
@@ -413,6 +421,22 @@ function lgw_clubs_render_form( $club, $slug, $badge_info, $is_new = false ) {
                             <option value="street"  <?php selected( $fac_parking, 'street' );  ?>>On Street</option>
                             <option value="private" <?php selected( $fac_parking, 'private' ); ?>>Private</option>
                         </select>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="lgw-club-form-section">
+            <h3>Scorecard Submission</h3>
+            <table class="form-table lgw-club-form-table">
+                <tr>
+                    <th><label for="can_submit_<?php echo esc_attr( $slug ?? 'new' ); ?>">Allow submission</label></th>
+                    <td>
+                        <label>
+                            <input type="checkbox" name="can_submit" id="can_submit_<?php echo esc_attr( $slug ?? 'new' ); ?>" value="1" <?php checked( $can_submit ); ?>>
+                            This club can submit scorecards
+                        </label>
+                        <p class="description" style="margin-top:4px">When the global mode is <em>Admin Only</em>, this club can still submit. Has no effect when the global mode is <em>Disabled</em>.</p>
                     </td>
                 </tr>
             </table>
@@ -623,8 +647,9 @@ function lgw_clubs_inline_script() { ?>
         var name     = club ? club.name     : '';
         var address  = club ? club.address  : '';
         var website  = club ? club.website  : '';
-        var pinSet   = club ? club.pin_set  : false;
-        var badgeUrl = club ? club.badge_url : '';
+        var pinSet    = club ? club.pin_set   : false;
+        var canSubmit = club ? !!club.can_submit : false;
+        var badgeUrl  = club ? club.badge_url : '';
         var badgeType= club ? club.badge_type : 'club';
         var contacts  = club ? (club.contacts   || []) : [];
         var fac       = club ? (club.facilities || {}) : {};
@@ -695,6 +720,14 @@ function lgw_clubs_inline_script() { ?>
         '<div class="lgw-club-contacts-list" id="lgw-contacts-list">' + contactRows + '</div>' +
         '<button type="button" class="button lgw-club-add-contact" style="margin-top:8px">+ Add Contact</button>' +
         '</div>' +
+
+        '<div class="lgw-club-form-section"><h3>Scorecard Submission</h3>' +
+        '<table class="form-table lgw-club-form-table">' +
+        '<tr><th><label>Allow submission</label></th><td>' +
+            '<label><input type="checkbox" name="can_submit" value="1"' + (canSubmit ? ' checked' : '') + '> This club can submit scorecards</label>' +
+            '<p class="description" style="margin-top:4px">When the global mode is <em>Admin Only</em>, this club can still submit. Has no effect when the global mode is <em>Disabled</em>.</p>' +
+        '</td></tr>' +
+        '</table></div>' +
 
         '<div class="lgw-club-form-section"><h3>Facilities</h3>' +
         '<table class="form-table lgw-club-form-table">' +
@@ -959,7 +992,8 @@ function lgw_clubs_inline_script() { ?>
         club.website   = (form.querySelector('[name="club_website"]') || {}).value || '';
         club.badge_url = (form.querySelector('[name="club_badge"]')   || {}).value || '';
         club.badge_type= (form.querySelector('[name="club_badge_type"]') || {}).value || 'club';
-        club.pin_set   = true; // conservative — might have been set
+        club.pin_set    = true; // conservative — might have been set
+        club.can_submit = !!(form.querySelector('[name="can_submit"]') || {}).checked;
         club.facilities = {
             greens:      parseInt((form.querySelector('[name="fac_greens"]')  || {}).value || 0),
             rinks:       parseInt((form.querySelector('[name="fac_rinks"]')   || {}).value || 0),

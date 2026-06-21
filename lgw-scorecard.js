@@ -1312,8 +1312,10 @@
         var scData       = res.data;
         var resolvedClub = opts.authClub || authClub || '';
         var scStatus     = scData['_status'] || 'pending';
+        var clubCanSubmit = (typeof lgwSubmit !== 'undefined' && lgwSubmit.clubCanSubmit === '1')
+          || (typeof lgwData !== 'undefined' && lgwData.clubCanSubmit === '1');
         var canConfirmMode = opts.submissionMode !== 'disabled'
-          && (opts.submissionMode !== 'admin_only' || opts.isAdmin);
+          && (opts.submissionMode !== 'admin_only' || opts.isAdmin || clubCanSubmit);
 
         function renderScorecard(targetEl) {
           targetEl.innerHTML = lgwRenderScorecardHtml(scData, {

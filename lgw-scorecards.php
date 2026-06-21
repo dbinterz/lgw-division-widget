@@ -36,6 +36,18 @@ function lgw_get_clubs() {
     // array of ['name'=>'Ards','pin'=>'<sha256 of passphrase>']
 }
 
+function lgw_club_can_submit( $club_name = '' ) {
+    if ( $club_name === '' ) $club_name = lgw_get_auth_club();
+    if ( $club_name === '' ) return false;
+    $clubs = lgw_get_clubs();
+    foreach ( $clubs as $c ) {
+        if ( strtolower( trim( $c['name'] ) ) === strtolower( trim( $club_name ) ) ) {
+            return ! empty( $c['can_submit'] );
+        }
+    }
+    return false;
+}
+
 function lgw_club_matches_team($club, $team) {
     // Club "Ards" matches team "Ards A", "Ards B", "Ards" etc.
     $club = strtoupper(trim($club));
@@ -1275,6 +1287,7 @@ function lgw_enqueue_scorecard() {
         'ajaxUrl'         => admin_url('admin-ajax.php'),
         'nonce'           => wp_create_nonce('lgw_submit_nonce'),
         'authClub'        => lgw_get_auth_club(),
+        'clubCanSubmit'   => lgw_club_can_submit() ? '1' : '0',
         'knownDivisions'  => $known_divisions,
     ));
 }

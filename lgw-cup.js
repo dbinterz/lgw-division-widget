@@ -523,7 +523,8 @@
     var isAdmin        = typeof lgwCupData !== 'undefined' && lgwCupData.isAdmin == 1;
     var submissionMode = (typeof lgwCupData !== 'undefined' && lgwCupData.submissionMode) ? lgwCupData.submissionMode : 'open';
     var authClubVal    = (typeof lgwCupData !== 'undefined') ? (lgwCupData.authClub || '') : '';
-    var canSubmit      = submissionMode !== 'disabled' && (submissionMode !== 'admin_only' || isAdmin);
+    var clubCanSubmit  = (typeof lgwCupData !== 'undefined' && lgwCupData.clubCanSubmit === '1');
+    var canSubmit      = submissionMode !== 'disabled' && (submissionMode !== 'admin_only' || isAdmin || clubCanSubmit);
     var nonce          = (typeof lgwCupData !== 'undefined') ? lgwCupData.cupNonce : '';
 
     // Admin gets an "Enter Score" button in the modal header for quick access to the score popover

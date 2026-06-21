@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.6.57
+ * Version: 7.6.58
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.6.57');
+define('LGW_VERSION', '7.6.58');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -898,6 +898,7 @@ function lgw_enqueue() {
         'submissionMode' => get_option('lgw_submission_mode', 'open'),
         'isAdmin'        => current_user_can('manage_options') ? '1' : '0',
         'authClub'       => lgw_get_auth_club(),
+        'clubCanSubmit'  => function_exists('lgw_club_can_submit') && lgw_club_can_submit() ? '1' : '0',
         'playedDates'    => lgw_build_played_dates_map(),
         'scorecardStatus'  => lgw_build_scorecard_status_map(),
         'postponements'    => lgw_build_postponements_map(),

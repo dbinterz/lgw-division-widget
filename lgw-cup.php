@@ -51,6 +51,7 @@ function lgw_cup_enqueue() {
         'drawSpeed'          => (float) get_option('lgw_draw_speed', 1.0),
         'submissionMode'     => get_option('lgw_submission_mode', 'open'),
         'authClub'           => function_exists('lgw_get_auth_club') ? lgw_get_auth_club() : '',
+        'clubCanSubmit'      => function_exists('lgw_club_can_submit') && lgw_club_can_submit() ? '1' : '0',
     ));
 }
 
