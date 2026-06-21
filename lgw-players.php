@@ -122,16 +122,38 @@ function lgw_get_season() {
     ));
 }
 
+// Normalise a match date to dd/mm/yyyy for consistent storage and STR_TO_DATE filtering.
+// Handles: dd/mm/yyyy (pass-through), "Sat 18-Apr-2026" (AI/Excel output), yyyy-mm-dd.
+function lgw_normalise_match_date( $date_str ) {
+    $date_str = trim( $date_str );
+    if ( ! $date_str ) return $date_str;
+    // Already d/m/Y or dd/mm/yyyy
+    if ( preg_match( '/^\d{1,2}\/\d{1,2}\/\d{4}$/', $date_str ) ) return $date_str;
+    // "Sat 18-Apr-2026" or "Mon 7-Jun-2026" — strip leading weekday then parse
+    if ( preg_match( '/^[A-Za-z]{2,3}\s+(\d{1,2}-[A-Za-z]{3}-\d{4})$/', $date_str, $m ) ) {
+        $dt = DateTime::createFromFormat( 'j-M-Y', $m[1] );
+        if ( $dt ) return $dt->format( 'd/m/Y' );
+    }
+    // ISO yyyy-mm-dd
+    if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_str ) ) {
+        $dt = DateTime::createFromFormat( 'Y-m-d', $date_str );
+        if ( $dt ) return $dt->format( 'd/m/Y' );
+    }
+    // Last resort: PHP strtotime
+    $ts = strtotime( $date_str );
+    if ( $ts && $ts > 0 ) return date( 'd/m/Y', $ts );
+    return $date_str;
+}
+
 function lgw_season_where() {
-    global $wpdb;
     $season = lgw_get_season();
     if (!empty($season['start']) && !empty($season['end'])) {
-        // match_date is stored as dd/mm/yyyy — convert via STR_TO_DATE for comparison
-        return $wpdb->prepare(
-            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
-            $season['start'],
-            $season['end']
-        );
+        // match_date is stored as dd/mm/yyyy — convert via STR_TO_DATE for comparison.
+        // esc_sql() used deliberately: prepare() corrupts the %d/%m/%Y format string
+        // when the result is concatenated into a larger query rather than used directly.
+        $start = esc_sql($season['start']);
+        $end   = esc_sql($season['end']);
+        return "AND STR_TO_DATE(a.match_date, '%d/%m/%Y') >= '$start' AND STR_TO_DATE(a.match_date, '%d/%m/%Y') <= '$end'";
     }
     return ''; // no filter — show all time
 }
@@ -209,7 +231,7 @@ function lgw_log_appearances($scorecard_post_id) {
 
     $home_team  = $sc['home_team'] ?? '';
     $away_team  = $sc['away_team'] ?? '';
-    $match_date = $sc['date']      ?? '';
+    $match_date = lgw_normalise_match_date( $sc['date'] ?? '' );
     $division   = $sc['division']  ?? '';
     $match_title = $home_team . ' v ' . $away_team;
 
@@ -771,13 +793,7 @@ function lgw_ajax_check_new_players() {
 
     // Active season date range for appearances check
     $season = lgw_get_season();
-    $season_where = '';
-    if (!empty($season['start']) && !empty($season['end'])) {
-        $season_where = $wpdb->prepare(
-            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
-            $season['start'], $season['end']
-        );
-    }
+    $season_where = lgw_season_where();
 
     foreach ($raw as $entry) {
         $name = lgw_clean_player_name(sanitize_text_field($entry['name'] ?? ''));
@@ -1153,11 +1169,9 @@ function lgw_players_admin_page() {
     // Build season_where from the resolved season
     $season_where = '';
     if (!empty($season['start']) && !empty($season['end'])) {
-        $season_where = $wpdb->prepare(
-            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
-            $season['start'],
-            $season['end']
-        );
+        $start = esc_sql($season['start']);
+        $end   = esc_sql($season['end']);
+        $season_where = "AND STR_TO_DATE(a.match_date, '%d/%m/%Y') >= '$start' AND STR_TO_DATE(a.match_date, '%d/%m/%Y') <= '$end'";
     }
 
     // Handle POST actions
@@ -2894,10 +2908,9 @@ function lgw_export_players_xlsx() {
     }
     $season_where = '';
     if (!empty($season['start']) && !empty($season['end'])) {
-        $season_where = $wpdb->prepare(
-            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
-            $season['start'], $season['end']
-        );
+        $start = esc_sql($season['start']);
+        $end   = esc_sql($season['end']);
+        $season_where = "AND STR_TO_DATE(a.match_date, '%d/%m/%Y') >= '$start' AND STR_TO_DATE(a.match_date, '%d/%m/%Y') <= '$end'";
     }
     $label  = !empty($season['label']) ? ' - ' . $season['label'] : '';
 
@@ -3340,10 +3353,9 @@ function lgw_export_club_summary_xlsx() {
 
     $season_where = '';
     if (!empty($season['start']) && !empty($season['end'])) {
-        $season_where = $wpdb->prepare(
-            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
-            $season['start'], $season['end']
-        );
+        $start = esc_sql($season['start']);
+        $end   = esc_sql($season['end']);
+        $season_where = "AND STR_TO_DATE(a.match_date, '%d/%m/%Y') >= '$start' AND STR_TO_DATE(a.match_date, '%d/%m/%Y') <= '$end'";
     }
 
     $players = $wpdb->get_results(
@@ -3442,10 +3454,9 @@ function lgw_export_club_summary_pdf() {
 
     $season_where = '';
     if (!empty($season['start']) && !empty($season['end'])) {
-        $season_where = $wpdb->prepare(
-            "AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') >= %s AND STR_TO_DATE(a.match_date, '%%d/%%m/%%Y') <= %s",
-            $season['start'], $season['end']
-        );
+        $start = esc_sql($season['start']);
+        $end   = esc_sql($season['end']);
+        $season_where = "AND STR_TO_DATE(a.match_date, '%d/%m/%Y') >= '$start' AND STR_TO_DATE(a.match_date, '%d/%m/%Y') <= '$end'";
     }
 
     $players = $wpdb->get_results(
