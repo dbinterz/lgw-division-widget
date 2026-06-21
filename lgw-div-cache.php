@@ -1346,7 +1346,7 @@ function lgw_cache_render_fixtures( $fixtures, $sc_status_map, $played_dates, $b
     // Filter bar (mirrors filterBar() in JS) — JS attaches click handlers
     $h  = '<div class="fix-filter">';
     $h .= '<button data-f="all" class="active">All</button>';
-    $h .= '<button data-f="results">Results</button>';
+    $h .= '<button data-f="results">Latest Results</button>';
     $h .= '<button data-f="upcoming">Upcoming</button>';
     $h .= '</div>';
 

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.58
+Stable tag: 7.6.59
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,16 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.59 =
+* feat(fixtures): filter button "Results" renamed to "Latest Results".
+* feat(fixtures): Latest Results tab regroups played fixtures by actual date
+  played (using the rescheduled played-on date where present) rather than
+  the original scheduled date, and sorts newest first.
+* fix(fixtures): Upcoming filter shows all unplayed fixtures regardless of
+  date, not just future-dated ones (catches postponed matches).
+* fix(fixtures): active filter button highlight is now restored correctly
+  after a page refresh when a non-default filter was previously selected.
 
 = 7.6.58 =
 * feat(clubs): per-club scorecard submission toggle. A new "Scorecard

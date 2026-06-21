@@ -124,6 +124,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.59]
+### Added
+- **Latest Results tab**: filter button renamed from "Results" to "Latest Results". Played fixtures are now regrouped by their actual date played (using the rescheduled played-on date where present, rather than the original scheduled date) and sorted newest first. Date headers use the `ddd dd-MMM-YYYY` format to match the rest of the widget.
+### Fixed
+- **Upcoming filter**: now shows all unplayed fixtures regardless of date, not just future-dated ones (catches postponed matches with a past scheduled date).
+- **Filter highlight on refresh**: active filter button is now correctly highlighted when the page is reloaded with a non-default filter restored from session storage.
+
 ## [7.6.58]
 ### Added
 - **Per-club scorecard submission toggle**: a new "Scorecard Submission" section in the club edit form (Clubs admin page) adds a checkbox — "This club can submit scorecards". When enabled, that club bypasses the global `admin_only` restriction and can submit scorecards directly. Global `disabled` still prevents all submissions. The flag is stored in `lgw_clubs` as `can_submit` and surfaced as `clubCanSubmit` in `lgwData`, `lgwSubmit`, and `lgwCupData`. A 📋 icon appears on the club card in the grid when the flag is set.

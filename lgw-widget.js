@@ -763,11 +763,10 @@
     if(filter==='results'){
       filtered=groups.map(function(g){
         return{date:g.date,matches:g.matches.filter(function(m){return m.played;})};
-      }).filter(function(g){return g.matches.length;});
+      }).filter(function(g){return g.matches.length;}).reverse();
     } else if(filter==='upcoming'){
       filtered=groups.map(function(g){
-        var d=parseDate(g.date); if(!d) return{date:g.date,matches:[]};
-        return{date:g.date,matches:g.matches.filter(function(m){return !m.played&&d>=now;})};
+        return{date:g.date,matches:g.matches.filter(function(m){return !m.played;})};
       }).filter(function(g){return g.matches.length;});
     }
     if(!filtered.length) return '<div class="lgw-status">No fixtures to display.</div>';
@@ -879,11 +878,10 @@
   }
 
   function filterBar(af){
-
+    var labels = { all: 'All', results: 'Latest Results', upcoming: 'Upcoming' };
     var h='<div class="fix-filter">';
     ['all','results','upcoming'].forEach(function(f){
-      var cap=f.charAt(0).toUpperCase()+f.slice(1);
-      h+='<button data-f="'+f+'"'+(af===f?' class="active"':'')+'>'+cap+'</button>';
+      h+='<button data-f="'+f+'"'+(af===f?' class="active"':'')+'>'+labels[f]+'</button>';
     });
     return h+'</div>';
   }
@@ -1713,6 +1711,10 @@
         if (fp) {
           fp.insertBefore(makePrintBtn('fixtures'), fp.firstChild);
           lgwApplyCachedFilter(fp, activeFilter);
+          // Sync button highlight to match the restored filter
+          fp.querySelectorAll('.fix-filter button').forEach(function(b) {
+            b.classList.toggle('active', b.getAttribute('data-f') === activeFilter);
+          });
         }
         console.log('[LGW-SSR] Pre-rendered path active. submissionMode='+submissionMode+' isAdmin='+isAdmin+' fixtures='+cachedGroups.reduce(function(n,g){return n+g.matches.length;},0));
         bindFilterBtns(); bindTeamLinks(); bindFixtureClicks();
@@ -1771,30 +1773,88 @@
   // Apply fixture filter to server-rendered fixture rows.
   // Hides/shows .date-group elements based on filter value.
   function lgwApplyCachedFilter(fp, filter) {
-    var now = new Date();
-    fp.querySelectorAll('.date-group').forEach(function(group) {
-      var dateHdr = group.querySelector('.date-hdr span');
-      var dateStr = dateHdr ? dateHdr.textContent.trim() : '';
-      var groupDate = null;
-      try {
-        var p = dateStr.split(' ')[1].split('-');
-        groupDate = new Date(p[1] + ' ' + p[0] + ' ' + p[2]);
-      } catch(e) {}
+    // Restore rows moved into synthetic groups back to their original groups first
+    fp.querySelectorAll('.lgw-synth-group').forEach(function(g) {
+      g.querySelectorAll('.fx-row').forEach(function(r) {
+        if (r._lgwOriginalGroup) r._lgwOriginalGroup.appendChild(r);
+      });
+      g.remove();
+    });
 
-      var rows = group.querySelectorAll('.fx-row');
-      var hasPlayed   = false;
-      var hasUpcoming = false;
-      rows.forEach(function(r) {
-        if (r.classList.contains('played')) hasPlayed = true;
-        else if (groupDate && groupDate >= now) hasUpcoming = true;
+    var groups = Array.from(fp.querySelectorAll('.date-group:not(.lgw-synth-group)'));
+
+    if (filter === 'results') {
+      // Hide all original groups — we'll rebuild by actual played date
+      groups.forEach(function(g) { g.style.display = 'none'; });
+
+      // Collect every played row with its effective date
+      var playedRows = [];
+      groups.forEach(function(group) {
+        var hdr = group.querySelector('.date-hdr span');
+        var scheduledDate = hdr ? parseDate(hdr.textContent.trim()) : null;
+        group.querySelectorAll('.fx-row.played').forEach(function(r) {
+          r._lgwOriginalGroup = group;
+          var pill = r.querySelector('.fx-played-pill');
+          var effDate = pill ? parsePillDate(pill.textContent) : null;
+          if (!effDate) effDate = scheduledDate || new Date(0);
+          playedRows.push({ row: r, date: effDate });
+        });
       });
 
-      var show = filter === 'all'
-        || (filter === 'results'  && hasPlayed)
-        || (filter === 'upcoming' && hasUpcoming);
+      // Sort descending — newest played date first
+      playedRows.sort(function(a, b) { return b.date - a.date; });
 
-      group.style.display = show ? '' : 'none';
-    });
+      // Group by effective date key
+      var dateGroups = [], dateMap = {};
+      playedRows.forEach(function(item) {
+        var key = item.date.getFullYear() + '-' +
+          String(item.date.getMonth() + 1).padStart(2, '0') + '-' +
+          String(item.date.getDate()).padStart(2, '0');
+        if (!dateMap[key]) {
+          dateMap[key] = { date: item.date, rows: [] };
+          dateGroups.push(dateMap[key]);
+        }
+        dateMap[key].rows.push(item.row);
+      });
+
+      // Render synthetic groups
+      var DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      var MON_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      dateGroups.forEach(function(dg) {
+        var d    = dg.date;
+        var dateStr = DAY_NAMES[d.getDay()] + ' ' +
+          String(d.getDate()).padStart(2, '0') + '-' +
+          MON_NAMES[d.getMonth()] + '-' + d.getFullYear();
+        var div  = document.createElement('div');
+        div.className = 'date-group lgw-synth-group';
+        div.innerHTML = '<div class="date-hdr"><span>' + dateStr +
+          '</span><span class="date-hdr-notes">Notes</span></div>';
+        dg.rows.forEach(function(r) { r.style.display = ''; div.appendChild(r); });
+        fp.appendChild(div);
+      });
+
+    } else {
+      // All / Upcoming — restore rows to original groups and show/hide by filter
+      groups.forEach(function(group) {
+        var rows = Array.from(group.querySelectorAll('.fx-row'));
+        var visibleCount = 0;
+        rows.forEach(function(r) {
+          r.style.display = '';  // ensure rows moved by results are visible
+          var played = r.classList.contains('played');
+          var show = filter === 'all' || (filter === 'upcoming' && !played);
+          r.style.display = show ? '' : 'none';
+          if (show) visibleCount++;
+        });
+        group.style.display = visibleCount ? '' : 'none';
+      });
+    }
+  }
+
+  function parsePillDate(text) {
+    // Pill text: "📅 Played 06/06/2026"  →  dd/mm/yyyy
+    var m = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (!m) return null;
+    return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
   }
 
   function init(){
