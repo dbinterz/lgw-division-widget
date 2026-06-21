@@ -1548,10 +1548,12 @@
           homeSide += '<div class="lgw-player-row">'
             +'<span class="lgw-pos-label">'+posLabel+'</span>'
             +'<input type="text" class="lgw-player-name-input" data-rink="'+r+'" data-side="home" data-pos="'+pos+'" list="lgw-dl-home" autocomplete="off" spellcheck="false">'
+            +'<button type="button" class="lgw-female-toggle" title="Mark as female player" tabindex="-1">♀</button>'
             +'</div>';
           awaySide += '<div class="lgw-player-row">'
             +'<span class="lgw-pos-label">'+posLabel+'</span>'
             +'<input type="text" class="lgw-player-name-input" data-rink="'+r+'" data-side="away" data-pos="'+pos+'" list="lgw-dl-away" autocomplete="off" spellcheck="false">'
+            +'<button type="button" class="lgw-female-toggle" title="Mark as female player" tabindex="-1">♀</button>'
             +'</div>';
         }
         rinkCards +=
@@ -2089,7 +2091,7 @@
           xhr3.onload = function(){
             parseBtn2.disabled = false; parseBtn2.textContent = 'Read Scorecard with AI';
             var res = JSON.parse(xhr3.responseText || '{}');
-            if(res.success){ populateModalForm(el, res.data); showStatus(photoStat2, '✅ Scorecard read — please check all fields below.', 'ok'); }
+            if(res.success){ populateModalForm(el, res.data); showStatus(photoStat2, '✅ Scorecard read — please check all fields below.', 'ok'); lgwShowImportReview(el, home, away); }
             else showStatus(photoStat2, '❌ ' + (res.data || 'Could not read scorecard'), 'error');
           };
           xhr3.onerror = function(){ parseBtn2.disabled=false; parseBtn2.textContent='Read Scorecard with AI'; showStatus(photoStat2,'❌ Network error','error'); };
@@ -2119,7 +2121,7 @@
           xhr4.onload = function(){
             parseExcel2.disabled = false; parseExcel2.textContent = 'Read Spreadsheet';
             var res = JSON.parse(xhr4.responseText || '{}');
-            if(res.success){ populateModalForm(el, res.data); showStatus(excelStat2, '✅ Spreadsheet read — please check all fields below.', 'ok'); }
+            if(res.success){ populateModalForm(el, res.data); showStatus(excelStat2, '✅ Spreadsheet read — please check all fields below.', 'ok'); lgwShowImportReview(el, home, away); }
             else showStatus(excelStat2, '❌ ' + (res.data || 'Could not read file'), 'error');
           };
           xhr4.onerror = function(){ parseExcel2.disabled=false; parseExcel2.textContent='Read Spreadsheet'; showStatus(excelStat2,'❌ Network error','error'); };
@@ -2221,8 +2223,47 @@
         }
       }
 
+      // Determine which side the authenticated club submits for.
+      // Admins and open mode can edit either side.
+      var authSide = 'both';
+      if (!isAdm && currentClub) {
+        var _hLow = home.toLowerCase().trim().replace(/\s*-\s*/g,'-');
+        var _aLow = away.toLowerCase().trim().replace(/\s*-\s*/g,'-');
+        var _cLow = currentClub.toLowerCase().trim().replace(/\s*-\s*/g,'-');
+        if (_hLow.indexOf(_cLow) !== -1 || _cLow.indexOf(_hLow) !== -1) authSide = 'home';
+        else if (_aLow.indexOf(_cLow) !== -1 || _cLow.indexOf(_aLow) !== -1) authSide = 'away';
+      }
+
       el.querySelectorAll('.lgw-player-name-input').forEach(function(inp){
         inp.addEventListener('input', function(){ updateDupWarnings(); });
+        inp.addEventListener('blur', function(){
+          var side = inp.dataset.side;
+          if (authSide !== 'both' && side !== authSide) {
+            lgwBlockOpposingPlayer(inp);
+          } else {
+            lgwCheckNewPlayer(inp, el);
+          }
+        });
+      });
+
+      // ── Female toggle ────────────────────────────────────────────────────────
+      el.querySelectorAll('.lgw-female-toggle').forEach(function(btn){
+        btn.addEventListener('click', function(e){
+          e.preventDefault();
+          var inp = btn.previousElementSibling;
+          if (!inp) return;
+          var name = inp.value.replace(/\*/g, '').trim();
+          var isFemale = inp.dataset.female === '1';
+          if (isFemale) {
+            inp.dataset.female = '0';
+            btn.classList.remove('lgw-female-active');
+            inp.value = name;
+          } else {
+            inp.dataset.female = '1';
+            btn.classList.add('lgw-female-active');
+            inp.value = name ? name + '*' : '';
+          }
+        });
       });
 
       // ── Rink score → totals auto-sum (modal) ─────────────────────────────
@@ -3221,5 +3262,351 @@
     if (lgwPlayerPopover) lgwPlayerPopover.setAttribute('data-current-player', playerName);
     lgwShowPlayerStats(btn, playerName, club);
   });
+
+// ── Block new players on the opposing team's side ─────────────────────────────
+function lgwBlockOpposingPlayer(inp) {
+  var val = inp.value.replace(/\*/g,'').trim();
+  if (!val) return;
+  var dl   = document.getElementById(inp.getAttribute('list'));
+  var known = dl ? Array.from(dl.options).map(function(o){ return o.value; }) : [];
+  if (known.some(function(n){ return n.trim().toLowerCase() === val.toLowerCase(); })) return;
+
+  inp.value = '';
+  var old = inp.parentNode.querySelector('.lgw-new-player-dialog');
+  if (old) old.remove();
+  var d = document.createElement('div');
+  d.className = 'lgw-new-player-dialog lgw-npd-blocked';
+  d.innerHTML = '⛔ <strong>' + val + '</strong> is not a registered player for the opposing team — only existing players can be entered for the other side.';
+  inp.parentNode.appendChild(d);
+  inp.focus();
+  setTimeout(function(){ if (d.parentNode) d.remove(); }, 5000);
+}
+
+// ── Import review panel (photo / Excel) ──────────────────────────────────────
+function lgwShowImportReview(formEl, homeTeam, awayTeam) {
+  // Remove any previous review panel
+  var old = formEl.querySelector('.lgw-import-review');
+  if (old) old.remove();
+
+  // Wait briefly for datalists to finish loading
+  setTimeout(function() {
+    var dlHome = document.getElementById('lgw-dl-home');
+    var dlAway = document.getElementById('lgw-dl-away');
+    var knownHome = dlHome ? Array.from(dlHome.options).map(function(o){ return o.value; }) : [];
+    var knownAway = dlAway ? Array.from(dlAway.options).map(function(o){ return o.value; }) : [];
+
+    var issues = [];
+    formEl.querySelectorAll('.lgw-player-name-input').forEach(function(inp) {
+      var raw  = inp.value.trim();
+      var name = raw.replace(/\*/g, '').trim();
+      if (!name) return;
+      var side   = inp.dataset.side;
+      var known  = side === 'home' ? knownHome : knownAway;
+      var nameLow = name.toLowerCase();
+      // Already a known player?
+      if (known.some(function(k){ return k.trim().toLowerCase() === nameLow; })) return;
+      var suggestions = lgwFuzzyPlayerMatch(name, known);
+      issues.push({ inp: inp, name: name, raw: raw, side: side, suggestions: suggestions });
+    });
+
+    if (!issues.length) return;
+
+    var panel = document.createElement('div');
+    panel.className = 'lgw-import-review';
+
+    var hdr = '<div class="lgw-ir-header">'
+      + '<strong>⚠️ ' + issues.length + ' player name' + (issues.length > 1 ? 's' : '') + ' need review</strong>'
+      + '<button type="button" class="lgw-ir-dismiss">✕ Dismiss</button>'
+      + '</div>';
+
+    var rows = issues.map(function(issue, idx) {
+      var pos   = issue.inp.dataset.pos;
+      var rink  = issue.inp.dataset.rink;
+      var label = ['Lead','Second','Third','Skip'][parseInt(pos,10)] || 'Player';
+      var teamLabel = issue.side === 'home' ? homeTeam : awayTeam;
+      var isFemale = issue.raw.indexOf('*') !== -1;
+
+      var sugHtml = '';
+      if (issue.suggestions.length) {
+        sugHtml = '<span class="lgw-ir-label">Did you mean: </span>';
+        issue.suggestions.slice(0,3).forEach(function(s) {
+          sugHtml += '<button type="button" class="lgw-ir-accept" data-idx="'+idx+'" data-name="'+s.name.replace(/"/g,'&quot;')+'">✓ '+s.name+'</button> ';
+        });
+        sugHtml += '<span class="lgw-ir-or">or</span> ';
+      }
+      sugHtml += '<button type="button" class="lgw-ir-keep" data-idx="'+idx+'">Keep "'+issue.name+'"</button>';
+
+      return '<div class="lgw-ir-row" data-idx="'+idx+'">'
+        + '<div class="lgw-ir-name">'
+          + '<span class="lgw-ir-team">'+teamLabel+' Rink '+rink+' '+label+':</span> '
+          + '<strong class="lgw-ir-val">'+issue.name+'</strong>'
+        + '</div>'
+        + '<div class="lgw-ir-actions">'
+          + sugHtml
+          + '<button type="button" class="lgw-female-toggle lgw-ir-female'+(isFemale?' lgw-female-active':'') +'" data-idx="'+idx+'" title="Mark as female player">♀</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+
+    panel.innerHTML = hdr + '<div class="lgw-ir-rows">' + rows + '</div>';
+
+    // Wire dismiss
+    panel.querySelector('.lgw-ir-dismiss').addEventListener('click', function(){ panel.remove(); });
+
+    // Wire accept suggestions
+    panel.querySelectorAll('.lgw-ir-accept').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var idx  = parseInt(btn.dataset.idx, 10);
+        var name = btn.dataset.name;
+        var issue = issues[idx];
+        var female = issue.inp.dataset.female === '1';
+        issue.inp.value = female ? name + '*' : name;
+        issue.inp.dataset.female = female ? '1' : '0';
+        if (female) issue.inp.nextElementSibling && issue.inp.nextElementSibling.classList.add('lgw-female-active');
+        panel.querySelector('.lgw-ir-row[data-idx="'+idx+'"]').classList.add('lgw-ir-resolved');
+        // Check if all resolved
+        if (!panel.querySelectorAll('.lgw-ir-row:not(.lgw-ir-resolved)').length) { setTimeout(function(){ panel.remove(); }, 600); }
+      });
+    });
+
+    // Wire keep
+    panel.querySelectorAll('.lgw-ir-keep').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var row = panel.querySelector('.lgw-ir-row[data-idx="'+btn.dataset.idx+'"]');
+        row.classList.add('lgw-ir-resolved');
+        if (!panel.querySelectorAll('.lgw-ir-row:not(.lgw-ir-resolved)').length) { setTimeout(function(){ panel.remove(); }, 600); }
+      });
+    });
+
+    // Wire female toggles in review panel
+    panel.querySelectorAll('.lgw-ir-female').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var idx   = parseInt(btn.dataset.idx, 10);
+        var issue = issues[idx];
+        var name  = issue.inp.value.replace(/\*/g,'').trim();
+        var isFem = issue.inp.dataset.female === '1';
+        if (isFem) {
+          issue.inp.dataset.female = '0';
+          issue.inp.value = name;
+          btn.classList.remove('lgw-female-active');
+          // sync row button in form
+          if(issue.inp.nextElementSibling) issue.inp.nextElementSibling.classList.remove('lgw-female-active');
+        } else {
+          issue.inp.dataset.female = '1';
+          issue.inp.value = name ? name + '*' : '';
+          btn.classList.add('lgw-female-active');
+          if(issue.inp.nextElementSibling) issue.inp.nextElementSibling.classList.add('lgw-female-active');
+        }
+      });
+    });
+
+    // Insert before rink cards
+    var rinkCards = formEl.querySelector('.lgw-modal-rinks');
+    if (rinkCards) rinkCards.parentNode.insertBefore(panel, rinkCards);
+    else formEl.appendChild(panel);
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+
+  }, 600); // allow datalist fetch to complete
+}
+
+// ── New-player fuzzy check ────────────────────────────────────────────────────
+
+var LGW_NICKNAMES = (function(){
+  var m = {
+    'william':['bill','billy','will','willy'],
+    'bill':['william','billy','will'], 'billy':['william','bill','will'],
+    'robert':['bob','rob','robbie','bobby'], 'bob':['robert','rob','robbie'],
+    'james':['jim','jimmy','jamie','seamus'], 'jim':['james','jimmy'],
+    'john':['johnny','jack','sean','eoin'], 'jack':['john'],
+    'thomas':['tom','tommy'], 'tom':['thomas','tommy'],
+    'richard':['dick','rick','richie'], 'dick':['richard'], 'rick':['richard'],
+    'patrick':['pat','paddy','patsy'], 'pat':['patrick','patricia','paddy'],
+    'paddy':['patrick'], 'padraig':['patrick','pat','paddy'],
+    'michael':['mike','mick','mickey'], 'mike':['michael','mick'],
+    'mick':['michael','mike'],
+    'edward':['ed','eddie','ted','ned'], 'ted':['edward'], 'ned':['edward'],
+    'david':['dave','davy'], 'dave':['david'],
+    'charles':['charlie','chas'], 'charlie':['charles'],
+    'joseph':['joe','joey'], 'joe':['joseph'],
+    'george':['geordie'],
+    'francis':['frank','frankie'], 'frank':['francis','frankie'],
+    'anthony':['tony'], 'tony':['anthony'],
+    'andrew':['andy'], 'andy':['andrew'],
+    'peter':['pete'], 'pete':['peter'],
+    'samuel':['sam','sammy'], 'sam':['samuel'],
+    'kenneth':['ken','kenny'], 'ken':['kenneth'],
+    'albert':['bert','al'], 'bert':['albert'],
+    'henry':['harry','hal'], 'harry':['henry','harold'],
+    'philip':['phil'], 'phil':['philip','phillip'],
+    'frederick':['fred','freddie'], 'fred':['frederick'],
+    'walter':['wally','walt'], 'daniel':['dan','danny'], 'dan':['daniel'],
+    'christopher':['chris'], 'chris':['christopher','christian'],
+    'stephen':['steve'], 'steven':['steve','stephen'], 'steve':['stephen','steven'],
+    'alexander':['alex','alec','sandy'], 'alex':['alexander'],
+    'terence':['terry'], 'terry':['terence','terrence'],
+    'raymond':['ray'], 'ray':['raymond'],
+    'leonard':['len','lenny'], 'len':['leonard'],
+    'gerald':['gerry','jerry'], 'gerry':['gerald','gerard'],
+    'gerard':['gerry'], 'vincent':['vince','vinnie'],
+    'bernard':['bernie'], 'bernie':['bernard'],
+    'reginald':['reg'], 'reg':['reginald'],
+    'donald':['don','donnie'], 'don':['donald'],
+    'seamus':['james','jim'], 'eoin':['john','owen'],
+    'rory':['ruairi','ruari'], 'ruairi':['rory'],
+    // Female
+    'margaret':['maggie','meg','peggy','marge'],
+    'maggie':['margaret'], 'peggy':['margaret'],
+    'elizabeth':['liz','beth','betty','eliza','lisa','lizzie'],
+    'liz':['elizabeth'], 'betty':['elizabeth'],
+    'catherine':['kate','katie','cathy','kay'],
+    'kate':['catherine'], 'cathy':['catherine'],
+    'mary':['marie','molly','may','mamie'],
+    'patricia':['pat','patty','trish'],
+    'dorothy':['dot','dottie'], 'barbara':['barb','babs'],
+    'susan':['sue','susie'], 'sue':['susan'],
+    'jennifer':['jen','jenny'], 'jen':['jennifer'],
+    'helen':['nell','nellie'],
+    'ann':['anne','annie'], 'anne':['ann','annie'],
+    'christine':['chris','chrissie','tina'],
+    'theresa':['tess','teresa'], 'teresa':['tess','theresa'],
+    'jacqueline':['jackie'], 'jackie':['jacqueline'],
+    'josephine':['jo','josie'],
+    'constance':['connie'], 'irene':['rene'],
+    'caroline':['carol','carrie'], 'carol':['caroline'],
+    'linda':['lin','lindy'], 'sandra':['sandy'],
+    'gillian':['gill','jill'], 'jill':['gillian'],
+    'valerie':['val'], 'val':['valerie'],
+    'judith':['judy'], 'judy':['judith'],
+    'eleanor':['nell','ellie','nora'],
+    'maureen':['mo'], 'kathleen':['kath','kitty'],
+    'rosemary':['rose','rosie'], 'rose':['rosemary'],
+    'florence':['flo','florrie'], 'edith':['edie'],
+    'siobhan':['joan','shevaun'], 'aoife':['eve','eva'],
+    'niamh':['neve'], 'fionnuala':['nuala','finola'], 'nuala':['fionnuala']
+  };
+  return m;
+}());
+
+function lgwLevenshtein(a, b) {
+  var m = a.length, n = b.length, i, j;
+  var dp = [];
+  for (i = 0; i <= m; i++) { dp[i] = [i]; for (j = 1; j <= n; j++) dp[i][j] = 0; }
+  for (j = 0; j <= n; j++) dp[0][j] = j;
+  for (i = 1; i <= m; i++) {
+    for (j = 1; j <= n; j++) {
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1]
+               : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function lgwFuzzyPlayerMatch(typed, knownNames) {
+  var results = [];
+  var tl = typed.trim().toLowerCase();
+  var tp = tl.split(/\s+/);
+  var tf = tp[0] || '', trest = tp.slice(1).join(' ');
+
+  function add(name, reason) {
+    if (!results.some(function(r){ return r.name === name; }))
+      results.push({name: name, reason: reason});
+  }
+
+  knownNames.forEach(function(known) {
+    var kl = known.trim().toLowerCase();
+    if (kl === tl) return; // exact — not a new player
+    var kp = kl.split(/\s+/);
+    var kf = kp[0] || '', krest = kp.slice(1).join(' ');
+
+    // Initial + surname: "B Smith" ↔ "Billy Smith"
+    if (trest && krest === trest) {
+      if (tf.length === 1 && kf.charAt(0) === tf) { add(known, 'initial'); return; }
+      if (kf.length === 1 && tf.charAt(0) === kf) { add(known, 'initial'); return; }
+    }
+
+    // Nickname: same surname, first name is an alias
+    if (trest && krest === trest) {
+      var ta = LGW_NICKNAMES[tf] || [];
+      var ka = LGW_NICKNAMES[kf] || [];
+      if (ta.indexOf(kf) !== -1 || ka.indexOf(tf) !== -1) { add(known, 'nickname'); return; }
+    }
+
+    // Typo: Levenshtein ≤ 2 on full name
+    if (lgwLevenshtein(tl, kl) <= 2) { add(known, 'typo'); }
+  });
+
+  return results;
+}
+
+function lgwCheckNewPlayer(inp, formEl) {
+  var val = inp.value.trim();
+  if (!val) return;
+
+  // Remove any existing dialog for this input
+  var existing = inp.parentNode.querySelector('.lgw-new-player-dialog');
+  if (existing) existing.remove();
+
+  // Get the club's datalist options
+  var dlId = inp.getAttribute('list');
+  var dl   = dlId && document.getElementById(dlId);
+  if (!dl) return;
+  var known = Array.from(dl.options).map(function(o){ return o.value; });
+
+  // If it matches a known player (case-insensitive), nothing to do
+  var valLow = val.toLowerCase();
+  if (known.some(function(n){ return n.trim().toLowerCase() === valLow; })) return;
+
+  // Fuzzy match against this club's list only
+  var suggestions = lgwFuzzyPlayerMatch(val, known);
+
+  // Build dialog
+  var d = document.createElement('div');
+  d.className = 'lgw-new-player-dialog';
+
+  function dismiss() { if (d.parentNode) d.remove(); }
+  function acceptName(name) {
+    inp.value = name;
+    dismiss();
+    // Move focus to next player input
+    var inputs = Array.from(formEl.querySelectorAll('.lgw-player-name-input'));
+    var idx = inputs.indexOf(inp);
+    if (idx !== -1 && inputs[idx + 1]) inputs[idx + 1].focus();
+  }
+  function backToInput() {
+    dismiss();
+    inp.focus();
+    inp.select();
+  }
+
+  var html = '';
+  if (suggestions.length) {
+    html += '<span class="lgw-npd-msg">New name "<strong>' + val + '</strong>" — did you mean:</span>';
+    suggestions.slice(0, 3).forEach(function(s) {
+      html += '<button class="lgw-npd-btn lgw-npd-suggest" data-name="' + s.name.replace(/"/g,'&quot;') + '">'
+            + '✓ ' + s.name + '</button>';
+    });
+    html += '<span class="lgw-npd-or">or</span>';
+    html += '<button class="lgw-npd-btn lgw-npd-new">Add "' + val + '" as new player</button>';
+    html += '<button class="lgw-npd-btn lgw-npd-back">✕ Back</button>';
+  } else {
+    html += '<span class="lgw-npd-msg">Add "<strong>' + val + '</strong>" as a new player?</span>';
+    html += '<button class="lgw-npd-btn lgw-npd-new">Yes, add</button>';
+    html += '<button class="lgw-npd-btn lgw-npd-back">No, go back</button>';
+  }
+  d.innerHTML = html;
+
+  d.querySelectorAll('.lgw-npd-suggest').forEach(function(btn) {
+    btn.addEventListener('mousedown', function(e){ e.preventDefault(); acceptName(btn.dataset.name); });
+  });
+  d.querySelector('.lgw-npd-new').addEventListener('mousedown', function(e){
+    e.preventDefault(); dismiss();
+    var inputs = Array.from(formEl.querySelectorAll('.lgw-player-name-input'));
+    var idx = inputs.indexOf(inp);
+    if (idx !== -1 && inputs[idx + 1]) inputs[idx + 1].focus();
+  });
+  d.querySelector('.lgw-npd-back').addEventListener('mousedown', function(e){ e.preventDefault(); backToInput(); });
+
+  inp.parentNode.appendChild(d);
+}
 
 })();

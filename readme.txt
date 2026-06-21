@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.55
+Stable tag: 7.6.57
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,29 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.57 =
+* feat(scorecard): female player toggle (♀ button) on every player row;
+  appends * to the name so lgw_log_appearances() sets the female flag in the
+  players table automatically on confirmation.
+* feat(scorecard): import review panel fires after photo/Excel parse; lists
+  every unrecognised player name with fuzzy suggestions (initial+surname,
+  nickname aliases, Levenshtein ≤ 2) scoped to the club's own player list.
+  Each row has Accept Suggestion, Keep, and ♀ buttons. Panel auto-dismisses
+  when all entries are resolved.
+* feat(scorecard): opposing team player restriction — on blur of any player
+  input on the opposing side, lgwBlockOpposingPlayer() checks the name
+  against the opposing team's registered datalist; if not found the field is
+  cleared and a red inline warning is shown for 5 s. Prevents a submitting
+  club from adding unknown players to the other side.
+
+= 7.6.56 =
+* feat(scorecard): new-player fuzzy check on player name blur. If a typed
+  name does not match any player in the club's registered list, an inline
+  dialog appears offering: similar names (initial+surname match, nickname
+  aliases, Levenshtein ≤ 2) with an Accept Suggestion button; or a simple
+  Yes/No if no similar names are found. Accepting a suggestion fills the
+  slot and advances focus; declining returns focus to the cell.
 
 = 7.6.55 =
 * fix(sheets): normalise spaces around hyphens in team name matching so

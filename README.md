@@ -124,6 +124,16 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.57]
+### Added
+- **Female player toggle**: each player row now has a ♀ button. Clicking it marks the player as female (appends `*` to the name), which `lgw_log_appearances()` already uses to set the `female` flag on the player record.
+- **Import review panel**: after photo AI or Excel parse, any player name not found in the club's registered list is collected into a review card. Each entry shows fuzzy suggestions (initial+surname match, nickname aliases, Levenshtein ≤ 2) with Accept Suggestion, Keep as-is, and ♀ buttons. The panel auto-dismisses when all entries are resolved.
+- **Opposing team player restriction**: on blur of any player input on the opposing team's side, `lgwBlockOpposingPlayer()` checks the name against the opposing side's registered datalist. If the name is not found the field is cleared and a red inline notice is shown for 5 s. A submitting club cannot introduce unknown players on the other side.
+
+## [7.6.56]
+### Added
+- **New-player fuzzy check**: when a typed player name doesn't match the club's registered list, an inline dialog appears below the input. If similar names are found (initial+surname match, nickname aliases, Levenshtein ≤ 2) they are offered with an Accept Suggestion button. If no match, a simple Yes/No prompt is shown. Accepting fills the slot and advances to the next cell; declining returns focus for correction.
+
 ## [7.6.55]
 ### Fixed
 - **Sheets team name matching**: normalise spaces around hyphens before comparing team names, so `CI - KNOCK B` in the spreadsheet matches `CI-Knock B` from the scorecard.

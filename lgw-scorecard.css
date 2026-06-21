@@ -489,6 +489,45 @@
 [data-lgw-theme="dark"] .lgw-pp-tab:hover{background:#2a3a5a;color:#c8d6f8}
 [data-lgw-theme="dark"] .lgw-pp-tab-active{background:#1a2e5a;color:#fff}
 
+/* ── Female toggle button ────────────────────────────────────────────────────── */
+.lgw-female-toggle{flex-shrink:0;padding:3px 6px;border:1px solid #d0aad0;border-radius:4px;background:#fdf0fd;color:#a04aa0;font-size:11px;cursor:pointer;line-height:1;transition:background .15s,color .15s}
+.lgw-female-toggle:hover{background:#f5d5f5}
+.lgw-female-active{background:#a04aa0!important;color:#fff!important;border-color:#7a347a!important}
+.lgw-player-row{display:flex;align-items:center;gap:4px}
+
+/* ── Import review panel ─────────────────────────────────────────────────────── */
+.lgw-import-review{border:2px solid #f6c90e;border-radius:8px;background:#fffdf0;margin-bottom:12px;font-size:13px;overflow:hidden}
+.lgw-ir-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#fff8cc;border-bottom:1px solid #f6c90e}
+.lgw-ir-dismiss{background:none;border:none;font-size:16px;cursor:pointer;color:#888;line-height:1;padding:0 4px}
+.lgw-ir-dismiss:hover{color:#333}
+.lgw-ir-rows{padding:8px 12px;display:flex;flex-direction:column;gap:8px}
+.lgw-ir-row{padding:6px 8px;background:#fff;border:1px solid #e8e0c0;border-radius:6px;display:flex;flex-direction:column;gap:5px;transition:opacity .3s}
+.lgw-ir-resolved{opacity:.35;pointer-events:none}
+.lgw-ir-name{color:#555}
+.lgw-ir-team{font-size:11px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.lgw-ir-val{color:#1a2e5a}
+.lgw-ir-actions{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+.lgw-ir-label{font-size:12px;color:#888}
+.lgw-ir-or{font-size:11px;color:#aaa}
+.lgw-ir-accept{background:#1a2e5a;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer}
+.lgw-ir-accept:hover{background:#243f7a}
+.lgw-ir-keep{background:#f0f0f0;color:#555;border:1px solid #ccc;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer}
+.lgw-ir-keep:hover{background:#e0e0e0}
+.lgw-ir-female{margin-left:auto}
+
+/* ── New-player confirmation dialog ─────────────────────────────────────────── */
+.lgw-new-player-dialog{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px;padding:7px 10px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;font-size:12px}
+.lgw-npd-msg{flex:1 1 100%;color:#5a4000}
+.lgw-npd-or{color:#888;font-size:11px}
+.lgw-npd-btn{padding:4px 10px;border-radius:4px;border:1px solid #ccc;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap}
+.lgw-npd-suggest{background:#1a2e5a;color:#fff;border-color:#1a2e5a;font-weight:600}
+.lgw-npd-suggest:hover{background:#243f7a}
+.lgw-npd-new{background:#e8f5e9;color:#2a7a2a;border-color:#b2dfb2}
+.lgw-npd-new:hover{background:#c8e6c9}
+.lgw-npd-back{background:#fff;color:#666}
+.lgw-npd-back:hover{background:#f5f5f5}
+.lgw-npd-blocked{background:#fff0f0!important;border-color:#f5b2b2!important;color:#c0202a;font-size:12px;padding:7px 10px;border-radius:6px}
+
 /* ── Dark mode: champ player links ──────────────────────────────────────────── */
 [data-lgw-theme="dark"] .lgw-champ-player-link{text-decoration-color:rgba(200,214,248,.3)}
 [data-lgw-theme="dark"] .lgw-champ-player-link:hover,[data-lgw-theme="dark"] .lgw-champ-player-link:focus-visible{
