@@ -1,6 +1,6 @@
 <?php
 /**
- * LGW Google Sheets Writeback - v5.17.10
+ * LGW Google Sheets Writeback - v7.6.55
  *
  * On scorecard confirmation, finds the matching fixture row in the Google Sheet
  * and writes home score, away score, home points, away points into it.
@@ -361,9 +361,19 @@ function lgw_sheets_find_row($rows, $cols, $home_team, $away_team, $sheet_date) 
         return strtolower(preg_replace('/\b0(\d)/', '$1', trim($d)));
     };
 
+    // Normalise a team name for loose comparison:
+    // collapse spaces around hyphens, compress runs of spaces
+    // "CI - KNOCK B" → "ci-knock b",  "U. Transport A" → "u. transport a"
+    $norm_team = function($t) {
+        $t = strtolower(trim($t));
+        $t = preg_replace('/\s*-\s*/', '-', $t);   // "ci - knock" → "ci-knock"
+        $t = preg_replace('/\s+/', ' ', $t);        // collapse internal spaces
+        return $t;
+    };
+
     $needle_date = $sheet_date ? $norm_date($sheet_date) : '';
-    $needle_home = strtolower(trim($home_team));
-    $needle_away = strtolower(trim($away_team));
+    $needle_home = $norm_team($home_team);
+    $needle_away = $norm_team($away_team);
 
     foreach ($rows as $i => $row) {
         $first = trim($row[0] ?? $row[1] ?? '');
@@ -372,8 +382,8 @@ function lgw_sheets_find_row($rows, $cols, $home_team, $away_team, $sheet_date) 
             continue;
         }
 
-        $ht = strtolower(trim($row[$cols['hteam']] ?? ''));
-        $at = strtolower(trim($row[$cols['ateam']] ?? ''));
+        $ht = $norm_team($row[$cols['hteam']] ?? '');
+        $at = $norm_team($row[$cols['ateam']] ?? '');
         if (!$ht || !$at) continue;
 
         if ($ht === $needle_home && $at === $needle_away) {

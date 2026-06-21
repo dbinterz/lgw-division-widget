@@ -124,6 +124,37 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [7.6.55]
+### Fixed
+- **Sheets team name matching**: normalise spaces around hyphens before comparing team names, so `CI - KNOCK B` in the spreadsheet matches `CI-Knock B` from the scorecard.
+
+## [7.6.54]
+### Fixed
+- **Match date normalisation**: `lgw_log_appearances()` now passes the scorecard date
+  through a new `lgw_normalise_match_date()` helper before storing. AI photo and Excel
+  parsers were writing `Sat 18-Apr-2026` style dates, which `STR_TO_DATE('%d/%m/%Y')`
+  cannot parse, silently dropping those rows from season-filtered queries. Existing rows
+  with non-standard dates need a one-time DB fix (run via WP-CLI or admin tool).
+
+## [7.6.53]
+### Fixed
+- **Season date filter broken by `prepare()` fragment reuse**: `lgw_season_where()` and
+  four inline duplicates built `STR_TO_DATE` WHERE clauses via `$wpdb->prepare()`, which
+  replaces `%` with an internal hash token only resolved when the string is the *final*
+  query — not when concatenated into a larger query. The format string `%d/%m/%Y` arrived
+  at MySQL as garbage, silently excluding almost all rows. Fixed with `esc_sql()` across
+  all six call sites (`lgw_season_where`, `lgw_players_admin_page`, `lgw_export_players_xlsx`,
+  `lgw_export_club_summary_pdf`, `lgw_ajax_check_new_players`, and the appearances AJAX).
+
+## [7.6.52]
+### Added
+- **Positional player grid**: scorecard entry now uses Lead/Second/Third/Skip input
+  slots per rink side instead of a comma-separated textarea. Short rinks (3 players)
+  are arranged Lead/Second/Skip with Third left empty.
+- **Player autocomplete**: each player name slot offers autocomplete suggestions from
+  the registered player list for that team, fetched via a new `lgw_get_team_players`
+  AJAX endpoint — ideal for correcting OCR/Excel spelling variants.
+
 ## [7.6.51]
 ### Added
 - **Mode toggle for pending scorecards**: when a pending scorecard is found in the

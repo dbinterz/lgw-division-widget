@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.51
+Stable tag: 7.6.55
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,31 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 7.6.55 =
+* fix(sheets): normalise spaces around hyphens in team name matching so
+  "CI - KNOCK B" in the sheet matches "CI-Knock B" in the scorecard.
+
+= 7.6.54 =
+* fix(players): normalise match_date to dd/mm/yyyy on write in lgw_log_appearances().
+  AI photo and Excel parsers were storing dates as "Sat 18-Apr-2026", which
+  STR_TO_DATE(..., '%d/%m/%Y') cannot parse, silently excluding those appearances
+  from season filtering. New lgw_normalise_match_date() helper handles the day-name
+  prefix format, ISO yyyy-mm-dd, and passes through dd/mm/yyyy unchanged.
+
+= 7.6.53 =
+* fix(players): correct STR_TO_DATE format string corrupted by prepare() fragment reuse.
+  lgw_season_where() and 4 inline duplicates were building season date WHERE clauses via
+  $wpdb->prepare(), which replaces % with an internal token that is never resolved when
+  the fragment is concatenated into a larger query. Replaced with esc_sql() so the
+  %d/%m/%Y format string reaches MySQL intact.
+
+= 7.6.52 =
+* feat: scorecard entry now uses a positional player grid instead of comma-separated
+  textareas. Each rink has named Lead/Second/Third/Skip slots for both sides.
+  Short rinks (3 players) populate Lead, Second, and Skip with Third left empty.
+  Player names autocomplete from the registered player list for each team via a
+  new lgw_get_team_players AJAX endpoint.
 
 = 7.6.51 =
 * feat: pending scorecard view now shows a "View & confirm / Submit my own" mode
