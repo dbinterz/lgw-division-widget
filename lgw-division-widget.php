@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 7.6.59
+ * Version: 2026.26.1
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '7.6.59');
+define('LGW_VERSION', '2026.26.1');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -808,15 +808,15 @@ function lgw_get_recent_results($limit = 30) {
         }
         $posts = get_posts(array(
             'post_type'      => 'lgw_scorecard',
-            'posts_per_page' => $limit * 3,
+            'posts_per_page' => -1,
             'post_status'    => 'publish',
             'meta_query'     => $meta_query,
         ));
-        $results = array();
+        $all = array();
         foreach ($posts as $p) {
             $sc = get_post_meta($p->ID, 'lgw_scorecard_data', true);
             if (!$sc || empty($sc['home_team']) || empty($sc['away_team'])) continue;
-            $results[] = array(
+            $all[] = array(
                 'home_team'   => $sc['home_team'],
                 'away_team'   => $sc['away_team'],
                 'home_total'  => isset($sc['home_total'])  ? $sc['home_total']  : null,
@@ -827,16 +827,37 @@ function lgw_get_recent_results($limit = 30) {
                 'division'    => $sc['division'] ?? '',
             );
         }
-        // Sort by parsed date descending (dd/mm/yyyy)
-        usort($results, function($a, $b) {
+
+        // Deduplicate by home+away+date (two-party submission creates two posts per fixture)
+        $seen = array();
+        $all = array_values(array_filter($all, function($r) use (&$seen) {
+            $key = strtolower(trim($r['home_team'])) . '||' . strtolower(trim($r['away_team'])) . '||' . $r['date'];
+            if (isset($seen[$key])) return false;
+            $seen[$key] = true;
+            return true;
+        }));
+
+        $date_sort = function($a, $b) {
             $da = $a['date'] ? DateTime::createFromFormat('d/m/Y', $a['date']) : false;
             $db = $b['date'] ? DateTime::createFromFormat('d/m/Y', $b['date']) : false;
             if (!$da && !$db) return 0;
             if (!$da) return  1;
             if (!$db) return -1;
             return $db <=> $da;
-        });
-        return array_slice($results, 0, $limit);
+        };
+        usort($all, $date_sort);
+
+        // Take the $limit most recent per division so no division is starved by others
+        $by_div = array();
+        foreach ($all as $r) {
+            $div = $r['division'] ?: '__none__';
+            if (!isset($by_div[$div])) $by_div[$div] = array();
+            if (count($by_div[$div]) < $limit) $by_div[$div][] = $r;
+        }
+        $results = array();
+        foreach ($by_div as $rows) foreach ($rows as $r) $results[] = $r;
+        usort($results, $date_sort);
+        return $results;
     } catch (Exception $e) {
         return array();
     }

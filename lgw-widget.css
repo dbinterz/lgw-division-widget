@@ -453,9 +453,10 @@ body.lgw-modal-open{overflow:hidden}
 
 /* ── Results ticker ──────────────────────────────────────────────────────────── */
 .lgw-results-ticker{display:flex;align-items:stretch;background:var(--lgw-navy);color:#fff;border-radius:8px;overflow:hidden;font-family:'Saira',Arial,sans-serif;font-size:13px;margin-bottom:8px;min-height:38px;width:100%;box-sizing:border-box}
+.lgw-results-ticker:not(:first-child){border-top-left-radius:0;border-top-right-radius:0}
 .lgw-ticker-label{flex-shrink:0;background:var(--lgw-gold,#c8a84b);color:var(--lgw-navy);font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:0 14px;display:flex;align-items:center;white-space:nowrap;border-right:2px solid rgba(255,255,255,.15)}
 .lgw-ticker-track{flex:1;overflow:hidden;position:relative;display:flex;align-items:center}
-.lgw-ticker-scroll{display:inline-flex;align-items:center;white-space:nowrap;animation:lgwTickerScroll 50s linear infinite;padding-left:100%}
+.lgw-ticker-scroll{display:inline-flex;align-items:center;white-space:nowrap;animation:lgwTickerScroll 30s linear infinite;padding-left:100%}
 .lgw-ticker-scroll:hover{animation-play-state:paused}
 @keyframes lgwTickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .lgw-ticker-item{display:inline-flex;align-items:center;gap:5px;padding:0 18px 0 0;color:#fff}

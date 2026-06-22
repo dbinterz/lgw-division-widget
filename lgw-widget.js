@@ -900,6 +900,15 @@
         var ticker = tickerEl.firstChild;
         // Insert inside the wrap, immediately before the lgw-w widget div
         wrap.insertBefore(ticker, widget);
+        // Set animation duration based on content width so speed is constant (px/s)
+        var scrollEl = ticker.querySelector('.lgw-ticker-scroll');
+        if (scrollEl) {
+          requestAnimationFrame(function() {
+            var contentWidth = scrollEl.scrollWidth / 2; // content is duplicated, so half = one copy
+            var duration = Math.max(8, contentWidth / 80); // 80px/s constant speed
+            scrollEl.style.animationDuration = duration.toFixed(1) + 's';
+          });
+        }
       }
     }
     var csvUrl   =widget.getAttribute('data-csv');

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 7.6.59
+Stable tag: 2026.26.1
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,16 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.1 =
+* feat(ticker): animation speed normalised to a constant 80 px/s so all
+  divisions scroll at the same rate regardless of how many results they have.
+* fix(ticker): recent results now fetched per-division (up to 30 each) before
+  merging, so divisions with fewer results are no longer crowded out by busier
+  ones in the global top-30 pool.
+* fix(ticker): top border-radius removed when ticker is not the first element
+  in its container (sits flush under a division title).
+* chore: switched versioning scheme to yyyy.ww.n (year · ISO week · release).
 
 = 7.6.59 =
 * feat(fixtures): filter button "Results" renamed to "Latest Results".

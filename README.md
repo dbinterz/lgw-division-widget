@@ -124,6 +124,15 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.1]
+### Added
+- **Ticker speed normalisation**: animation duration is now computed from the actual rendered content width at 80 px/s, so all divisions scroll at a consistent speed.
+### Fixed
+- **Ticker per-division results**: recent results are now collected up to 30 per division before merging, preventing high-volume divisions from starving others in the global pool.
+- **Ticker top corners**: border-radius on the top edges is removed when the ticker follows another element (e.g. a division title), so it sits flush without a visual gap.
+### Changed
+- **Versioning**: switched from `x.y.z` semver to `yyyy.ww.n` (year · ISO week · release number within the week).
+
 ## [7.6.59]
 ### Added
 - **Latest Results tab**: filter button renamed from "Results" to "Latest Results". Played fixtures are now regrouped by their actual date played (using the rescheduled played-on date where present, rather than the original scheduled date) and sorted newest first. Date headers use the `ddd dd-MMM-YYYY` format to match the rest of the widget.
