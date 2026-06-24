@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.2
+Stable tag: 2026.26.6
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,31 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.6 =
+* fix(players): appearances modal now correctly season-filters — the AJAX
+  handler was passing lgw_season_where() through prepare(), which corrupted
+  the STR_TO_DATE '%d/%m/%Y' format string. Switched to get_results() with
+  intval-safe player_id, matching the pattern used by all other appearance
+  queries.
+
+= 2026.26.5 =
+* feat(players): club filter dropdown on [lgw_player_stats] — filters visible
+  rows in the active tab; row numbers re-sequence after filtering.
+* feat(players): appearances modal header shows club badge (resolves via
+  lgw_club_badges option, same fuzzy prefix logic as team modal).
+
+= 2026.26.4 =
+* feat(players): player names in [lgw_player_stats] link to a modal showing
+  their game-by-game league appearances (date, opponent, SF, SA, +/-, result).
+  Division tab links pre-filter to that division; All tab shows all divisions.
+
+= 2026.26.3 =
+* feat(players): add [lgw_player_stats] shortcode — per-division player league
+  table with wins/draws/shot-difference/shots-for sorting and an All tab.
+* feat(players): store division on appearance rows; back-fill existing records
+  from scorecard meta on first run.
+* fix(enqueue): load CSS/JS on pages with only the lgw_player_stats shortcode.
 
 = 2026.26.2 =
 * fix(fixtures): time pill now correctly detected when time column has no header

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.26.2
+ * Version: 2026.26.6
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.26.2');
+define('LGW_VERSION', '2026.26.6');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -867,7 +867,10 @@ function lgw_get_recent_results($limit = 30) {
 add_action('wp_enqueue_scripts', 'lgw_enqueue');
 function lgw_enqueue() {
     global $post;
-    if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'lgw_division')) return;
+    if (!is_a($post, 'WP_Post')) return;
+    $has_lgw = has_shortcode($post->post_content, 'lgw_division')
+            || has_shortcode($post->post_content, 'lgw_player_stats');
+    if (!$has_lgw) return;
 
     $lgw_theme_opt = get_option('lgw_theme', array());
     $lgw_font_key  = ! empty( $lgw_theme_opt['font_family'] ) ? $lgw_theme_opt['font_family'] : 'Saira';

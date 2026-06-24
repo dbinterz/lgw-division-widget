@@ -97,6 +97,24 @@ function lgw_maybe_create_player_tables() {
     if (!in_array('match_key', $acols)) {
         $wpdb->query("ALTER TABLE $at ADD COLUMN match_key VARCHAR(100) NULL DEFAULT NULL");
     }
+    // Migrate appearances table: add division column for per-competition player stats
+    if (!in_array('division', $acols)) {
+        $wpdb->query("ALTER TABLE $at ADD COLUMN division VARCHAR(100) NOT NULL DEFAULT ''");
+        lgw_backfill_appearance_divisions();
+    }
+}
+
+function lgw_backfill_appearance_divisions() {
+    global $wpdb;
+    $at  = lgw_appearances_table();
+    $ids = $wpdb->get_col( "SELECT DISTINCT scorecard_id FROM {$at} WHERE division = '' AND scorecard_id > 0" );
+    foreach ( $ids as $sc_id ) {
+        $sc       = get_post_meta( (int) $sc_id, 'lgw_scorecard_data', true );
+        $division = $sc['division'] ?? '';
+        if ( $division ) {
+            $wpdb->update( $at, array( 'division' => $division ), array( 'scorecard_id' => (int) $sc_id ), array( '%s' ), array( '%d' ) );
+        }
+    }
 }
 
 // ── Season helpers ────────────────────────────────────────────────────────────
@@ -307,7 +325,8 @@ function lgw_log_appearances($scorecard_post_id) {
                 'shots_against'=> $away_shots,
                 'result'       => $home_result,
                 'game_type'    => $game_type,
-            ), array('%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s'));
+                'division'     => $division,
+            ), array('%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s','%s'));
         }
 
         // Away players
@@ -329,7 +348,8 @@ function lgw_log_appearances($scorecard_post_id) {
                 'shots_against'=> $home_shots,
                 'result'       => $away_result,
                 'game_type'    => $game_type,
-            ), array('%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s'));
+                'division'     => $division,
+            ), array('%d','%s','%s','%s','%d','%d','%s','%d','%d','%s','%s','%s'));
         }
     }
 }
@@ -3570,4 +3590,370 @@ function lgw_club_team_in_match($club, $home, $away) {
 // ── Helper: safe Excel sheet name (max 31 chars, no special chars) ────────────
 function lgw_safe_sheet_name($name) {
     return substr(preg_replace('/[^A-Za-z0-9 ]/', '', $name), 0, 31);
+}
+
+// ── Player stats shortcode [lgw_player_stats] ─────────────────────────────────
+add_shortcode( 'lgw_player_stats', 'lgw_player_stats_shortcode' );
+function lgw_player_stats_shortcode( $atts ) {
+    global $wpdb;
+    $at  = lgw_appearances_table();
+    $pt  = lgw_players_table();
+    $sw  = lgw_season_where();
+
+    // Query per-player per-division stats (league games with scores only)
+    $rows = $wpdb->get_results( "
+        SELECT
+            p.id AS player_id, p.name, p.club, a.team, a.division,
+            COUNT(*)                                        AS played,
+            SUM(a.result = 'W')                            AS wins,
+            SUM(a.result = 'D')                            AS draws,
+            SUM(a.result = 'L')                            AS losses,
+            COALESCE(SUM(a.shots_for), 0)                  AS sf,
+            COALESCE(SUM(a.shots_against), 0)              AS sa,
+            COALESCE(SUM(a.shots_for), 0)
+                - COALESCE(SUM(a.shots_against), 0)        AS diff
+        FROM {$at} a
+        JOIN {$pt} p ON p.id = a.player_id
+        WHERE a.game_type = 'league'
+          AND a.shots_for IS NOT NULL
+          AND a.division  != ''
+          {$sw}
+        GROUP BY a.player_id, a.division
+        ORDER BY a.division, wins DESC, draws DESC, diff DESC, sf DESC
+    ", ARRAY_A );
+
+    if ( empty( $rows ) ) {
+        return '<p class="lgw-status">No player stats available yet.</p>';
+    }
+
+    // Group by division
+    $by_div = array();
+    foreach ( $rows as $r ) {
+        $by_div[ $r['division'] ][] = $r;
+    }
+    ksort( $by_div );
+
+    // Build "All" tab — aggregate across divisions per player
+    $all_map = array();
+    foreach ( $rows as $r ) {
+        $key = $r['name'] . '||' . $r['club'];
+        if ( ! isset( $all_map[ $key ] ) ) {
+            $all_map[ $key ] = array( 'player_id' => $r['player_id'], 'name' => $r['name'], 'club' => $r['club'], 'team' => $r['team'],
+                'division' => '', 'played' => 0, 'wins' => 0, 'draws' => 0, 'losses' => 0, 'sf' => 0, 'sa' => 0 );
+        }
+        $all_map[ $key ]['played'] += $r['played'];
+        $all_map[ $key ]['wins']   += $r['wins'];
+        $all_map[ $key ]['draws']  += $r['draws'];
+        $all_map[ $key ]['losses'] += $r['losses'];
+        $all_map[ $key ]['sf']     += $r['sf'];
+        $all_map[ $key ]['sa']     += $r['sa'];
+    }
+    foreach ( $all_map as &$a ) { $a['diff'] = $a['sf'] - $a['sa']; }
+    unset( $a );
+    usort( $all_map, 'lgw_player_stats_sort' );
+
+    $divisions   = array_keys( $by_div );
+    $uid         = 'lgwps-' . substr( md5( implode( '', $divisions ) ), 0, 6 );
+    $all_clubs   = array_unique( array_column( $rows, 'club' ) );
+    sort( $all_clubs );
+    $club_badges = get_option( 'lgw_club_badges', array() );
+
+    ob_start();
+    ?>
+    <div class="lgw-player-stats" id="<?php echo esc_attr( $uid ); ?>">
+
+      <?php /* Appearances modal — reuses existing lgw-modal CSS */ ?>
+      <div class="lgw-modal-overlay lgwps-overlay" role="dialog" aria-modal="true" aria-label="Player appearances">
+        <div class="lgw-modal lgwps-modal">
+          <div class="lgw-modal-head">
+            <div class="lgw-modal-title">
+              <img class="lgw-modal-badge lgwps-modal-badge" src="" alt="" style="display:none">
+              <h2 class="lgwps-modal-title"></h2>
+            </div>
+            <div class="lgw-modal-actions">
+              <button class="lgw-modal-close lgwps-close" aria-label="Close">&times;</button>
+            </div>
+          </div>
+          <div class="lgw-modal-body lgwps-modal-body"><p class="lgw-status">Loading&hellip;</p></div>
+        </div>
+      </div>
+
+      <div class="lgwps-toolbar">
+        <label class="lgwps-filter-label" for="<?php echo esc_attr( $uid . '-club-filter' ); ?>">Club</label>
+        <select class="lgwps-club-filter" id="<?php echo esc_attr( $uid . '-club-filter' ); ?>">
+          <option value="">All clubs</option>
+          <?php foreach ( $all_clubs as $club ) : ?>
+            <option value="<?php echo esc_attr( $club ); ?>"><?php echo esc_html( $club ); ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+
+      <div class="lgwps-tabs" role="tablist">
+        <?php foreach ( $divisions as $i => $div ) : ?>
+          <button class="lgwps-tab<?php echo $i === 0 ? ' active' : ''; ?>"
+                  role="tab"
+                  data-tab="<?php echo esc_attr( $uid . '-' . sanitize_title( $div ) ); ?>">
+            <?php echo esc_html( $div ); ?>
+          </button>
+        <?php endforeach; ?>
+        <button class="lgwps-tab" role="tab"
+                data-tab="<?php echo esc_attr( $uid . '-all' ); ?>">All</button>
+      </div>
+
+      <?php foreach ( $divisions as $i => $div ) :
+        $sorted = $by_div[ $div ];
+        usort( $sorted, 'lgw_player_stats_sort' );
+        ?>
+        <div class="lgwps-panel<?php echo $i === 0 ? ' active' : ''; ?>"
+             id="<?php echo esc_attr( $uid . '-' . sanitize_title( $div ) ); ?>">
+          <?php echo lgw_player_stats_table( $sorted ); ?>
+        </div>
+      <?php endforeach; ?>
+
+      <div class="lgwps-panel" id="<?php echo esc_attr( $uid . '-all' ); ?>">
+        <?php echo lgw_player_stats_table( $all_map ); ?>
+      </div>
+    </div>
+    <script>
+    (function(){
+      var wrap       = document.getElementById(<?php echo json_encode( $uid ); ?>);
+      if (!wrap) return;
+      var overlay    = wrap.querySelector('.lgwps-overlay');
+      var mTitle     = wrap.querySelector('.lgwps-modal-title');
+      var mBody      = wrap.querySelector('.lgwps-modal-body');
+      var mBadge     = wrap.querySelector('.lgwps-modal-badge');
+      var clubFilter = wrap.querySelector('.lgwps-club-filter');
+      var clubBadges = <?php echo wp_json_encode( $club_badges ); ?>;
+
+      // Badge URL resolver (mirrors PHP lgw_resolve_badge_url)
+      function resolveBadge(club) {
+        if (!club) return '';
+        var cu = club.toUpperCase();
+        for (var k in clubBadges) {
+          if (k.toUpperCase() === cu) return clubBadges[k];
+        }
+        var bestKey = '', bestUrl = '';
+        for (var k in clubBadges) {
+          var ku = k.toUpperCase();
+          if (cu.indexOf(ku) === 0 || ku.indexOf(cu) === 0) {
+            if (k.length > bestKey.length) { bestKey = k; bestUrl = clubBadges[k]; }
+          }
+        }
+        return bestUrl;
+      }
+
+      // Tab switching
+      wrap.querySelectorAll('.lgwps-tab').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          wrap.querySelectorAll('.lgwps-tab').forEach(function(b){ b.classList.remove('active'); });
+          wrap.querySelectorAll('.lgwps-panel').forEach(function(p){ p.classList.remove('active'); });
+          btn.classList.add('active');
+          var panel = document.getElementById(btn.dataset.tab);
+          if (panel) panel.classList.add('active');
+          applyFilter();
+        });
+      });
+
+      // Club filter
+      function applyFilter() {
+        var val = clubFilter ? clubFilter.value : '';
+        var panel = wrap.querySelector('.lgwps-panel.active');
+        if (!panel) return;
+        panel.querySelectorAll('tbody tr').forEach(function(tr){
+          tr.style.display = (!val || tr.dataset.club === val) ? '' : 'none';
+        });
+        // Re-number visible rows
+        var pos = 1;
+        panel.querySelectorAll('tbody tr').forEach(function(tr){
+          if (tr.style.display !== 'none') {
+            var cell = tr.querySelector('.lgwps-pos');
+            if (cell) cell.textContent = pos++;
+          }
+        });
+      }
+      if (clubFilter) clubFilter.addEventListener('change', applyFilter);
+
+      // Appearances modal
+      function openModal(playerId, playerName, club, division) {
+        mTitle.textContent = playerName + (division ? ' — ' + division : '');
+        var badgeUrl = resolveBadge(club);
+        if (badgeUrl && mBadge) {
+          mBadge.src = badgeUrl;
+          mBadge.alt = club;
+          mBadge.style.display = '';
+        } else if (mBadge) {
+          mBadge.style.display = 'none';
+        }
+        mBody.innerHTML = '<p class="lgw-status">Loading…</p>';
+        overlay.classList.add('active');
+        document.body.classList.add('lgw-modal-open');
+
+        var nonce = (typeof lgwData !== 'undefined' && lgwData.scNonce) ? lgwData.scNonce
+                  : (typeof lgwSubmit !== 'undefined' && lgwSubmit.nonce) ? lgwSubmit.nonce : '';
+        var fd = new FormData();
+        fd.append('action',    'lgw_get_player_appearances');
+        fd.append('nonce',     nonce);
+        fd.append('player_id', playerId);
+        fd.append('division',  division || '');
+
+        fetch(<?php echo json_encode( admin_url('admin-ajax.php') ); ?>, { method: 'POST', body: fd })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d.success || !d.data.length) {
+              mBody.innerHTML = '<p class="lgw-status">No appearances found.</p>';
+              return;
+            }
+            var rows = d.data;
+            var html = '<div class="lgwps-wrap"><table class="lgwps-tbl lgwps-app-tbl">'
+              + '<thead><tr>'
+              + (division ? '' : '<th class="lgwps-div-cell">Division</th>')
+              + '<th>Date</th><th class="lgwps-name">Opponent</th>'
+              + '<th title="Shots For">SF</th><th title="Shots Against">SA</th>'
+              + '<th title="Shot Difference">+/-</th><th>Result</th>'
+              + '</tr></thead><tbody>';
+            rows.forEach(function(r){
+              var diff   = (r.sf !== null && r.sa !== null) ? (r.sf - r.sa) : null;
+              var res    = r.result || '';
+              var resCls = res === 'W' ? 'lgwps-win' : (res === 'L' ? 'lgwps-loss' : 'lgwps-draw');
+              html += '<tr>'
+                + (division ? '' : '<td class="lgwps-div-cell">' + (r.division || '—') + '</td>')
+                + '<td>' + (r.match_date || '—') + '</td>'
+                + '<td class="lgwps-name">' + (r.opponent || '—') + '</td>'
+                + '<td>' + (r.sf !== null ? r.sf : '—') + '</td>'
+                + '<td>' + (r.sa !== null ? r.sa : '—') + '</td>'
+                + '<td class="lgwps-diff">' + (diff !== null ? (diff >= 0 ? '+' : '') + diff : '—') + '</td>'
+                + '<td><span class="lgwps-badge ' + resCls + '">' + (res || '—') + '</span></td>'
+                + '</tr>';
+            });
+            html += '</tbody></table></div>';
+            mBody.innerHTML = html;
+          })
+          .catch(function(){ mBody.innerHTML = '<p class="lgw-status">Error loading appearances.</p>'; });
+      }
+
+      function closeModal() {
+        overlay.classList.remove('active');
+        document.body.classList.remove('lgw-modal-open');
+      }
+
+      wrap.querySelector('.lgwps-close').addEventListener('click', closeModal);
+      overlay.addEventListener('click', function(e){ if (e.target === overlay) closeModal(); });
+      document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
+
+      wrap.addEventListener('click', function(e){
+        var btn = e.target.closest('.lgwps-player-btn');
+        if (!btn) return;
+        openModal(btn.dataset.pid, btn.dataset.name, btn.dataset.club, btn.dataset.division);
+      });
+    })();
+    </script>
+    <?php
+    return ob_get_clean();
+}
+
+function lgw_player_stats_sort( $a, $b ) {
+    if ( $b['wins']  !== $a['wins']  ) return $b['wins']  - $a['wins'];
+    if ( $b['draws'] !== $a['draws'] ) return $b['draws'] - $a['draws'];
+    if ( $b['diff']  !== $a['diff']  ) return $b['diff']  - $a['diff'];
+    return $b['sf'] - $a['sf'];
+}
+
+function lgw_player_stats_table( $rows ) {
+    if ( empty( $rows ) ) return '<p class="lgw-status">No data.</p>';
+    $html  = '<div class="lgwps-wrap"><table class="lgwps-tbl">';
+    $html .= '<thead><tr>'
+           . '<th class="lgwps-pos">#</th>'
+           . '<th class="lgwps-name">Player</th>'
+           . '<th class="lgwps-club">Club</th>'
+           . '<th title="Played">P</th>'
+           . '<th title="Wins">W</th>'
+           . '<th title="Draws">D</th>'
+           . '<th title="Losses">L</th>'
+           . '<th title="Shots For">SF</th>'
+           . '<th title="Shots Against">SA</th>'
+           . '<th title="Shot Difference">+/-</th>'
+           . '</tr></thead><tbody>';
+    foreach ( $rows as $i => $r ) {
+        $diff = intval( $r['diff'] );
+        $btn   = '<button class="lgwps-player-btn"'
+               . ' data-pid="'      . esc_attr( $r['player_id'] ?? '' ) . '"'
+               . ' data-name="'     . esc_attr( $r['name'] ) . '"'
+               . ' data-club="'     . esc_attr( $r['club'] ) . '"'
+               . ' data-division="' . esc_attr( $r['division'] ?? '' ) . '">'
+               . esc_html( $r['name'] ) . '</button>';
+        $html .= '<tr data-club="' . esc_attr( $r['club'] ) . '">'
+               . '<td class="lgwps-pos">' . ( $i + 1 ) . '</td>'
+               . '<td class="lgwps-name">' . $btn . '</td>'
+               . '<td class="lgwps-club">' . esc_html( $r['club'] ) . '</td>'
+               . '<td>' . intval( $r['played'] ) . '</td>'
+               . '<td class="lgwps-w">' . intval( $r['wins'] ) . '</td>'
+               . '<td>' . intval( $r['draws'] ) . '</td>'
+               . '<td>' . intval( $r['losses'] ) . '</td>'
+               . '<td>' . intval( $r['sf'] ) . '</td>'
+               . '<td>' . intval( $r['sa'] ) . '</td>'
+               . '<td class="lgwps-diff">' . ( $diff >= 0 ? '+' : '' ) . $diff . '</td>'
+               . '</tr>';
+    }
+    $html .= '</tbody></table></div>';
+    return $html;
+}
+
+// ── AJAX: player appearances for [lgw_player_stats] modal ─────────────────────
+add_action( 'wp_ajax_nopriv_lgw_get_player_appearances', 'lgw_ajax_get_player_appearances' );
+add_action( 'wp_ajax_lgw_get_player_appearances',        'lgw_ajax_get_player_appearances' );
+function lgw_ajax_get_player_appearances() {
+    check_ajax_referer( 'lgw_submit_nonce', 'nonce' );
+
+    $player_id = intval( $_POST['player_id'] ?? 0 );
+    $division  = sanitize_text_field( wp_unslash( $_POST['division'] ?? '' ) );
+    if ( ! $player_id ) wp_send_json_error( 'Missing player_id' );
+
+    global $wpdb;
+    $at = lgw_appearances_table();
+    $sw = lgw_season_where();
+
+    // $sw uses esc_sql internally and cannot go through prepare() — prepare() mangles
+    // the %d/%m/%Y format string in STR_TO_DATE. player_id is intval-safe; division
+    // is escaped separately via prepare() then concatenated.
+    $div_sql = $division ? $wpdb->prepare( 'AND a.division = %s', $division ) : '';
+
+    $rows = $wpdb->get_results(
+        "SELECT a.match_date, a.team, a.match_title, a.shots_for, a.shots_against, a.result, a.division
+         FROM {$at} a
+         WHERE a.player_id = {$player_id}
+           AND a.game_type  = 'league'
+           AND a.shots_for IS NOT NULL
+           {$div_sql}
+           {$sw}
+         ORDER BY STR_TO_DATE(a.match_date, '%d/%m/%Y') DESC",
+        ARRAY_A
+    );
+
+    // Derive opponent from match_title (format "Home v Away") and team
+    $out = array();
+    foreach ( $rows as $r ) {
+        $parts    = preg_split( '/ v /i', $r['match_title'], 2 );
+        $opponent = '';
+        if ( count( $parts ) === 2 ) {
+            $home = trim( $parts[0] );
+            $away = trim( $parts[1] );
+            $team = trim( $r['team'] );
+            // Match team to home or away side to derive opponent
+            similar_text( strtolower( $team ), strtolower( $home ), $ph );
+            similar_text( strtolower( $team ), strtolower( $away ), $pa );
+            $opponent = $ph >= $pa ? $away : $home;
+        } else {
+            $opponent = $r['match_title'];
+        }
+        $out[] = array(
+            'match_date' => $r['match_date'],
+            'opponent'   => $opponent,
+            'sf'         => $r['shots_for'] !== null ? intval( $r['shots_for'] ) : null,
+            'sa'         => $r['shots_against'] !== null ? intval( $r['shots_against'] ) : null,
+            'result'     => $r['result'],
+            'division'   => $r['division'],
+        );
+    }
+
+    wp_send_json_success( $out );
 }

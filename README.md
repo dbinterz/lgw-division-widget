@@ -124,6 +124,26 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.6]
+### Fixed
+- **Appearances modal season filter**: `lgw_get_player_appearances` was passing `lgw_season_where()` through `$wpdb->prepare()`, corrupting the `STR_TO_DATE('%d/%m/%Y')` format string. Switched to `get_results()` with an `intval`-safe player ID, consistent with every other appearance query in the codebase.
+
+## [2026.26.5]
+### Added
+- **Club filter**: dropdown above `[lgw_player_stats]` tabs filters rows in the active panel to a single club; row numbers re-sequence after filtering.
+- **Club badge in appearances modal**: modal header now shows the club badge (resolved via `lgw_club_badges` option using the same fuzzy prefix logic as the team modal).
+
+## [2026.26.4]
+### Added
+- **Player appearances modal**: player names in `[lgw_player_stats]` are now clickable and open a modal listing every league game for that player (date, opponent, SF, SA, +/-, W/D/L badge). Division-tab clicks pre-filter to that division; the All tab shows all.
+
+## [2026.26.3]
+### Added
+- **Player stats shortcode** `[lgw_player_stats]`: renders a per-division player league table with tabs (one per competition + All), sorted by wins → draws → shot difference → shots scored. Season-aware.
+- **Division column on appearances**: new `division` DB column stores the competition name (Division 1, Midweek 1, etc.) on each appearance row; existing rows are back-filled from scorecard meta on first load.
+### Fixed
+- **Player stats CSS**: `lgw_enqueue()` now loads CSS/JS on pages containing only the `lgw_player_stats` shortcode (previously only fired for `lgw_division`).
+
 ## [2026.26.2]
 ### Fixed
 - **Time pill (SSR mode)**: time column scan range extended to include the column immediately after away points, fixing pill not appearing when no `time` header exists in the sheet.
