@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.1
+Stable tag: 2026.26.2
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.2 =
+* fix(fixtures): time pill now correctly detected when time column has no header
+  — scan range extended to include the column immediately after away points.
+* fix(fixtures): time values stored as HH:MM no longer have minutes stripped
+  when cached by PHP (seconds-strip guard added).
 
 = 2026.26.1 =
 * feat(ticker): animation speed normalised to a constant 80 px/s so all

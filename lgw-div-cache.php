@@ -566,7 +566,7 @@ function lgw_cache_parse_fixtures( $csv_body ) {
         if ( $colTime >= 0 ) {
             $tv = trim( $r[$colTime] ?? '' );
             if ( preg_match( '/^\d{1,2}:\d{2}(:\d{2})?$/', $tv ) ) {
-                $timeNote = preg_replace( '/:\d{2}$/', '', $tv ); // strip seconds
+                $timeNote = substr_count( $tv, ':' ) > 1 ? preg_replace( '/:\d{2}$/', '', $tv ) : $tv;
             } elseif ( is_numeric( $tv ) ) {
                 $fv = floatval( $tv );
                 if ( $fv > 0 && $fv < 1 ) {
@@ -577,10 +577,10 @@ function lgw_cache_parse_fixtures( $csv_body ) {
                 }
             }
         } else {
-            for ( $x = $colATeam + 1; $x < $colPtsA; $x++ ) {
+            for ( $x = $colATeam + 1; $x <= $colPtsA + 1; $x++ ) {
                 $tv = trim( $r[$x] ?? '' );
                 if ( preg_match( '/^\d{1,2}:\d{2}(:\d{2})?$/', $tv ) ) {
-                    $timeNote = preg_replace( '/:\d{2}$/', '', $tv );
+                    $timeNote = substr_count( $tv, ':' ) > 1 ? preg_replace( '/:\d{2}$/', '', $tv ) : $tv;
                     break;
                 }
                 if ( is_numeric( $tv ) ) {
@@ -595,7 +595,6 @@ function lgw_cache_parse_fixtures( $csv_body ) {
                 }
             }
         }
-
         $played = ( $shotsHome !== '0' || $shotsAway !== '0' || $ptsHome !== '0' || $ptsAway !== '0' )
                   && ( $shotsHome !== '' || $shotsAway !== '' );
 

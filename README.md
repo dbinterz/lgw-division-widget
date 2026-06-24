@@ -124,6 +124,11 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.2]
+### Fixed
+- **Time pill (SSR mode)**: time column scan range extended to include the column immediately after away points, fixing pill not appearing when no `time` header exists in the sheet.
+- **Time pill (HH:MM)**: seconds-strip regex now guarded so `HH:MM` values are no longer truncated to `HH` when cached by PHP.
+
 ## [2026.26.1]
 ### Added
 - **Ticker speed normalisation**: animation duration is now computed from the actual rendered content width at 80 px/s, so all divisions scroll at a consistent speed.

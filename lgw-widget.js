@@ -236,7 +236,7 @@
           }
         } else {
           // No reference row — scan between awayTeam and awayPts (legacy fallback)
-          for(var x=colATeam+1;x<colPtsA;x++){
+          for(var x=colATeam+1;x<=colPtsA+1;x++){
             var tv=(r[x]||'').trim();
             if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(tv)){
               timeNote=(tv.split(':').length>2)?tv.replace(/:\d{2}$/,''):tv;
