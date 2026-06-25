@@ -121,7 +121,7 @@
       + '</div>';
   }
 
-  function renderMatch(match, homePlaceholder, awayPlaceholder) {
+  function renderMatch(match, homePlaceholder, awayPlaceholder, scStatus) {
     var home       = match.home  || '';
     var away       = match.away  || '';
     var hs         = match.home_score;
@@ -135,9 +135,17 @@
     if (match.bye)     cls += ' lgw-cup-bye';
     if (!home && !away) cls += ' lgw-cup-tbd';
 
+    var scIcon = '';
+    if (scStatus === 'confirmed') {
+      scIcon = '<span class="lgw-cup-sc-icon lgw-cup-sc-confirmed" title="Scorecard confirmed">&#x2705;</span>';
+    } else if (scStatus === 'pending') {
+      scIcon = '<span class="lgw-cup-sc-icon lgw-cup-sc-pending" title="Scorecard pending confirmation">&#x26A0;&#xFE0F;</span>';
+    }
+
     return '<div class="' + cls + '">'
       + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, match.draw_num_home, home ? null : homePlaceholder)
       + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, match.draw_num_away, away ? null : awayPlaceholder)
+      + scIcon
       + '</div>';
   }
 
@@ -159,6 +167,10 @@
         tabsInner.appendChild(tab);
       });
     }
+
+    // ── Scorecard status map (populated by PHP shortcode at page load)
+    var scStatuses = {};
+    try { scStatuses = JSON.parse(wrap.dataset.scStatuses || '{}'); } catch(e) {}
 
     // ── Bracket
     var bracketEl = qs('.lgw-cup-bracket', wrap);
@@ -199,7 +211,9 @@
           if (!match.away && prevAway) awayPlaceholder = buildPlaceholder(prevAway);
         }
         var matchEl = document.createElement('div');
-        matchEl.innerHTML = renderMatch(match, homePlaceholder, awayPlaceholder);
+        var scKey = (match.home || '').toLowerCase() + '||' + (match.away || '').toLowerCase();
+        var scStatus = scStatuses[scKey] || '';
+        matchEl.innerHTML = renderMatch(match, homePlaceholder, awayPlaceholder, scStatus);
         var card = matchEl.firstElementChild;
         card.dataset.round = ri;
         card.dataset.match = mi;

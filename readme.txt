@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.8
+Stable tag: 2026.26.9
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.9 =
+* feat(cup): pending (⚠️) and confirmed (✅) scorecard icons on cup bracket
+  match cards — PHP shortcode builds a status map at render time, JS reads
+  it when drawing the bracket.
 
 = 2026.26.8 =
 * fix(scorecards): suppress "Division name wasn't recognised" warning for cup

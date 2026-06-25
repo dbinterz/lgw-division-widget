@@ -257,6 +257,25 @@ function lgw_cup_shortcode($atts) {
     $is_admin = current_user_can('manage_options');
 
     $bracket_json    = $bracket ? wp_json_encode($bracket) : '';
+    // Build scorecard-status map for bracket display (pending/confirmed icons)
+    $sc_statuses = array();
+    if ($bracket && !empty($bracket['matches'])) {
+        foreach ($bracket['matches'] as $round_matches) {
+            foreach ($round_matches as $match) {
+                $mh = $match['home'] ?? '';
+                $ma = $match['away'] ?? '';
+                if (!$mh || !$ma) continue;
+                $sc_post = lgw_get_scorecard($mh, $ma, '', 'cup');
+                if ($sc_post) {
+                    $sc_st = get_post_meta($sc_post->ID, 'lgw_sc_status', true);
+                    if ($sc_st) {
+                        $sc_statuses[strtolower($mh) . '||' . strtolower($ma)] = $sc_st;
+                    }
+                }
+            }
+        }
+    }
+    $sc_statuses_json = esc_attr(wp_json_encode($sc_statuses));
     $nonce           = wp_create_nonce('lgw_cup_nonce');
     $global_sponsors = get_option('lgw_sponsors', array());
     if (!empty($atts['sponsor_img'])) {
@@ -286,6 +305,7 @@ function lgw_cup_shortcode($atts) {
          data-draw-version="<?php echo esc_attr($version); ?>"
          data-draw-in-progress="<?php echo (!empty($cup['draw_in_progress']) && empty($cup['bracket'])) ? '1' : '0'; ?>"
          data-bracket="<?php echo esc_attr($bracket_json); ?>"
+         data-sc-statuses="<?php echo $sc_statuses_json; ?>"
          data-sponsors="<?php echo $extra_json; ?>">
 
       <?php echo $primary_html; ?>

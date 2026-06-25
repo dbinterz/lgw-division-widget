@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.9]
+### Added
+- **Cup bracket**: ✅/⚠️ scorecard status icons on match cards — confirmed shows a green check, pending shows a yellow warning triangle. PHP builds a status map at shortcode render time; JS reads it when drawing the bracket.
+
 ## [2026.26.8]
 ### Fixed
 - **Cup scorecards**: suppress "Division name wasn't recognised" warning for cup context scorecards — cups have no Google Sheets tab to resolve against.
