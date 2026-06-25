@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.10
+Stable tag: 2026.26.11
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.11 =
+* fix(cup): pending scorecard icon (⚠️) now appears inline next to the team
+  who has not yet submitted, rather than in the top-right corner of the card.
+  Confirmed icon (✅) remains in the top-right corner.
 
 = 2026.26.10 =
 * fix(cup): prelim round winner now advances to the correct R2 slot — replaced

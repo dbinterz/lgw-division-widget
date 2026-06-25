@@ -102,7 +102,7 @@
     return null;
   }
 
-  function renderTeamRow(team, score, isWinner, isLoser, drawNum, placeholder) {
+  function renderTeamRow(team, score, isWinner, isLoser, drawNum, placeholder, rowIcon) {
     var cls = 'lgw-cup-team';
     if (isWinner) cls += ' lgw-cup-winner';
     if (isLoser)  cls += ' lgw-cup-loser';
@@ -116,6 +116,7 @@
     return '<div class="' + cls + '">'
       + badge
       + '<span class="' + nameCls + '">' + nameStr + '</span>'
+      + (rowIcon || '')
       + (scoreStr !== '' ? '<span class="lgw-cup-score">' + scoreStr + '</span>' : '')
       + dnStr
       + '</div>';
@@ -135,17 +136,24 @@
     if (match.bye)     cls += ' lgw-cup-bye';
     if (!home && !away) cls += ' lgw-cup-tbd';
 
-    var scIcon = '';
-    if (scStatus === 'confirmed') {
-      scIcon = '<span class="lgw-cup-sc-icon lgw-cup-sc-confirmed" title="Scorecard confirmed">&#x2705;</span>';
-    } else if (scStatus === 'pending') {
-      scIcon = '<span class="lgw-cup-sc-icon lgw-cup-sc-pending" title="Scorecard pending confirmation">&#x26A0;&#xFE0F;</span>';
+    var scBase = scStatus.indexOf(':') !== -1 ? scStatus.split(':')[0] : scStatus;
+    var scSide = scStatus.indexOf(':') !== -1 ? scStatus.split(':')[1] : '';
+    var matchIcon = '';
+    var homeIcon  = '';
+    var awayIcon  = '';
+    if (scBase === 'confirmed') {
+      matchIcon = '<span class="lgw-cup-sc-icon lgw-cup-sc-confirmed" title="Scorecard confirmed">&#x2705;</span>';
+    } else if (scBase === 'pending') {
+      var pendingIcon = '<span class="lgw-cup-sc-icon lgw-cup-sc-pending" title="Scorecard pending confirmation">&#x26A0;&#xFE0F;</span>';
+      if (scSide === 'home')      homeIcon  = pendingIcon;
+      else if (scSide === 'away') awayIcon  = pendingIcon;
+      else                        matchIcon = pendingIcon;
     }
 
     return '<div class="' + cls + '">'
-      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, match.draw_num_home, home ? null : homePlaceholder)
-      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, match.draw_num_away, away ? null : awayPlaceholder)
-      + scIcon
+      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, match.draw_num_home, home ? null : homePlaceholder, homeIcon)
+      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, match.draw_num_away, away ? null : awayPlaceholder, awayIcon)
+      + matchIcon
       + '</div>';
   }
 

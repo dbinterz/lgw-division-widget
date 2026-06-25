@@ -267,7 +267,16 @@ function lgw_cup_shortcode($atts) {
                 if ($sc_post) {
                     $sc_st = get_post_meta($sc_post->ID, 'lgw_sc_status', true);
                     if ($sc_st) {
-                        $sc_statuses[strtolower($mh) . '||' . strtolower($ma)] = $sc_st;
+                        if ($sc_st === 'pending') {
+                            // Determine which side hasn't submitted yet
+                            $submitted_by = get_post_meta($sc_post->ID, 'lgw_submitted_by', true);
+                            $sc_data      = get_post_meta($sc_post->ID, 'lgw_scorecard_data', true);
+                            $home_team    = $sc_data['home_team'] ?? '';
+                            $pending_side = (lgw_normalise_team($submitted_by) === lgw_normalise_team($home_team)) ? 'away' : 'home';
+                            $sc_statuses[strtolower($mh) . '||' . strtolower($ma)] = 'pending:' . $pending_side;
+                        } else {
+                            $sc_statuses[strtolower($mh) . '||' . strtolower($ma)] = $sc_st;
+                        }
                     }
                 }
             }

@@ -188,12 +188,19 @@
 
 /* ── Scorecard status icon ───────────────────────────────────────────────────── */
 .lgw-cup-sc-icon {
+  font-size: 11px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.lgw-cup-sc-confirmed {
   position: absolute;
   top: 3px;
   right: 5px;
-  font-size: 11px;
-  line-height: 1;
   pointer-events: none;
+}
+.lgw-cup-sc-pending {
+  display: inline-block;
+  margin-left: 4px;
 }
 
 /* ── Match team row ──────────────────────────────────────────────────────────── */

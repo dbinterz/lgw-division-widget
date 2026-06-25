@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.11]
+### Fixed
+- **Cup bracket pending icon**: ⚠️ now appears inline next to the team who hasn't submitted their scorecard, not in the top-right corner. ✅ confirmed icon remains corner-positioned.
+
 ## [2026.26.10]
 ### Fixed
 - **Cup bracket prelim advancement**: winner from a preliminary round match now lands in the correct R2 slot. The naive `floor(match_idx/2)` formula assumed a perfect 2^n bracket and was placing winners over existing seeded teams. Fixed by mirroring the evenly-distributed `winner_positions` spacing the draw builder uses. Fixes score save, cascade reset, and JS TBD placeholder — no redraw needed.
