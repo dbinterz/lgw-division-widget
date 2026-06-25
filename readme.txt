@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.6
+Stable tag: 2026.26.7
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.7 =
+* fix(fixtures): exclude past Bye fixtures from the Upcoming filter in both
+  JS-rendered and SSR modes.
 
 = 2026.26.6 =
 * fix(players): appearances modal now correctly season-filters — the AJAX

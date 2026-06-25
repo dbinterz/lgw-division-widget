@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.7]
+### Fixed
+- **Upcoming filter**: past fixtures where home or away team is "Bye" are now excluded from the Upcoming view (both JS-rendered and SSR modes).
+
 ## [2026.26.6]
 ### Fixed
 - **Appearances modal season filter**: `lgw_get_player_appearances` was passing `lgw_season_where()` through `$wpdb->prepare()`, corrupting the `STR_TO_DATE('%d/%m/%Y')` format string. Switched to `get_results()` with an `intval`-safe player ID, consistent with every other appearance query in the codebase.

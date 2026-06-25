@@ -766,7 +766,13 @@
       }).filter(function(g){return g.matches.length;}).reverse();
     } else if(filter==='upcoming'){
       filtered=groups.map(function(g){
-        return{date:g.date,matches:g.matches.filter(function(m){return !m.played;})};
+        var d=parseDate(g.date);
+        return{date:g.date,matches:g.matches.filter(function(m){
+          if(m.played) return false;
+          var isBye=/^bye$/i.test(m.homeTeam)||/^bye$/i.test(m.awayTeam);
+          if(isBye&&d&&d<now) return false;
+          return true;
+        })};
       }).filter(function(g){return g.matches.length;});
     }
     if(!filtered.length) return '<div class="lgw-status">No fixtures to display.</div>';
@@ -1844,13 +1850,19 @@
 
     } else {
       // All / Upcoming — restore rows to original groups and show/hide by filter
+      var now = new Date();
       groups.forEach(function(group) {
+        var hdr = group.querySelector('.date-hdr span');
+        var groupDate = hdr ? parseDate(hdr.textContent.trim()) : null;
         var rows = Array.from(group.querySelectorAll('.fx-row'));
         var visibleCount = 0;
         rows.forEach(function(r) {
           r.style.display = '';  // ensure rows moved by results are visible
           var played = r.classList.contains('played');
-          var show = filter === 'all' || (filter === 'upcoming' && !played);
+          var home = r.getAttribute('data-home') || '';
+          var away = r.getAttribute('data-away') || '';
+          var isByePast = (/^bye$/i.test(home) || /^bye$/i.test(away)) && groupDate && groupDate < now;
+          var show = filter === 'all' || (filter === 'upcoming' && !played && !isByePast);
           r.style.display = show ? '' : 'none';
           if (show) visibleCount++;
         });
