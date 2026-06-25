@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.13]
+### Added
+- **Cup admin: Rename Entry** — correct a team name across the entries list, all bracket slots, and draw pairs without touching scores. Mirrors the championship rename tool.
+
 ## [2026.26.12]
 ### Fixed
 - **Cup scorecard context leak**: clicking a cup bracket match no longer shows a league scorecard for the same teams. `lgw_ajax_cup_get_scorecard` now passes `'cup'` context; `lgwFetchScorecardOrSubmit` forwards `opts.context` in the fetch URL (PHP handler already supported it).

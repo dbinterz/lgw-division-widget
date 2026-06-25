@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.12
+Stable tag: 2026.26.13
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,13 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.13 =
+* feat(cup): rename entry tool on cup admin edit page — corrects a team name
+  across the entries list, bracket slots, and draw pairs without affecting
+  scores. Matches the championship rename mechanism.
+* note: Midweek Cup player appearances automatically get " MW" appended to
+  team names (division field contains "midweek") once scorecards are confirmed.
 
 = 2026.26.12 =
 * fix(cup): scorecard fetch now scoped to cup context — league scorecards for

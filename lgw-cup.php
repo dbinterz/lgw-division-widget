@@ -734,6 +734,66 @@ function lgw_cup_normalise($name) {
     return strtolower(trim(preg_replace('/\s+/', ' ', $name ?? '')));
 }
 
+// ── AJAX: rename an entry everywhere (entries list + all bracket slots) ──────
+add_action('wp_ajax_lgw_cup_rename_entry', 'lgw_ajax_cup_rename_entry');
+/**
+ * Admin-only: rename an entry across the entries list and every bracket slot.
+ * POST: cup_id, old_name, new_name, nonce (lgw_cup_nonce)
+ */
+function lgw_ajax_cup_rename_entry() {
+    check_ajax_referer('lgw_cup_nonce', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+
+    $cup_id   = sanitize_key($_POST['cup_id']   ?? '');
+    $old_name = sanitize_text_field(wp_unslash($_POST['old_name'] ?? ''));
+    $new_name = sanitize_text_field(wp_unslash($_POST['new_name'] ?? ''));
+
+    if (!$cup_id || $old_name === '' || $new_name === '') {
+        wp_send_json_error('Missing parameters');
+    }
+    if ($old_name === $new_name) {
+        wp_send_json_error('New name is identical to old name');
+    }
+
+    $cup = get_option('lgw_cup_' . $cup_id, array());
+    if (empty($cup)) wp_send_json_error('Cup not found');
+
+    $replaced = 0;
+
+    // Entries list
+    foreach (($cup['entries'] ?? array()) as $i => $entry) {
+        if ($entry === $old_name) { $cup['entries'][$i] = $new_name; $replaced++; }
+    }
+
+    // Bracket slots
+    if (!empty($cup['bracket']['matches'])) {
+        foreach ($cup['bracket']['matches'] as $ri => &$round) {
+            foreach ($round as $mi => &$match) {
+                if (($match['home'] ?? '') === $old_name) { $match['home'] = $new_name; $replaced++; }
+                if (($match['away'] ?? '') === $old_name) { $match['away'] = $new_name; $replaced++; }
+            }
+            unset($match);
+        }
+        unset($round);
+    }
+
+    // Draw pairs (animation sequence)
+    foreach (($cup['draw_pairs'] ?? array()) as $i => $pair) {
+        if (($pair['home'] ?? '') === $old_name) { $cup['draw_pairs'][$i]['home'] = $new_name; $replaced++; }
+        if (($pair['away'] ?? '') === $old_name) { $cup['draw_pairs'][$i]['away'] = $new_name; $replaced++; }
+    }
+
+    if ($replaced === 0) {
+        wp_send_json_error('Entry "' . esc_html($old_name) . '" not found');
+    }
+
+    update_option('lgw_cup_' . $cup_id, $cup);
+    wp_send_json_success(array(
+        'message'  => 'Renamed "' . esc_html($old_name) . '" → "' . esc_html($new_name) . '" (' . $replaced . ' occurrences updated).',
+        'replaced' => $replaced,
+    ));
+}
+
 // ── Handle cup save and draw-reset on admin_init (before any output) ──────────
 add_action('admin_init', 'lgw_cup_handle_admin_actions');
 function lgw_cup_handle_admin_actions() {
@@ -1115,6 +1175,64 @@ function lgw_cup_edit_page($cup_id) {
     <pre style="background:#f6f7f7;padding:12px;border:1px solid #ddd;display:inline-block">[lgw_cup id="<?php echo esc_html($cup_id); ?>" title="<?php echo esc_attr($cup['title'] ?? ''); ?>"]</pre>
 
     <?php if ($drawn): ?>
+    <hr>
+    <h2>Rename Entry</h2>
+    <p>Correct a team name everywhere — entries list, bracket slots, and draw pairs. Does not affect scores.</p>
+    <table class="form-table" style="max-width:760px">
+      <tr>
+        <th><label for="lgw_rename_old">Entry to rename</label></th>
+        <td>
+          <div id="lgw-cup-rename-wrap">
+            <select id="lgw_cup_rename_old" style="width:320px;max-width:100%;font-size:13px">
+              <option value="">— select entry —</option>
+              <?php foreach (($cup['entries'] ?? array()) as $e): ?>
+              <option value="<?php echo esc_attr($e); ?>"><?php echo esc_html($e); ?></option>
+              <?php endforeach; ?>
+            </select>
+            <input type="text" id="lgw_cup_rename_new" placeholder="Corrected name" style="width:220px;margin-left:8px;font-size:13px">
+            <button type="button" id="lgw_cup_rename_btn" class="button button-secondary" style="margin-left:8px">Rename</button>
+            <span id="lgw_cup_rename_msg" style="margin-left:10px;font-size:13px"></span>
+          </div>
+        </td>
+      </tr>
+    </table>
+    <script>
+    document.getElementById('lgw_cup_rename_btn').addEventListener('click', function(){
+      var oldVal = document.getElementById('lgw_cup_rename_old').value.trim();
+      var newVal = document.getElementById('lgw_cup_rename_new').value.trim();
+      var msg    = document.getElementById('lgw_cup_rename_msg');
+      if (!oldVal || !newVal) { msg.textContent = 'Select an entry and enter a new name.'; msg.style.color = '#c00'; return; }
+      this.disabled = true;
+      msg.textContent = 'Saving…'; msg.style.color = '#555';
+      var fd = new FormData();
+      fd.append('action',   'lgw_cup_rename_entry');
+      fd.append('nonce',    '<?php echo esc_js($nonce); ?>');
+      fd.append('cup_id',   '<?php echo esc_js($cup_id); ?>');
+      fd.append('old_name', oldVal);
+      fd.append('new_name', newVal);
+      fetch(ajaxurl, { method: 'POST', body: fd })
+        .then(function(r){ return r.json(); })
+        .then(function(res){
+          if (res.success) {
+            msg.textContent = res.data.message; msg.style.color = '#0a3622';
+            // Update the dropdown
+            var sel = document.getElementById('lgw_cup_rename_old');
+            for (var i = 0; i < sel.options.length; i++) {
+              if (sel.options[i].value === oldVal) {
+                sel.options[i].value = newVal;
+                sel.options[i].textContent = newVal;
+              }
+            }
+            document.getElementById('lgw_cup_rename_new').value = '';
+          } else {
+            msg.textContent = res.data || 'Error'; msg.style.color = '#c00';
+          }
+        })
+        .catch(function(){ msg.textContent = 'Network error'; msg.style.color = '#c00'; })
+        .finally(function(){ document.getElementById('lgw_cup_rename_btn').disabled = false; });
+    });
+    </script>
+
     <hr>
     <h2>Export Draw</h2>
     <p>Download the current draw as an Excel spreadsheet.</p>
