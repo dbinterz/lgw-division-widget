@@ -156,12 +156,10 @@ function lgw_ajax_cup_save_score() {
     // Advance winner to next round if both scores set
     if ($home_score !== null && $away_score !== null && $home_score !== $away_score) {
         $winner = $home_score > $away_score ? $match['home'] : $match['away'];
-        $next_round = $round_idx + 1;
-        $next_match = intval(floor($match_idx / 2));
-        $next_slot  = $match_idx % 2 === 0 ? 'home' : 'away';
-        if (isset($bracket['matches'][$next_round][$next_match])) {
-            $bracket['matches'][$next_round][$next_match][$next_slot]           = $winner;
-            $bracket['matches'][$next_round][$next_match][$next_slot . '_score'] = null;
+        $next   = lgw_cup_next_slot($bracket, $round_idx, $match_idx);
+        if ($next && isset($bracket['matches'][$next['round']][$next['match']])) {
+            $bracket['matches'][$next['round']][$next['match']][$next['slot']]           = $winner;
+            $bracket['matches'][$next['round']][$next['match']][$next['slot'] . '_score'] = null;
         }
     }
 
@@ -516,21 +514,56 @@ function lgw_ajax_cup_perform_draw() {
  * @return true|WP_Error
  */
 /**
+ * Compute the next-round target slot for a winner from $round_idx/$match_idx.
+ *
+ * For the prelim round (round 0), winners are spread evenly across R2 using the
+ * same spacing formula as the draw builder, not the naive floor(match_idx/2).
+ * For all subsequent rounds the standard formula applies.
+ *
+ * Returns ['round'=>int, 'match'=>int, 'slot'=>'home'|'away'] or null if no
+ * next round exists.
+ */
+function lgw_cup_next_slot(&$bracket, $round_idx, $match_idx) {
+    $next_round = $round_idx + 1;
+    if (!isset($bracket['matches'][$next_round])) return null;
+
+    if ($round_idx === 0 && isset($bracket['matches'][1])) {
+        // Prelim → R2: mirror the evenly-distributed winner_positions the draw builder uses.
+        $prelim_count   = count($bracket['matches'][0]);
+        $r2_match_count = count($bracket['matches'][1]);
+        $half           = $r2_match_count * 2;
+        if ($prelim_count > 0 && $half > 0) {
+            $step    = $half / $prelim_count;
+            $r2_slot = (int) round($match_idx * $step);
+            return array(
+                'round' => 1,
+                'match' => intval(floor($r2_slot / 2)),
+                'slot'  => $r2_slot % 2 === 0 ? 'home' : 'away',
+            );
+        }
+    }
+
+    return array(
+        'round' => $next_round,
+        'match' => intval(floor($match_idx / 2)),
+        'slot'  => $match_idx % 2 === 0 ? 'home' : 'away',
+    );
+}
+
+/**
  * Recursively clear a match's winner from all subsequent rounds.
- * Cup brackets use floor(match_idx/2) mapping (no prev_game annotations).
  */
 function lgw_cup_cascade_reset(&$bracket, $round_idx, $match_idx) {
     $all_matches = &$bracket['matches'];
-    $next_round  = $round_idx + 1;
-    if (!isset($all_matches[$next_round])) return;
-
-    $next_match = intval(floor($match_idx / 2));
-    $next_slot  = $match_idx % 2 === 0 ? 'home' : 'away';
+    $next        = lgw_cup_next_slot($bracket, $round_idx, $match_idx);
+    if (!$next) return;
+    $next_round = $next['round'];
+    $next_match = $next['match'];
+    $next_slot  = $next['slot'];
     if (!isset($all_matches[$next_round][$next_match])) return;
 
     $all_matches[$next_round][$next_match][$next_slot]            = null;
     $all_matches[$next_round][$next_match][$next_slot . '_score'] = null;
-    // Also clear the other team's score since a valid result needs both teams
     $other_score = $next_slot === 'home' ? 'away_score' : 'home_score';
     $all_matches[$next_round][$next_match][$other_score] = null;
 

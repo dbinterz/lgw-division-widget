@@ -197,18 +197,39 @@
         + '<div class="lgw-cup-round-slots"></div>';
 
       var slotsEl = qs('.lgw-cup-round-slots', roundEl);
+
+      // For the first main round (ri===1) after a prelim round (ri===0), build a
+      // mapping from each null slot to the prelim match that feeds it.
+      // Prelim winners are spaced evenly across R2 — the simple mi*2 formula is wrong.
+      var prelimFeed = null;
+      if (ri === 1 && matches[0] && matches[0].length > 0) {
+        prelimFeed = {};
+        var nullSlots = [];
+        roundMatches.forEach(function(rm, rmi) {
+          if (!rm.home) nullSlots.push(rmi + ':home');
+          if (!rm.away) nullSlots.push(rmi + ':away');
+        });
+        nullSlots.forEach(function(key, pi) {
+          if (matches[0][pi]) prelimFeed[key] = matches[0][pi];
+        });
+      }
+
       roundMatches.forEach(function (match, mi) {
         // Build predecessor placeholders for TBD slots
         var homePlaceholder = null, awayPlaceholder = null;
         if (!match.home || !match.away) {
-          var prevRound = matches[ri - 1] || [];
-          // Standard mapping: match mi gets home from prevRound[mi*2], away from prevRound[mi*2+1]
-          // This works for R2+ rounds. For the very first full round (ri===1 with prelims at ri===0),
-          // some slots come from prelim winners — those are already populated as null with draw_num
-          var prevHome = prevRound[mi * 2];
-          var prevAway = prevRound[mi * 2 + 1];
-          if (!match.home && prevHome) homePlaceholder = buildPlaceholder(prevHome);
-          if (!match.away && prevAway) awayPlaceholder = buildPlaceholder(prevAway);
+          if (prelimFeed) {
+            // First main round: use prelim feed map (null slots in order → prelim matches in order)
+            if (!match.home) { var pm = prelimFeed[mi + ':home']; if (pm) homePlaceholder = buildPlaceholder(pm); }
+            if (!match.away) { var pm = prelimFeed[mi + ':away']; if (pm) awayPlaceholder = buildPlaceholder(pm); }
+          } else {
+            // Skeleton rounds (QF→SF→Final): standard mi*2 formula is correct
+            var prevRound = matches[ri - 1] || [];
+            var prevHome = prevRound[mi * 2];
+            var prevAway = prevRound[mi * 2 + 1];
+            if (!match.home && prevHome) homePlaceholder = buildPlaceholder(prevHome);
+            if (!match.away && prevAway) awayPlaceholder = buildPlaceholder(prevAway);
+          }
         }
         var matchEl = document.createElement('div');
         var scKey = (match.home || '').toLowerCase() + '||' + (match.away || '').toLowerCase();

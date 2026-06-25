@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.9
+Stable tag: 2026.26.10
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.10 =
+* fix(cup): prelim round winner now advances to the correct R2 slot — replaced
+  naive floor(match_idx/2) formula with the evenly-distributed winner_positions
+  mapping that the draw builder uses; fixes all three code paths (save_score
+  advancement, cascade reset, JS placeholder).
 
 = 2026.26.9 =
 * feat(cup): pending (⚠️) and confirmed (✅) scorecard icons on cup bracket
