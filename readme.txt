@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.11
+Stable tag: 2026.26.12
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.12 =
+* fix(cup): scorecard fetch now scoped to cup context — league scorecards for
+  same teams no longer appear when clicking a cup bracket match. Two fixes:
+  lgw_ajax_cup_get_scorecard passes 'cup' context; lgwFetchScorecardOrSubmit
+  forwards opts.context in the GET request.
 
 = 2026.26.11 =
 * fix(cup): pending scorecard icon (⚠️) now appears inline next to the team

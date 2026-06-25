@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.12]
+### Fixed
+- **Cup scorecard context leak**: clicking a cup bracket match no longer shows a league scorecard for the same teams. `lgw_ajax_cup_get_scorecard` now passes `'cup'` context; `lgwFetchScorecardOrSubmit` forwards `opts.context` in the fetch URL (PHP handler already supported it).
+
 ## [2026.26.11]
 ### Fixed
 - **Cup bracket pending icon**: ⚠️ now appears inline next to the team who hasn't submitted their scorecard, not in the top-right corner. ✅ confirmed icon remains corner-positioned.

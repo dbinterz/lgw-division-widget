@@ -1300,7 +1300,9 @@
     xhr.open('GET', ajaxUrl+'?action=lgw_get_scorecard'
       +'&home='+encodeURIComponent(home)
       +'&away='+encodeURIComponent(away)
-      +'&date='+encodeURIComponent(date)+'&_='+Date.now());
+      +'&date='+encodeURIComponent(date)
+      +'&context='+encodeURIComponent(opts.context||'')
+      +'&_='+Date.now());
     xhr.onload = function(){
       var res;
       try { res = JSON.parse(xhr.responseText || '{}'); } catch(e) {

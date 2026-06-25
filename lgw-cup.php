@@ -180,7 +180,7 @@ function lgw_ajax_cup_get_scorecard() {
     $away = sanitize_text_field($_POST['away'] ?? '');
     if (!$home || !$away) wp_send_json_error('Missing teams');
 
-    $post = lgw_get_scorecard($home, $away);
+    $post = lgw_get_scorecard($home, $away, '', 'cup');
     if (!$post) wp_send_json_error('No scorecard found');
 
     $sc      = get_post_meta($post->ID, 'lgw_scorecard_data', true);
