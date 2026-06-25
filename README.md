@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.8]
+### Fixed
+- **Cup scorecards**: suppress "Division name wasn't recognised" warning for cup context scorecards — cups have no Google Sheets tab to resolve against.
+
 ## [2026.26.7]
 ### Fixed
 - **Upcoming filter**: past fixtures where home or away team is "Bye" are now excluded from the Upcoming view (both JS-rendered and SSR modes).

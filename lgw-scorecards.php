@@ -789,10 +789,10 @@ function lgw_ajax_save_scorecard() {
             if ($season_id) update_post_meta($post_id, 'lgw_sc_season', $season_id);
         }
         lgw_audit_log($post_id, 'submitted', 'Submitted by ' . $club . ($is_admin ? ' (admin, on behalf of ' . $submitted_for . ' team)' : ''));
-        // Flag if division is missing or doesn't map to a known sheet tab
-        $drive_opts = get_option('lgw_drive', array());
-        $resolved_tab = lgw_sheets_tab_for_division($sc['division'], $drive_opts);
-        if (empty($sc['division']) || !$resolved_tab) {
+        // Flag if division is missing or doesn't map to a known sheet tab (skip for cup — no sheets tab)
+        $drive_opts   = get_option('lgw_drive', array());
+        $resolved_tab = ($ctx === 'cup') ? true : lgw_sheets_tab_for_division($sc['division'], $drive_opts);
+        if ($ctx !== 'cup' && (empty($sc['division']) || !$resolved_tab)) {
             update_post_meta($post_id, 'lgw_division_unresolved', 1);
         }
         // Attach photo if one was parsed this session
@@ -805,7 +805,7 @@ function lgw_ajax_save_scorecard() {
             'message'             => 'Scorecard submitted. The other club will be notified to confirm.',
             'status'              => 'pending',
             'id'                  => $post_id,
-            'division_unresolved' => (empty($sc['division']) || !$resolved_tab) ? 1 : 0,
+            'division_unresolved' => ($ctx !== 'cup' && (empty($sc['division']) || !$resolved_tab)) ? 1 : 0,
         ));
     }
 }
@@ -858,8 +858,8 @@ function lgw_save_scorecard_admin_both($sc) {
     }
 
     $drive_opts   = get_option('lgw_drive', array());
-    $resolved_tab = lgw_sheets_tab_for_division($sc['division'], $drive_opts);
-    if (empty($sc['division']) || !$resolved_tab) {
+    $resolved_tab = ($sc_context === 'cup') ? true : lgw_sheets_tab_for_division($sc['division'], $drive_opts);
+    if ($sc_context !== 'cup' && (empty($sc['division']) || !$resolved_tab)) {
         update_post_meta($post_id, 'lgw_division_unresolved', 1);
     }
 
@@ -880,7 +880,7 @@ function lgw_save_scorecard_admin_both($sc) {
         'message'             => 'Scorecard submitted and confirmed for both teams. ✅',
         'status'              => 'confirmed',
         'id'                  => $post_id,
-        'division_unresolved' => (empty($sc['division']) || !$resolved_tab) ? 1 : 0,
+        'division_unresolved' => ($sc_context !== 'cup' && (empty($sc['division']) || !$resolved_tab)) ? 1 : 0,
     ));
 }
 
@@ -952,8 +952,8 @@ function lgw_save_scorecard_admin_confirm($sc, $submitted_for, $confirm_as) {
     }
 
     $drive_opts   = get_option('lgw_drive', array());
-    $resolved_tab = lgw_sheets_tab_for_division($sc['division'], $drive_opts);
-    if (empty($sc['division']) || !$resolved_tab) {
+    $resolved_tab = ($sc_context === 'cup') ? true : lgw_sheets_tab_for_division($sc['division'], $drive_opts);
+    if ($sc_context !== 'cup' && (empty($sc['division']) || !$resolved_tab)) {
         update_post_meta($post_id, 'lgw_division_unresolved', 1);
     }
 
@@ -975,7 +975,7 @@ function lgw_save_scorecard_admin_confirm($sc, $submitted_for, $confirm_as) {
         'message'             => 'Scorecard submitted for ' . $submitted_by . ' and confirmed on behalf of ' . $confirm_as . '. ✅',
         'status'              => 'confirmed',
         'id'                  => $post_id,
-        'division_unresolved' => (empty($sc['division']) || !$resolved_tab) ? 1 : 0,
+        'division_unresolved' => ($sc_context !== 'cup' && (empty($sc['division']) || !$resolved_tab)) ? 1 : 0,
     ));
 }
 
