@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.26.15
+ * Version: 2026.26.16
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.26.15');
+define('LGW_VERSION', '2026.26.16');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -1293,6 +1293,15 @@ function lgw_admin_menu() {
         'manage_options',
         LGW_SETUP_PAGE,
         'lgw_league_setup_page'
+    );
+    // Table Compare — WP scorecards vs Sheets CSV side-by-side diff
+    add_submenu_page(
+        'lgw-scorecards',
+        'Table Compare',
+        '📊 Table Compare',
+        'manage_options',
+        'lgw-table-compare',
+        'lgw_table_compare_page'
     );
     // Settings — theme, sponsors, club badges, clubs/passphrases
     add_submenu_page(
@@ -4061,6 +4070,470 @@ function lgw_scores_parse_fixtures($csv_body, $csv_url, $overrides) {
         );
     }
     return $fixtures;
+}
+
+// ── Table Compare: helpers + AJAX + admin page ───────────────────────────────
+
+/**
+ * Parse the LEAGUE TABLE section of a Sheets CSV into an array of team rows.
+ * Returns: [ ['pos'=>1,'team'=>'...','pl'=>0,'w'=>0,'d'=>0,'l'=>0,'f'=>0,'a'=>0,'pts'=>0], ... ]
+ */
+function lgw_parse_csv_table( $csv_body ) {
+    $rows  = array_map( 'str_getcsv', explode( "\n", str_replace( "\r", '', $csv_body ) ) );
+    $start = -1;
+    foreach ( $rows as $i => $r ) {
+        if ( stripos( implode( '', $r ), 'LEAGUE TABLE' ) !== false ) { $start = $i + 1; break; }
+    }
+    if ( $start < 0 ) return array();
+    while ( $start < count( $rows ) && empty( array_filter( $rows[ $start ] ) ) ) $start++;
+    // Find header row (starts with POS)
+    while ( $start < count( $rows ) && ( $rows[ $start ][0] ?? '' ) !== 'POS' ) $start++;
+    if ( $start >= count( $rows ) ) return array();
+
+    $hdr = $rows[ $start ];
+    $col = array( 'pos' => 0, 'team' => 1, 'pl' => -1, 'w' => -1, 'd' => -1, 'l' => -1, 'f' => -1, 'a' => -1, 'pts' => -1 );
+    foreach ( $hdr as $c => $v ) {
+        $v = strtoupper( trim( $v ) );
+        if ( $v === 'POS' )                          $col['pos']  = $c;
+        elseif ( $v === 'TEAM' )                     $col['team'] = $c;
+        elseif ( in_array( $v, ['PL','PLAYED'] ) )   $col['pl']   = $c;
+        elseif ( in_array( $v, ['W','WON'] ) )       $col['w']    = $c;
+        elseif ( in_array( $v, ['D','DRAWN'] ) )     $col['d']    = $c;
+        elseif ( in_array( $v, ['L','LOST'] ) )      $col['l']    = $c;
+        elseif ( $v === 'FOR' )                      $col['f']    = $c;
+        elseif ( in_array( $v, ['AGAINST','AGN'] ) ) $col['a']    = $c;
+        elseif ( in_array( $v, ['PTS','POINTS'] ) )  $col['pts']  = $c;
+    }
+    // Positional fallbacks matching JS parseTableRows
+    if ( $col['pl']  < 0 ) $col['pl']  = 5;
+    if ( $col['pts'] < 0 ) $col['pts'] = 7;
+    if ( $col['w']   < 0 ) $col['w']   = 9;
+    if ( $col['l']   < 0 ) $col['l']   = 10;
+    if ( $col['d']   < 0 ) $col['d']   = 11;
+    if ( $col['f']   < 0 ) $col['f']   = 12;
+    if ( $col['a']   < 0 ) $col['a']   = 14;
+
+    $teams = array();
+    for ( $i = $start + 1; $i < count( $rows ); $i++ ) {
+        $r = $rows[ $i ];
+        $pos  = trim( $r[ $col['pos']  ] ?? '' );
+        $team = trim( $r[ $col['team'] ] ?? '' );
+        if ( ! $pos || ! $team || ! is_numeric( $pos ) ) break; // end of table
+        $teams[] = array(
+            'pos'  => (int) $pos,
+            'team' => $team,
+            'pl'   => (int) ( $r[ $col['pl']  ] ?? 0 ),
+            'w'    => (int) ( $r[ $col['w']   ] ?? 0 ),
+            'd'    => (int) ( $r[ $col['d']   ] ?? 0 ),
+            'l'    => (int) ( $r[ $col['l']   ] ?? 0 ),
+            'f'    => (int) ( $r[ $col['f']   ] ?? 0 ),
+            'a'    => (int) ( $r[ $col['a']   ] ?? 0 ),
+            'pts'  => (float) ( $r[ $col['pts'] ] ?? 0 ),
+        );
+    }
+    return $teams;
+}
+
+/**
+ * Parse the FIXTURES section of a Sheets CSV and return only played rows.
+ * Returns: [ ['date'=>'...','home'=>'...','away'=>'...','sh'=>0,'sa'=>0,'ph'=>0,'pa'=>0], ... ]
+ */
+function lgw_parse_csv_fixtures_played( $csv_body ) {
+    $rows  = array_map( 'str_getcsv', explode( "\n", str_replace( "\r", '', $csv_body ) ) );
+    $start = -1;
+    foreach ( $rows as $i => $r ) {
+        if ( stripos( implode( '', $r ), 'FIXTURES' ) !== false ) { $start = $i + 1; break; }
+    }
+    if ( $start < 0 ) return array();
+
+    $colPH = 0; $colHT = 2; $colHS = 7; $colAS = 9; $colAT = 10; $colPA = 15;
+    for ( $h = $start; $h < min( $start + 5, count( $rows ) ); $h++ ) {
+        $joined = strtolower( implode( '', $rows[ $h ] ) );
+        if ( strpos( $joined, 'hpts' ) !== false || strpos( $joined, 'homepts' ) !== false ) {
+            foreach ( $rows[ $h ] as $c => $v ) {
+                $v = trim( $v );
+                $vl = strtolower( $v );
+                if ( in_array( $vl, ['hpts','homepts'] ) )     $colPH = $c;
+                if ( in_array( $vl, ['hteam','home'] ) )       $colHT = $c;
+                if ( in_array( $vl, ['hscore','home shots'] ) ) $colHS = $c;
+                if ( in_array( $vl, ['ascore','away shots'] ) ) $colAS = $c;
+                if ( in_array( $vl, ['ateam','away'] ) )       $colAT = $c;
+                if ( in_array( $vl, ['apts','awaypts'] ) )     $colPA = $c;
+            }
+            $start = $h + 1; break;
+        }
+    }
+
+    $dateRe  = '/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}-[A-Za-z]+-\d{4}$/';
+    $played  = array(); $curDate = '';
+    for ( $i = $start; $i < count( $rows ); $i++ ) {
+        $r     = $rows[ $i ];
+        $first = trim( $r[0] ?? $r[1] ?? '' );
+        if ( preg_match( $dateRe, $first ) ) { $curDate = $first; continue; }
+        if ( ! $curDate ) continue;
+        $home = trim( $r[ $colHT ] ?? '' );
+        $away = trim( $r[ $colAT ] ?? '' );
+        if ( ! $home || ! $away ) continue;
+        $sh = trim( $r[ $colHS ] ?? '' );
+        $sa = trim( $r[ $colAS ] ?? '' );
+        $ph = trim( $r[ $colPH ] ?? '' );
+        $pa = trim( $r[ $colPA ] ?? '' );
+        // Only include rows with at least one score value
+        if ( $sh === '' && $sa === '' && $ph === '' && $pa === '' ) continue;
+        if ( $sh === '0' && $sa === '0' && $ph === '0' && $pa === '0' ) continue;
+        $played[] = array(
+            'date' => $curDate, 'home' => $home, 'away' => $away,
+            'sh' => $sh, 'sa' => $sa, 'ph' => $ph, 'pa' => $pa,
+        );
+    }
+    return $played;
+}
+
+/**
+ * Calculate a league table from WP scorecards for a given division + season.
+ * Excludes null & void scorecards. Returns same shape as lgw_parse_csv_table().
+ */
+function lgw_calculate_wp_table( $division, $season_id ) {
+    $meta_query = array(
+        'relation' => 'AND',
+        array( 'key' => 'lgw_sc_context', 'value' => 'league', 'compare' => '=' ),
+        array( 'key' => 'lgw_sc_status',  'value' => 'confirmed', 'compare' => '=' ),
+    );
+    if ( $division ) {
+        $meta_query[] = array( 'key' => 'lgw_sc_division', 'value' => $division, 'compare' => '=' );
+    }
+    if ( $season_id ) {
+        $meta_query[] = array( 'key' => 'lgw_sc_season', 'value' => $season_id, 'compare' => '=' );
+    }
+    $posts = get_posts( array(
+        'post_type'      => 'lgw_scorecard',
+        'posts_per_page' => 1000,
+        'post_status'    => 'publish',
+        'meta_query'     => $meta_query,
+    ) );
+
+    $teams = array(); // keyed by team name (lowercase)
+    foreach ( $posts as $p ) {
+        // Skip null & void
+        if ( get_post_meta( $p->ID, 'lgw_sc_null_void', true ) === '1' ) continue;
+        $sc = get_post_meta( $p->ID, 'lgw_scorecard_data', true );
+        if ( ! is_array( $sc ) ) continue;
+        $home = $sc['home_team'] ?? '';
+        $away = $sc['away_team'] ?? '';
+        if ( ! $home || ! $away ) continue;
+
+        $sh  = (int) ( $sc['home_total']  ?? 0 );
+        $sa  = (int) ( $sc['away_total']  ?? 0 );
+        $ph  = (float) ( $sc['home_points'] ?? 0 );
+        $pa  = (float) ( $sc['away_points'] ?? 0 );
+
+        // W/D/L from shots; concessions have 50-0 so they sort correctly too
+        $home_won  = $sh > $sa;
+        $away_won  = $sa > $sh;
+        $draw      = $sh === $sa;
+
+        foreach ( array( 'home' => $home, 'away' => $away ) as $side => $name ) {
+            $k = strtolower( $name );
+            if ( ! isset( $teams[ $k ] ) ) {
+                $teams[ $k ] = array( 'team' => $name, 'pl' => 0, 'w' => 0, 'd' => 0, 'l' => 0, 'f' => 0, 'a' => 0, 'pts' => 0 );
+            }
+            $teams[ $k ]['pl']++;
+            if ( $side === 'home' ) {
+                $teams[ $k ]['f']   += $sh;
+                $teams[ $k ]['a']   += $sa;
+                $teams[ $k ]['pts'] += $ph;
+                if ( $home_won ) $teams[ $k ]['w']++;
+                elseif ( $draw ) $teams[ $k ]['d']++;
+                else             $teams[ $k ]['l']++;
+            } else {
+                $teams[ $k ]['f']   += $sa;
+                $teams[ $k ]['a']   += $sh;
+                $teams[ $k ]['pts'] += $pa;
+                if ( $away_won ) $teams[ $k ]['w']++;
+                elseif ( $draw ) $teams[ $k ]['d']++;
+                else             $teams[ $k ]['l']++;
+            }
+        }
+    }
+
+    // Sort: Pts desc, then shots-diff desc, then shots-for desc
+    usort( $teams, function( $a, $b ) {
+        if ( $b['pts'] !== $a['pts'] ) return $b['pts'] <=> $a['pts'];
+        $da = $a['f'] - $a['a'];
+        $db = $b['f'] - $b['a'];
+        if ( $db !== $da ) return $db <=> $da;
+        return $b['f'] <=> $a['f'];
+    } );
+
+    foreach ( $teams as $i => &$t ) {
+        $t['pos'] = $i + 1;
+    }
+    unset( $t );
+
+    return array_values( $teams );
+}
+
+// AJAX handler for table comparison
+add_action( 'wp_ajax_lgw_table_compare', 'lgw_ajax_table_compare' );
+function lgw_ajax_table_compare() {
+    check_ajax_referer( 'lgw_table_compare_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Forbidden' );
+
+    $csv_url   = esc_url_raw( $_POST['csv_url']  ?? '' );
+    $division  = sanitize_text_field( $_POST['division']  ?? '' );
+    $season_id = sanitize_text_field( $_POST['season_id'] ?? '' );
+
+    if ( ! $csv_url ) wp_send_json_error( 'No CSV URL provided' );
+
+    // Fetch CSV (bypass plugin proxy — server-side direct fetch)
+    $resp = wp_remote_get( $csv_url, array( 'timeout' => 15 ) );
+    if ( is_wp_error( $resp ) ) {
+        wp_send_json_error( 'CSV fetch failed: ' . $resp->get_error_message() );
+    }
+    $code = wp_remote_retrieve_response_code( $resp );
+    if ( $code !== 200 ) {
+        wp_send_json_error( 'CSV fetch returned HTTP ' . $code );
+    }
+    $body = wp_remote_retrieve_body( $resp );
+
+    $sheets_table    = lgw_parse_csv_table( $body );
+    $played_fixtures = lgw_parse_csv_fixtures_played( $body );
+    $wp_table        = lgw_calculate_wp_table( $division, $season_id );
+
+    // Build a lookup of WP scorecards by match key to identify coverage gaps
+    $meta_query = array(
+        'relation' => 'AND',
+        array( 'key' => 'lgw_sc_context', 'value' => 'league', 'compare' => '=' ),
+        array( 'key' => 'lgw_sc_status',  'value' => 'confirmed', 'compare' => '=' ),
+    );
+    if ( $division )  $meta_query[] = array( 'key' => 'lgw_sc_division', 'value' => $division, 'compare' => '=' );
+    if ( $season_id ) $meta_query[] = array( 'key' => 'lgw_sc_season',   'value' => $season_id, 'compare' => '=' );
+    $sc_posts = get_posts( array(
+        'post_type'      => 'lgw_scorecard',
+        'posts_per_page' => 1000,
+        'post_status'    => 'publish',
+        'meta_query'     => $meta_query,
+        'fields'         => 'ids',
+    ) );
+    $wp_keys = array();
+    foreach ( $sc_posts as $pid ) {
+        $k = get_post_meta( $pid, 'lgw_match_key', true );
+        if ( $k ) $wp_keys[ $k ] = true;
+    }
+
+    // Find played fixtures in CSV that have no WP scorecard
+    $gaps = array();
+    foreach ( $played_fixtures as $fx ) {
+        $key = strtolower( $fx['home'] ) . '||' . strtolower( $fx['away'] ) . '||' . strtolower( $fx['date'] );
+        if ( ! isset( $wp_keys[ $key ] ) ) {
+            $gaps[] = $fx;
+        }
+    }
+
+    wp_send_json_success( array(
+        'sheets_table'    => $sheets_table,
+        'wp_table'        => $wp_table,
+        'gaps'            => $gaps,
+        'wp_scorecard_ct' => count( $sc_posts ),
+        'played_ct'       => count( $played_fixtures ),
+    ) );
+}
+
+function lgw_table_compare_page() {
+    if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Forbidden' );
+
+    $drive_opts = lgw_get_option_array( 'lgw_drive' );
+    $tabs       = $drive_opts['sheets_tabs'] ?? array();
+    if ( is_string( $tabs ) ) $tabs = json_decode( $tabs, true ) ?: array();
+    $divisions  = array_values( array_filter( $tabs, function( $t ) {
+        return ! empty( $t['csv_url'] ) && ! empty( $t['division'] );
+    } ) );
+
+    $season_id  = function_exists( 'lgw_get_active_season_id' ) ? lgw_get_active_season_id() : '';
+    $nonce      = wp_create_nonce( 'lgw_table_compare_nonce' );
+    $ajax_url   = admin_url( 'admin-ajax.php' );
+    ?>
+    <div class="wrap">
+    <h1>📊 Table Compare</h1>
+    <p style="color:#555;max-width:700px">Compares the league table calculated from WP scorecards against the live Sheets CSV. Use this to verify parity before switching the data source to WordPress DB.</p>
+
+    <?php if ( empty( $divisions ) ): ?>
+        <div class="notice notice-warning"><p>No divisions with CSV URLs configured. Add them in <a href="<?php echo admin_url('admin.php?page=' . LGW_SETUP_PAGE); ?>">League Setup</a>.</p></div>
+    <?php else: ?>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+    <?php foreach ( $divisions as $i => $d ): ?>
+        <button class="button lgw-tc-tab" data-idx="<?php echo $i; ?>"
+            data-csv="<?php echo esc_attr( $d['csv_url'] ); ?>"
+            data-div="<?php echo esc_attr( $d['division'] ); ?>"
+            style="font-weight:600"><?php echo esc_html( $d['division'] ); ?></button>
+    <?php endforeach; ?>
+    </div>
+
+    <div id="lgw-tc-status" style="margin-bottom:12px;color:#555;font-style:italic">Select a division to load comparison.</div>
+    <div id="lgw-tc-output"></div>
+
+    <script>
+    (function(){
+        var nonce = <?php echo json_encode( $nonce ); ?>;
+        var ajaxUrl = <?php echo json_encode( $ajax_url ); ?>;
+        var seasonId = <?php echo json_encode( $season_id ); ?>;
+
+        document.querySelectorAll('.lgw-tc-tab').forEach(function(btn){
+            btn.addEventListener('click', function(){
+                document.querySelectorAll('.lgw-tc-tab').forEach(function(b){ b.classList.remove('button-primary'); });
+                btn.classList.add('button-primary');
+                loadComparison(btn.dataset.csv, btn.dataset.div);
+            });
+        });
+
+        function loadComparison(csvUrl, division) {
+            var status = document.getElementById('lgw-tc-status');
+            var out    = document.getElementById('lgw-tc-output');
+            status.textContent = 'Loading…';
+            out.innerHTML = '';
+
+            var fd = new FormData();
+            fd.append('action',    'lgw_table_compare');
+            fd.append('nonce',     nonce);
+            fd.append('csv_url',   csvUrl);
+            fd.append('division',  division);
+            fd.append('season_id', seasonId);
+
+            fetch(ajaxUrl, { method: 'POST', body: fd })
+                .then(function(r){ return r.json(); })
+                .then(function(resp){
+                    if (!resp.success) { status.textContent = '⚠️ Error: ' + (resp.data||'unknown'); return; }
+                    var d = resp.data;
+                    status.textContent = division + ' — ' + d.wp_scorecard_ct + ' WP scorecards | '
+                        + d.played_ct + ' played in Sheets | '
+                        + d.gaps.length + ' gap(s)';
+                    out.innerHTML = buildOutput(d, division);
+                })
+                .catch(function(e){ status.textContent = '⚠️ Request failed: ' + e; });
+        }
+
+        function buildOutput(d, division) {
+            return buildTableComparison(d.sheets_table, d.wp_table) + buildGaps(d.gaps);
+        }
+
+        function buildTableComparison(sheets, wp) {
+            // Build lookup of WP rows by team name (lowercase) for diff
+            var wpMap = {};
+            wp.forEach(function(r){ wpMap[r.team.toLowerCase()] = r; });
+
+            var sheetsMap = {};
+            sheets.forEach(function(r){ sheetsMap[r.team.toLowerCase()] = r; });
+
+            // Union of all team names
+            var allTeams = [];
+            sheets.forEach(function(r){ if(allTeams.indexOf(r.team.toLowerCase())<0) allTeams.push(r.team.toLowerCase()); });
+            wp.forEach(function(r){ if(allTeams.indexOf(r.team.toLowerCase())<0) allTeams.push(r.team.toLowerCase()); });
+
+            function cell(sv, wv, key) {
+                var match = (sv !== undefined && wv !== undefined && String(sv) === String(wv));
+                var mismatch = (sv !== undefined && wv !== undefined && !match);
+                var style = mismatch ? ' style="background:#fff3cd;font-weight:700"' : '';
+                return '<td'+style+'>'+(wv!==undefined?wv:'—')+'</td>';
+            }
+
+            var cols = ['pl','w','d','l','f','a','pts'];
+            var labels = ['PL','W','D','L','FOR','AGN','PTS'];
+
+            var hdr = '<tr style="background:#f0f0f0"><th style="text-align:left;padding:4px 8px;min-width:140px">Team</th>';
+            labels.forEach(function(l){ hdr += '<th style="padding:4px 8px;text-align:center">'+l+'</th>'; });
+            hdr += '<th style="padding:4px 8px;text-align:center;color:#888;font-size:11px">Sheets PTS</th><th style="padding:4px 8px;text-align:center;color:#888;font-size:11px">Sheets PL</th></tr>';
+
+            var rows = '';
+            // Show Sheets table order first (authoritative ranking), then WP-only teams
+            var ordered = sheets.slice();
+            wp.forEach(function(r){
+                var found = ordered.some(function(s){ return s.team.toLowerCase()===r.team.toLowerCase(); });
+                if(!found) ordered.push(r);
+            });
+
+            ordered.forEach(function(sr){
+                var k   = sr.team.toLowerCase();
+                var wr  = wpMap[k];
+                var rowHasDiff = false;
+                cols.forEach(function(c){
+                    if(wr && sr && String(sr[c]) !== String(wr[c])) rowHasDiff = true;
+                });
+                var wpOnly  = !sheetsMap[k];
+                var shOnly  = !wpMap[k];
+                var rowStyle = rowHasDiff ? ' style="background:#fffbf0"'
+                             : wpOnly     ? ' style="background:#f0fff0"'
+                             : shOnly     ? ' style="background:#fff0f0"'
+                             : '';
+                rows += '<tr'+rowStyle+'>';
+                rows += '<td style="padding:4px 8px;font-weight:600">';
+                if(wpOnly)  rows += '<span title="Only in WP scorecards" style="color:#2a7a2a;margin-right:4px">+WP</span>';
+                if(shOnly)  rows += '<span title="Only in Sheets, no WP scorecard" style="color:#c02020;margin-right:4px">-WP</span>';
+                rows += (wr ? wr.team : sr.team) + '</td>';
+                cols.forEach(function(c){
+                    var sv = sr ? sr[c] : undefined;
+                    var wv = wr ? wr[c] : undefined;
+                    var mismatch = (sv!==undefined && wv!==undefined && String(sv)!==String(wv));
+                    var s = mismatch ? ' style="background:#ffd700;font-weight:700"' : '';
+                    rows += '<td style="text-align:center;padding:4px 8px"'+s+'>'+(wv!==undefined?wv:'—')+'</td>';
+                });
+                // Sheets values for reference
+                rows += '<td style="text-align:center;padding:4px 8px;color:#888;font-size:12px">'+(sr&&sr.pts!==undefined?sr.pts:'—')+'</td>';
+                rows += '<td style="text-align:center;padding:4px 8px;color:#888;font-size:12px">'+(sr&&sr.pl!==undefined?sr.pl:'—')+'</td>';
+                rows += '</tr>';
+            });
+
+            var legend = '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:#555">'
+                + '<span><span style="background:#ffd700;padding:1px 6px">&nbsp;</span> Value mismatch</span>'
+                + '<span><span style="background:#fffbf0;padding:1px 6px">&nbsp;</span> Row has mismatch</span>'
+                + '<span style="color:#2a7a2a">+WP</span> = in WP only &nbsp;'
+                + '<span style="color:#c02020">-WP</span> = in Sheets only'
+                + '</div>';
+
+            return '<h2 style="margin-top:0">League Table (WP calculated vs Sheets)</h2>'
+                + '<p style="font-size:12px;color:#666">Left columns = WP calculated. Right grey columns = Sheets reference. Gold cell = mismatch.</p>'
+                + '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%">'
+                + '<thead>' + hdr + '</thead><tbody>' + rows + '</tbody></table></div>'
+                + legend;
+        }
+
+        function buildGaps(gaps) {
+            if (!gaps.length) {
+                return '<div style="margin-top:20px;padding:12px 16px;background:#f0fff0;border:1px solid #c3e6cb;border-radius:6px;color:#2a7a2a;font-weight:600">✅ No gaps — every played result in Sheets has a WP scorecard.</div>';
+            }
+            var rows = gaps.map(function(g){
+                return '<tr>'
+                    + '<td style="padding:4px 8px">'+escHtml(g.date)+'</td>'
+                    + '<td style="padding:4px 8px;font-weight:600">'+escHtml(g.home)+'</td>'
+                    + '<td style="padding:4px 8px;font-weight:600">'+escHtml(g.away)+'</td>'
+                    + '<td style="padding:4px 8px;text-align:center">'+escHtml(g.sh)+' – '+escHtml(g.sa)+'</td>'
+                    + '<td style="padding:4px 8px;text-align:center">'+escHtml(g.ph)+' – '+escHtml(g.pa)+'</td>'
+                    + '</tr>';
+            }).join('');
+            return '<h2 style="margin-top:24px">⚠️ Coverage Gaps (' + gaps.length + ')</h2>'
+                + '<p style="font-size:12px;color:#666">Played results in Sheets with no matching WP scorecard. These will be absent from a WP-calculated table.</p>'
+                + '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px">'
+                + '<thead><tr style="background:#f0f0f0">'
+                + '<th style="padding:4px 8px;text-align:left">Date</th>'
+                + '<th style="padding:4px 8px;text-align:left">Home</th>'
+                + '<th style="padding:4px 8px;text-align:left">Away</th>'
+                + '<th style="padding:4px 8px;text-align:center">Shots</th>'
+                + '<th style="padding:4px 8px;text-align:center">Pts</th>'
+                + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+        }
+
+        function escHtml(s) {
+            return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        // Auto-load first division
+        var firstBtn = document.querySelector('.lgw-tc-tab');
+        if (firstBtn) firstBtn.click();
+    })();
+    </script>
+    <?php endif; ?>
+    </div>
+    <?php
 }
 
 // ── Test data seeding (local environments only) ───────────────────────────────

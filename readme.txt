@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.15
+Stable tag: 2026.26.16
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.16 =
+* feat(admin): Table Compare page — side-by-side diff of WP-calculated league
+  table vs live Sheets CSV per division. Highlights mismatched cells (gold),
+  WP-only teams (green), Sheets-only teams (red). Coverage gaps section lists
+  played results in Sheets with no corresponding WP scorecard.
 
 = 2026.26.15 =
 * feat(league): null & void workflow — admin checkbox on fixture modal marks a

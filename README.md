@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.16]
+### Added
+- **Table Compare admin page** — new "📊 Table Compare" submenu. Loads each division's Sheets CSV and compares the live table against a table calculated from WP scorecards. Gold cells = value mismatch; green +WP = team only in WP; red -WP = team only in Sheets. Coverage Gaps section lists every played result in Sheets that has no matching WP scorecard, making backfill gaps visible before switching data source to WP DB.
+
 ## [2026.26.15]
 ### Added
 - **Null & void workflow** — admin can mark any league fixture as null & void via checkbox in the fixture modal (both played and unplayed). Creates a confirmed scorecard with 0–0 shots and 0 points for both teams, flagged `lgw_sc_null_void`. Displays a dark grey "❌ Null & Void" pill on fixture rows. Clearing trashes the scorecard. Admin must update the Google Sheets league table separately.
