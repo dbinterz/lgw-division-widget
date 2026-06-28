@@ -1069,6 +1069,91 @@
       return m?m[1]+' '+m[2]:str;
     }
 
+    var progressBadgeCache={};
+
+    function badgeUrl(team){
+      if(badges[team]) return badges[team];
+      var upper=team.toUpperCase();
+      for(var k in badges){ if(k.toUpperCase()===upper) return badges[k]; }
+      var bestKey='',bestUrl='';
+      for(var club in clubBadges){
+        var cu=club.toUpperCase();
+        if(upper===cu||upper.indexOf(cu)===0){
+          var rest=team.slice(club.length);
+          if(rest===''||rest[0]===' '){
+            if(club.length>bestKey.length){bestKey=club;bestUrl=clubBadges[club];}
+          }
+        }
+      }
+      return bestUrl||'';
+    }
+
+    function teamInitials(name){
+      var parts=name.trim().split(/\s+/);
+      if(parts.length===1) return name.substring(0,3).toUpperCase();
+      if(parts.length===2) return (parts[0][0]+parts[1][0]).toUpperCase();
+      return (parts[0][0]+parts[parts.length-1][0]).toUpperCase();
+    }
+
+    function preloadProgressBadges(teams,colors,cb){
+      var rem=teams.length;
+      if(!rem){cb();return;}
+      teams.forEach(function(team,i){
+        var url=badgeUrl(team);
+        var isSvg=url&&/\.svg(\?|$)/i.test(url);
+        var entry={img:null,initials:teamInitials(team),color:colors[i%colors.length]};
+        progressBadgeCache[team]=entry;
+        if(url&&isSvg){
+          var img=new Image();
+          img.onload=function(){entry.img=img;if(--rem===0)cb();};
+          img.onerror=function(){if(--rem===0)cb();};
+          img.src=url;
+        } else {
+          if(--rem===0)cb();
+        }
+      });
+    }
+
+    var lgwProgressBadgePlugin={
+      id:'lgwBadge',
+      afterDraw:function(chart){
+        var ctx=chart.ctx;
+        var R=11;
+        chart.data.datasets.forEach(function(ds,i){
+          var meta=chart.getDatasetMeta(i);
+          if(meta.hidden) return;
+          var firstIdx=-1,lastIdx=-1;
+          ds.data.forEach(function(v,j){
+            if(v!==null&&v!==undefined){if(firstIdx<0)firstIdx=j;lastIdx=j;}
+          });
+          if(firstIdx<0) return;
+          var entry=progressBadgeCache[ds.label]||{img:null,initials:teamInitials(ds.label),color:ds.borderColor};
+          var indices=firstIdx===lastIdx?[lastIdx]:[firstIdx,lastIdx];
+          indices.forEach(function(idx){
+            var pt=meta.data[idx];
+            if(!pt) return;
+            var x=pt.x,y=pt.y;
+            ctx.save();
+            // White outline ring
+            ctx.beginPath();ctx.arc(x,y,R+2,0,Math.PI*2);
+            ctx.fillStyle='#fff';ctx.fill();
+            if(entry.img){
+              ctx.beginPath();ctx.arc(x,y,R,0,Math.PI*2);ctx.clip();
+              ctx.drawImage(entry.img,x-R,y-R,R*2,R*2);
+            } else {
+              ctx.beginPath();ctx.arc(x,y,R,0,Math.PI*2);
+              ctx.fillStyle=entry.color;ctx.fill();
+              ctx.fillStyle='#fff';
+              ctx.font='bold 7px system-ui,sans-serif';
+              ctx.textAlign='center';ctx.textBaseline='middle';
+              ctx.fillText(entry.initials,x,y);
+            }
+            ctx.restore();
+          });
+        });
+      }
+    };
+
     function buildProgressChart(data,mode){
       var pp=getPanel('progress');
       if(!pp) return;
@@ -1095,6 +1180,7 @@
       progressChartInst=new Chart(canvas,{
         type:'line',
         data:{labels:labels,datasets:datasets},
+        plugins:[lgwProgressBadgePlugin],
         options:{
           responsive:true,
           maintainAspectRatio:false,
@@ -1173,7 +1259,10 @@
                 updateProgressChart();
               });
             });
-            buildProgressChart(progressSeriesData,progressMode);
+            var teams=Object.keys(resp.data.series);
+            preloadProgressBadges(teams,PROGRESS_COLORS,function(){
+              buildProgressChart(progressSeriesData,progressMode);
+            });
           })
           .catch(function(){pp.innerHTML='<div class="lgw-status">Could not load progress data.</div>';});
       });

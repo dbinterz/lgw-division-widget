@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.26.19
+ * Version: 2026.26.20
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.26.19');
+define('LGW_VERSION', '2026.26.20');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -4119,11 +4119,15 @@ function lgw_ajax_season_progress() {
             if ( $sc_div !== $div_lower && $meta_div !== $div_lower ) continue;
         }
 
-        $fix_date = get_post_meta( $p->ID, 'lgw_fixture_date', true );
-        if ( ! $fix_date ) $fix_date = $sc['fixture_date'] ?? $sc['date'] ?? '';
-        if ( ! $fix_date ) continue;
+        // Use the actual played date for chart grouping — brought-forward games
+        // have an lgw_fixture_date set to the original scheduled date, but the
+        // scorecard's 'date' field records when it was actually played.
+        $played_date = $sc['date'] ?? '';
+        if ( ! $played_date ) $played_date = get_post_meta( $p->ID, 'lgw_fixture_date', true );
+        if ( ! $played_date ) $played_date = $sc['fixture_date'] ?? '';
+        if ( ! $played_date ) continue;
 
-        $ts = lgw_parse_any_date( $fix_date );
+        $ts = lgw_parse_any_date( $played_date );
         if ( ! $ts ) continue;
 
         $by_date[ $ts ][] = array(
@@ -4133,7 +4137,7 @@ function lgw_ajax_season_progress() {
             'away_pts'     => (float)( $sc['away_points'] ?? 0 ),
             'home_shots'   => (int)(   $sc['home_total']  ?? 0 ),
             'away_shots'   => (int)(   $sc['away_total']  ?? 0 ),
-            'date_label'   => $fix_date,
+            'date_label'   => $played_date,
         );
     }
 

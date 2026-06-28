@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.19
+Stable tag: 2026.26.20
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,13 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.20 =
+* fix(widget): progress chart uses actual played date, not scheduled fixture
+  date — brought-forward games now appear at the correct position on the
+  x-axis. Badge overlay uses SVG-only images; raster badges fall back to
+  coloured initials circle. Chart tab hidden on screens ≤520px (UX, not
+  data — chart is lazy-loaded on click so mobile payload is unchanged).
 
 = 2026.26.19 =
 * feat(widget): season progress chart — new 📈 Progress tab on division

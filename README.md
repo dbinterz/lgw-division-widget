@@ -124,6 +124,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.20]
+### Fixed
+- **Progress chart: use played date not scheduled date** — brought-forward games were appearing at the original fixture date. Now uses `lgw_scorecard_data['date']` (actual played date) with `lgw_fixture_date` as fallback only.
+- **Progress chart: SVG-only badge overlay** — raster badges were pixelated at canvas size; non-SVG URLs now fall back to a coloured initials circle.
+- **Progress tab hidden on mobile** — chart is unreadable at ≤520px so tab is hidden via CSS. Lazy-load behaviour unchanged; no mobile payload cost.
+
 ## [2026.26.19]
 ### Added
 - **Season Progress chart** — new "📈 Progress" tab on the division widget. Renders a Chart.js line chart (lazy-loaded from CDN) showing each team's cumulative points or league position per match date. Toggle between Points and Position views. Data sourced from WP scorecards via `lgw_ajax_season_progress`; null & void excluded; gaps handled for teams not yet in the table.

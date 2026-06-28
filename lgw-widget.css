@@ -517,4 +517,4 @@ body.lgw-modal-open{overflow:hidden}
 .lgw-progress-toggle.active{background:var(--lgw-navy,#1a2e5a);color:#fff;border-color:var(--lgw-navy,#1a2e5a)}
 .lgw-progress-toggle:hover:not(.active){background:var(--lgw-bg-hover,#e4e8f5)}
 .lgw-progress-chart-wrap{position:relative;height:340px;padding:12px 14px 16px}
-@media(max-width:520px){.lgw-progress-chart-wrap{height:260px;padding:10px 8px 12px}}
+@media(max-width:520px){.lgw-tab[data-tab="progress"]{display:none}}
