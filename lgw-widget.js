@@ -1056,12 +1056,22 @@
     var progressAnimRaf=null;
     var progressAnimPausedT=0;
     var progressClipX=null;
-    var PROGRESS_COLORS=['#1a2e5a','#c0202a','#2a7a2a','#e8b400','#6a4c93','#17a2b8','#ff6b35','#2d6a4f','#9b2335','#4a4e69'];
-var _progressColorIdx={};
+    var POINT_STYLES=['circle','triangle','rectRot','star','rect','cross','crossRot','rectRounded'];
 var progressTeamColorMap={};
+var progressTeamShapeMap={};
+function _hslHex(h,s,l){
+  s/=100;l/=100;
+  var c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2,r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}
+  else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
+  return '#'+[r,g,b].map(function(v){return Math.round((v+m)*255).toString(16).padStart(2,'0');}).join('');
+}
+function _autoColor(idx){
+  return _hslHex(Math.round((idx*137.508)%360),[62,70,65][idx%3],[42,46,44][idx%3]);
+}
 function buildTeamColorMap(teams){
   var clubColors=lgwData.clubColors||{};
-  var map={};
+  var colorMap={},shapeMap={};
   var clubGroups={};
   teams.forEach(function(team){
     var matched=null;
@@ -1069,39 +1079,36 @@ function buildTeamColorMap(teams){
     for(var n=0;n<names.length;n++){
       if(team.toLowerCase().indexOf(names[n].toLowerCase())===0){matched=names[n];break;}
     }
-    var key=matched||'\x00palette';
+    var key=matched||'\x00auto';
     if(!clubGroups[key])clubGroups[key]=[];
     clubGroups[key].push(team);
   });
+  var autoIdx=0,shapeIdx=0;
+  // process club groups first so auto-idx starts after club-coloured teams
   Object.keys(clubGroups).forEach(function(cname){
     var group=clubGroups[cname].slice().sort();
-    if(cname==='\x00palette'){
+    if(cname==='\x00auto'){
       group.forEach(function(team){
-        if(!(_progressColorIdx[team]>=0))_progressColorIdx[team]=Object.keys(_progressColorIdx).length;
-        map[team]=PROGRESS_COLORS[_progressColorIdx[team]%PROGRESS_COLORS.length];
+        colorMap[team]=_autoColor(autoIdx++);
+        shapeMap[team]=POINT_STYLES[shapeIdx++%POINT_STYLES.length];
       });
     } else {
       var colors=clubColors[cname];
       if(!Array.isArray(colors))colors=colors?[colors]:[];
       group.forEach(function(team,idx){
-        map[team]=colors[idx]||colors[0]||PROGRESS_COLORS[0];
+        colorMap[team]=colors[idx]||colors[0]||_autoColor(autoIdx++);
+        shapeMap[team]=POINT_STYLES[shapeIdx++%POINT_STYLES.length];
       });
     }
   });
-  return map;
+  progressTeamShapeMap=shapeMap;
+  return colorMap;
 }
 function getTeamColor(team){
-  if(progressTeamColorMap[team])return progressTeamColorMap[team];
-  var colors=lgwData.clubColors||{};
-  var names=Object.keys(colors);
-  for(var n=0;n<names.length;n++){
-    if(team.toLowerCase().indexOf(names[n].toLowerCase())===0){
-      var c=colors[names[n]];
-      return Array.isArray(c)?c[0]:c;
-    }
-  }
-  if(!(_progressColorIdx[team]>=0))_progressColorIdx[team]=Object.keys(_progressColorIdx).length;
-  return PROGRESS_COLORS[_progressColorIdx[team]%PROGRESS_COLORS.length];
+  return progressTeamColorMap[team]||_autoColor(0);
+}
+function getTeamShape(team){
+  return progressTeamShapeMap[team]||'circle';
 }
 
     function loadChartJs(cb){
@@ -1231,16 +1238,18 @@ function getTeamColor(team){
       var isPos=(mode==='pos');
       var teams=Object.keys(data.series);
       var labels=data.dates.map(fmtProgressDate);
-      var datasets=teams.map(function(team,i){
+      var datasets=teams.map(function(team){
         var color=getTeamColor(team);
+        var shape=getTeamShape(team);
         return{
           label:team,
           data:data.series[team][mode],
           borderColor:color,
           backgroundColor:color+'33',
           borderWidth:2,
-          pointRadius:4,
-          pointHoverRadius:7,
+          pointStyle:shape,
+          pointRadius:5,
+          pointHoverRadius:8,
           tension:0.15,
           spanGaps:false
         };
