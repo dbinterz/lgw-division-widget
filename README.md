@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.18]
+### Fixed
+- **Table Compare: coverage gap detection** — `lgw_match_key` format is inconsistent between regular scorecards (`sanitize_title(home-away)`, no date) and concessions/null-voids (pipe-separated with date). Gap lookup now built from `lgw_scorecard_data` home/away fields + `lgw_fixture_date` meta; bare `home||away` fallback covers older scorecards missing fixture date.
+
 ## [2026.26.17]
 ### Fixed
 - **Table Compare: regular scorecards now included** — division was stored inside `lgw_scorecard_data` array, not as a separate `lgw_sc_division` meta key (only concessions/null-voids set that meta). Division filter moved to PHP post-load; falls back to `lgw_sc_division` meta for special-case scorecards.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.26.17
+ * Version: 2026.26.18
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.26.17');
+define('LGW_VERSION', '2026.26.18');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -4326,20 +4326,38 @@ function lgw_ajax_table_compare() {
     $wp_keys = array();
     foreach ( $sc_posts as $p ) {
         $sc_d = get_post_meta( $p->ID, 'lgw_scorecard_data', true );
+        if ( ! is_array( $sc_d ) ) continue;
         if ( $div_lower ) {
-            $sc_div   = strtolower( trim( ( is_array( $sc_d ) ? $sc_d['division'] : '' ) ?? '' ) );
+            $sc_div   = strtolower( trim( $sc_d['division'] ?? '' ) );
             $meta_div = strtolower( trim( get_post_meta( $p->ID, 'lgw_sc_division', true ) ) );
             if ( $sc_div !== $div_lower && $meta_div !== $div_lower ) continue;
         }
-        $k = get_post_meta( $p->ID, 'lgw_match_key', true );
-        if ( $k ) $wp_keys[ $k ] = true;
+        $home = strtolower( trim( $sc_d['home_team'] ?? '' ) );
+        $away = strtolower( trim( $sc_d['away_team'] ?? '' ) );
+        if ( ! $home || ! $away ) continue;
+        // Use lgw_fixture_date meta (the scheduled date) for matching against CSV fixture rows.
+        // Fall back to scorecard date field if fixture_date not stored.
+        $fix_date = get_post_meta( $p->ID, 'lgw_fixture_date', true );
+        if ( ! $fix_date ) $fix_date = $sc_d['fixture_date'] ?? $sc_d['date'] ?? '';
+        $fix_date = strtolower( trim( $fix_date ) );
+        if ( $fix_date ) {
+            $wp_keys[ $home . '||' . $away . '||' . $fix_date ] = true;
+        }
+        // Also index without date to catch scorecards missing fixture_date
+        $wp_keys[ $home . '||' . $away ] = true;
     }
 
-    // Find played fixtures in CSV that have no WP scorecard
+    // Find played fixtures in CSV that have no WP scorecard.
+    // Check keyed with date first; fall back to home||away only (covers scorecards
+    // that pre-date lgw_fixture_date meta storage).
     $gaps = array();
     foreach ( $played_fixtures as $fx ) {
-        $key = strtolower( $fx['home'] ) . '||' . strtolower( $fx['away'] ) . '||' . strtolower( $fx['date'] );
-        if ( ! isset( $wp_keys[ $key ] ) ) {
+        $h        = strtolower( $fx['home'] );
+        $a        = strtolower( $fx['away'] );
+        $d        = strtolower( $fx['date'] );
+        $key_full = $h . '||' . $a . '||' . $d;
+        $key_bare = $h . '||' . $a;
+        if ( ! isset( $wp_keys[ $key_full ] ) && ! isset( $wp_keys[ $key_bare ] ) ) {
             $gaps[] = $fx;
         }
     }

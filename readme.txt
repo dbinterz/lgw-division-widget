@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.17
+Stable tag: 2026.26.18
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,13 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.18 =
+* fix(admin): Table Compare coverage gaps now match against scorecard data
+  directly — lgw_match_key format differs between regular scorecards
+  (sanitize_title, no date) and concessions (pipe-separated with date).
+  Gap lookup rebuilt from lgw_scorecard_data home/away + lgw_fixture_date
+  meta; bare home||away fallback covers pre-fixture_date scorecards.
 
 = 2026.26.17 =
 * fix(admin): Table Compare now correctly includes regular scorecards — division
