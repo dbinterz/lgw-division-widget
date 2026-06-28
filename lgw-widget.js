@@ -1053,7 +1053,27 @@
     var progressChartInst=null;
     var progressMode='pts';
     var progressSeriesData=null;
+    var progressAnimRaf=null;
+    var progressAnimPausedT=0;
+    var progressClipX=null;
     var PROGRESS_COLORS=['#1a2e5a','#c0202a','#2a7a2a','#e8b400','#6a4c93','#17a2b8','#ff6b35','#2d6a4f','#9b2335','#4a4e69'];
+var _progressColorIdx={};
+function getTeamColor(team){
+  var colors=lgwData.clubColors||{};
+  // exact match
+  if(colors[team]) return colors[team];
+  // prefix match (same pattern as clubBadges)
+  var names=Object.keys(colors);
+  for(var n=0;n<names.length;n++){
+    if(team.toLowerCase().indexOf(names[n].toLowerCase())===0) return colors[names[n]];
+  }
+  // fallback to palette, stable per team name
+  if(!_progressColorIdx[team]){
+    var used=Object.keys(_progressColorIdx).length;
+    _progressColorIdx[team]=used;
+  }
+  return PROGRESS_COLORS[_progressColorIdx[team]%PROGRESS_COLORS.length];
+}
 
     function loadChartJs(cb){
       if(window.Chart){cb();return;}
@@ -1095,13 +1115,13 @@
       return (parts[0][0]+parts[parts.length-1][0]).toUpperCase();
     }
 
-    function preloadProgressBadges(teams,colors,cb){
+    function preloadProgressBadges(teams,cb){
       var rem=teams.length;
       if(!rem){cb();return;}
-      teams.forEach(function(team,i){
+      teams.forEach(function(team){
         var url=badgeUrl(team);
         var isSvg=url&&/\.svg(\?|$)/i.test(url);
-        var entry={img:null,initials:teamInitials(team),color:colors[i%colors.length]};
+        var entry={img:null,initials:teamInitials(team),color:getTeamColor(team)};
         progressBadgeCache[team]=entry;
         if(url&&isSvg){
           var img=new Image();
@@ -1113,6 +1133,23 @@
         }
       });
     }
+
+    // Clips dataset drawing to the left of progressClipX during animation
+    var lgwClipPlugin={
+      id:'lgwClip',
+      beforeDatasetsDraw:function(chart){
+        if(progressClipX===null) return;
+        var ctx=chart.ctx,a=chart.chartArea;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(a.left,a.top-20,Math.max(0,progressClipX-a.left),a.height+40);
+        ctx.clip();
+      },
+      afterDatasetsDraw:function(chart){
+        if(progressClipX===null) return;
+        chart.ctx.restore();
+      }
+    };
 
     var lgwProgressBadgePlugin={
       id:'lgwBadge',
@@ -1133,6 +1170,7 @@
             var pt=meta.data[idx];
             if(!pt) return;
             var x=pt.x,y=pt.y;
+            if(progressClipX!==null&&x>progressClipX+2) return; // hide badges ahead of clip
             ctx.save();
             // White outline ring
             ctx.beginPath();ctx.arc(x,y,R+2,0,Math.PI*2);
@@ -1155,6 +1193,8 @@
     };
 
     function buildProgressChart(data,mode){
+      progressClipX=null;
+      if(progressAnimRaf){cancelAnimationFrame(progressAnimRaf);progressAnimRaf=null;}
       var pp=getPanel('progress');
       if(!pp) return;
       var canvas=pp.querySelector('canvas');
@@ -1163,7 +1203,7 @@
       var teams=Object.keys(data.series);
       var labels=data.dates.map(fmtProgressDate);
       var datasets=teams.map(function(team,i){
-        var color=PROGRESS_COLORS[i%PROGRESS_COLORS.length];
+        var color=getTeamColor(team);
         return{
           label:team,
           data:data.series[team][mode],
@@ -1180,10 +1220,12 @@
       progressChartInst=new Chart(canvas,{
         type:'line',
         data:{labels:labels,datasets:datasets},
-        plugins:[lgwProgressBadgePlugin],
+        plugins:[lgwClipPlugin,lgwProgressBadgePlugin],
         options:{
           responsive:true,
           maintainAspectRatio:false,
+          layout:{padding:{top:16,left:14,right:14,bottom:0}},
+          animation:{duration:500,easing:'easeInOutQuart'},
           interaction:{mode:'index',intersect:false},
           plugins:{
             legend:{position:'bottom',labels:{font:{size:11},padding:10,usePointStyle:true,pointStyleWidth:10}},
@@ -1204,6 +1246,7 @@
             y:{
               reverse:isPos,
               min:isPos?1:undefined,
+              grace:isPos?0.5:undefined,
               ticks:{stepSize:isPos?1:undefined,callback:function(v){return isPos?'P'+v:v;},font:{size:11}},
               grid:{color:'rgba(0,0,0,0.07)'}
             },
@@ -1215,8 +1258,37 @@
 
     function updateProgressChart(){
       if(!progressSeriesData) return;
-      // Rebuild with new mode so itemSort closure captures correct isPos value
       buildProgressChart(progressSeriesData, progressMode);
+    }
+
+    function stopProgressAnim(){
+      if(progressAnimRaf){cancelAnimationFrame(progressAnimRaf);progressAnimRaf=null;}
+    }
+
+    function startProgressAnim(pp,fromT){
+      stopProgressAnim();
+      if(!progressSeriesData||!progressChartInst) return;
+      fromT=fromT||0;
+      var playBtn=pp?pp.querySelector('.lgw-progress-play'):null;
+      if(playBtn) playBtn.textContent='⏸ Pause';
+      var area=progressChartInst.chartArea;
+      var totalDuration=Math.max(3000,progressSeriesData.dates.length*700);
+      var animStart=null;
+      function frame(now){
+        if(!animStart) animStart=now-fromT*totalDuration;
+        var t=Math.min((now-animStart)/totalDuration,1);
+        progressClipX=area.left+(area.right-area.left)*t;
+        progressChartInst.draw();
+        if(t<1){
+          progressAnimRaf=requestAnimationFrame(frame);
+        } else {
+          progressAnimRaf=null;
+          progressClipX=null;
+          progressChartInst.draw();
+          if(playBtn) playBtn.textContent='↺ Replay';
+        }
+      }
+      progressAnimRaf=requestAnimationFrame(frame);
     }
 
     function initProgressTab(){
@@ -1249,6 +1321,7 @@
               '<div class="lgw-progress-controls">'
               +'<button class="lgw-progress-toggle active" data-mode="pts">Points</button>'
               +'<button class="lgw-progress-toggle" data-mode="pos">Position</button>'
+              +'<button class="lgw-progress-play">&#x25B6; Play</button>'
               +'</div>'
               +'<div class="lgw-progress-chart-wrap"><canvas></canvas></div>';
             pp.querySelectorAll('.lgw-progress-toggle').forEach(function(btn){
@@ -1256,11 +1329,31 @@
                 pp.querySelectorAll('.lgw-progress-toggle').forEach(function(b){b.classList.remove('active');});
                 btn.classList.add('active');
                 progressMode=btn.getAttribute('data-mode');
+                progressAnimPausedT=0;
                 updateProgressChart();
+                var playBtn=pp.querySelector('.lgw-progress-play');
+                if(playBtn) playBtn.textContent='▶ Play';
               });
             });
+            pp.querySelector('.lgw-progress-play').addEventListener('click',function(){
+              var btn=this;
+              if(progressAnimRaf){
+                // playing — pause, store current t
+                var area=progressChartInst.chartArea;
+                progressAnimPausedT=area?(progressClipX-area.left)/(area.right-area.left):0;
+                progressAnimPausedT=Math.max(0,Math.min(1,progressAnimPausedT));
+                stopProgressAnim();
+                btn.textContent='▶ Resume';
+              } else if(btn.textContent.indexOf('Resume')>=0){
+                startProgressAnim(pp,progressAnimPausedT);
+              } else {
+                // Play or Replay
+                progressAnimPausedT=0;
+                startProgressAnim(pp,0);
+              }
+            });
             var teams=Object.keys(resp.data.series);
-            preloadProgressBadges(teams,PROGRESS_COLORS,function(){
+            preloadProgressBadges(teams,function(){
               buildProgressChart(progressSeriesData,progressMode);
             });
           })

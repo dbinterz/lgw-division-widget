@@ -54,6 +54,7 @@ function lgw_ajax_save_club() {
     $badge_url   = esc_url_raw( wp_unslash( $_POST['club_badge']    ?? '' ) );
     $badge_type  = in_array( wp_unslash( $_POST['club_badge_type'] ?? '' ), array( 'club', 'exact' ), true )
                     ? wp_unslash( $_POST['club_badge_type'] ) : 'club';
+    $club_color  = sanitize_hex_color( wp_unslash( $_POST['club_color'] ?? '' ) ) ?: '';
     $pin_raw     = trim( wp_unslash( $_POST['club_pin'] ?? '' ) );
     $is_new      = ! empty( $_POST['club_is_new'] );
 
@@ -103,6 +104,7 @@ function lgw_ajax_save_club() {
         'pin'         => $new_hash,
         'address'     => $address,
         'website'     => $website,
+        'color'       => $club_color,
         'can_submit'  => $can_submit,
         'contacts'    => $contacts,
         'facilities'  => array(
@@ -296,6 +298,7 @@ function lgw_clubs_render_form( $club, $slug, $badge_info, $is_new = false ) {
     $can_submit  = $club ? ! empty( $club['can_submit'] ) : false;
     $badge_url   = $badge_info ? ( $badge_info['url']  ?? '' ) : '';
     $badge_type  = $badge_info ? ( $badge_info['type'] ?? 'club' ) : 'club';
+    $club_color  = $club ? ( $club['color'] ?? '' ) : '';
     $contacts    = $club ? ( $club['contacts'] ?? array() ) : array();
     $fac         = $club ? ( $club['facilities'] ?? array() ) : array();
     $fac_greens      = intval( $fac['greens']      ?? 0 );
@@ -376,6 +379,14 @@ function lgw_clubs_render_form( $club, $slug, $badge_info, $is_new = false ) {
                             <option value="club"  <?php selected( $badge_type, 'club' );  ?>>Club prefix (e.g. ARDS matches ARDS A, ARDS B)</option>
                             <option value="exact" <?php selected( $badge_type, 'exact' ); ?>>Exact team name</option>
                         </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="club_color_<?php echo esc_attr( $slug ?? 'new' ); ?>">Chart Colour</label></th>
+                    <td>
+                        <input type="color" name="club_color" id="club_color_<?php echo esc_attr( $slug ?? 'new' ); ?>"
+                               value="<?php echo esc_attr( $club_color ?: '#1a2e5a' ); ?>">
+                        <span style="margin-left:8px;font-size:12px;color:#666">Used in the progress chart</span>
                     </td>
                 </tr>
             </table>

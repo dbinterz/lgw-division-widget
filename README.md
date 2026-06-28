@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.21]
+### Added
+- **Per-club chart colour** — colour picker in clubs admin (Badge section). Stored in `lgw_clubs` option as `color`. Exposed in `lgwData.clubColors` (keyed by club name, prefix-match like `clubBadges`). Progress chart lines use per-club colour with stable palette fallback for clubs without a configured colour.
+
 ## [2026.26.20]
 ### Fixed
 - **Progress chart: use played date not scheduled date** — brought-forward games were appearing at the original fixture date. Now uses `lgw_scorecard_data['date']` (actual played date) with `lgw_fixture_date` as fallback only.
