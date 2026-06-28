@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.16
+Stable tag: 2026.26.17
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.17 =
+* fix(admin): Table Compare now correctly includes regular scorecards — division
+  was stored inside lgw_scorecard_data not as lgw_sc_division meta, so only
+  concessions/null-voids were matching. Filter moved to PHP post-load.
 
 = 2026.26.16 =
 * feat(admin): Table Compare page — side-by-side diff of WP-calculated league

@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.17]
+### Fixed
+- **Table Compare: regular scorecards now included** — division was stored inside `lgw_scorecard_data` array, not as a separate `lgw_sc_division` meta key (only concessions/null-voids set that meta). Division filter moved to PHP post-load; falls back to `lgw_sc_division` meta for special-case scorecards.
+
 ## [2026.26.16]
 ### Added
 - **Table Compare admin page** — new "📊 Table Compare" submenu. Loads each division's Sheets CSV and compares the live table against a table calculated from WP scorecards. Gold cells = value mismatch; green +WP = team only in WP; red -WP = team only in Sheets. Coverage Gaps section lists every played result in Sheets that has no matching WP scorecard, making backfill gaps visible before switching data source to WP DB.

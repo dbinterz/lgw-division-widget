@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.26.16
+ * Version: 2026.26.17
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.26.16');
+define('LGW_VERSION', '2026.26.17');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -4199,9 +4199,6 @@ function lgw_calculate_wp_table( $division, $season_id ) {
         array( 'key' => 'lgw_sc_context', 'value' => 'league', 'compare' => '=' ),
         array( 'key' => 'lgw_sc_status',  'value' => 'confirmed', 'compare' => '=' ),
     );
-    if ( $division ) {
-        $meta_query[] = array( 'key' => 'lgw_sc_division', 'value' => $division, 'compare' => '=' );
-    }
     if ( $season_id ) {
         $meta_query[] = array( 'key' => 'lgw_sc_season', 'value' => $season_id, 'compare' => '=' );
     }
@@ -4212,6 +4209,10 @@ function lgw_calculate_wp_table( $division, $season_id ) {
         'meta_query'     => $meta_query,
     ) );
 
+    // Division is stored inside lgw_scorecard_data, not as a separate meta key on regular scorecards.
+    // Filter in PHP after loading the data rather than via meta_query.
+    $div_lower = $division ? strtolower( trim( $division ) ) : '';
+
     $teams = array(); // keyed by team name (lowercase)
     foreach ( $posts as $p ) {
         // Skip null & void
@@ -4221,6 +4222,12 @@ function lgw_calculate_wp_table( $division, $season_id ) {
         $home = $sc['home_team'] ?? '';
         $away = $sc['away_team'] ?? '';
         if ( ! $home || ! $away ) continue;
+        // Division filter — also check the lgw_sc_division meta (set by concession/null-void handlers)
+        if ( $div_lower ) {
+            $sc_div  = strtolower( trim( $sc['division'] ?? '' ) );
+            $meta_div = strtolower( trim( get_post_meta( $p->ID, 'lgw_sc_division', true ) ) );
+            if ( $sc_div !== $div_lower && $meta_div !== $div_lower ) continue;
+        }
 
         $sh  = (int) ( $sc['home_total']  ?? 0 );
         $sa  = (int) ( $sc['away_total']  ?? 0 );
@@ -4300,24 +4307,31 @@ function lgw_ajax_table_compare() {
     $played_fixtures = lgw_parse_csv_fixtures_played( $body );
     $wp_table        = lgw_calculate_wp_table( $division, $season_id );
 
-    // Build a lookup of WP scorecards by match key to identify coverage gaps
-    $meta_query = array(
+    // Build a lookup of WP scorecards by match key to identify coverage gaps.
+    // Do not filter by lgw_sc_division meta — regular scorecards store division
+    // inside lgw_scorecard_data only, not as a separate meta key.
+    $gap_meta_query = array(
         'relation' => 'AND',
         array( 'key' => 'lgw_sc_context', 'value' => 'league', 'compare' => '=' ),
         array( 'key' => 'lgw_sc_status',  'value' => 'confirmed', 'compare' => '=' ),
     );
-    if ( $division )  $meta_query[] = array( 'key' => 'lgw_sc_division', 'value' => $division, 'compare' => '=' );
-    if ( $season_id ) $meta_query[] = array( 'key' => 'lgw_sc_season',   'value' => $season_id, 'compare' => '=' );
+    if ( $season_id ) $gap_meta_query[] = array( 'key' => 'lgw_sc_season', 'value' => $season_id, 'compare' => '=' );
     $sc_posts = get_posts( array(
         'post_type'      => 'lgw_scorecard',
         'posts_per_page' => 1000,
         'post_status'    => 'publish',
-        'meta_query'     => $meta_query,
-        'fields'         => 'ids',
+        'meta_query'     => $gap_meta_query,
     ) );
+    $div_lower = $division ? strtolower( trim( $division ) ) : '';
     $wp_keys = array();
-    foreach ( $sc_posts as $pid ) {
-        $k = get_post_meta( $pid, 'lgw_match_key', true );
+    foreach ( $sc_posts as $p ) {
+        $sc_d = get_post_meta( $p->ID, 'lgw_scorecard_data', true );
+        if ( $div_lower ) {
+            $sc_div   = strtolower( trim( ( is_array( $sc_d ) ? $sc_d['division'] : '' ) ?? '' ) );
+            $meta_div = strtolower( trim( get_post_meta( $p->ID, 'lgw_sc_division', true ) ) );
+            if ( $sc_div !== $div_lower && $meta_div !== $div_lower ) continue;
+        }
+        $k = get_post_meta( $p->ID, 'lgw_match_key', true );
         if ( $k ) $wp_keys[ $k ] = true;
     }
 
