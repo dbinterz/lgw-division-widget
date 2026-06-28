@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.18
+Stable tag: 2026.26.19
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,13 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.19 =
+* feat(widget): season progress chart — new 📈 Progress tab on division
+  widget. Line chart (Chart.js, lazy CDN load) showing cumulative points
+  or league position over the season. Toggle between Points/Position views.
+  Data from WP scorecards via lgw_ajax_season_progress. Handles null &
+  void exclusion, multi-date grouping, and null gaps for late-joining teams.
 
 = 2026.26.18 =
 * fix(admin): Table Compare coverage gaps now match against scorecard data

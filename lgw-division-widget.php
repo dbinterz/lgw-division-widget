@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.26.18
+ * Version: 2026.26.19
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.26.18');
+define('LGW_VERSION', '2026.26.19');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -1036,7 +1036,8 @@ function lgw_enqueue() {
         'postponements'    => lgw_build_postponements_map(),
         'concessions'      => lgw_get_concessions(),
         'null_voids'       => lgw_get_null_voids(),
-        'recentResults'  => lgw_get_recent_results(30),
+        'recentResults'    => lgw_get_recent_results(30),
+        'progressNonce'    => wp_create_nonce('lgw_season_progress_nonce'),
     ));
 }
 
@@ -1227,9 +1228,11 @@ function lgw_division_shortcode($atts) {
         . '<div class="lgw-tabs">'
         . '<div class="lgw-tab active" data-tab="table">League Table</div>'
         . '<div class="lgw-tab" data-tab="fixtures">Fixtures &amp; Results</div>'
+        . '<div class="lgw-tab" data-tab="progress">&#x1F4C8; Progress</div>'
         . '</div>'
         . '<div class="lgw-panel active" data-panel="table">' . $table_panel . '</div>'
         . '<div class="lgw-panel" data-panel="fixtures">' . $fixtures_panel . '</div>'
+        . '<div class="lgw-panel" data-panel="progress"></div>'
         . '</div>'
         . '</div>';
 }
@@ -4070,6 +4073,131 @@ function lgw_scores_parse_fixtures($csv_body, $csv_url, $overrides) {
         );
     }
     return $fixtures;
+}
+
+// ── Season Progress chart: AJAX handler ──────────────────────────────────────
+
+add_action('wp_ajax_lgw_season_progress',        'lgw_ajax_season_progress');
+add_action('wp_ajax_nopriv_lgw_season_progress', 'lgw_ajax_season_progress');
+function lgw_ajax_season_progress() {
+    check_ajax_referer('lgw_season_progress_nonce', 'nonce');
+
+    $division  = sanitize_text_field( $_POST['division']  ?? '' );
+    $season_id = sanitize_text_field( $_POST['season_id'] ?? '' );
+
+    $meta_query = array(
+        'relation' => 'AND',
+        array( 'key' => 'lgw_sc_context', 'value' => 'league',    'compare' => '=' ),
+        array( 'key' => 'lgw_sc_status',  'value' => 'confirmed', 'compare' => '=' ),
+    );
+    if ( $season_id ) {
+        $meta_query[] = array( 'key' => 'lgw_sc_season', 'value' => $season_id, 'compare' => '=' );
+    }
+
+    $posts = get_posts( array(
+        'post_type'      => 'lgw_scorecard',
+        'posts_per_page' => 1000,
+        'post_status'    => 'publish',
+        'meta_query'     => $meta_query,
+    ) );
+
+    $div_lower = $division ? strtolower( trim( $division ) ) : '';
+
+    // Group matches by fixture date timestamp
+    $by_date = array();
+    foreach ( $posts as $p ) {
+        if ( get_post_meta( $p->ID, 'lgw_sc_null_void', true ) === '1' ) continue;
+        $sc = get_post_meta( $p->ID, 'lgw_scorecard_data', true );
+        if ( ! is_array( $sc ) ) continue;
+        $home = $sc['home_team'] ?? '';
+        $away = $sc['away_team'] ?? '';
+        if ( ! $home || ! $away ) continue;
+
+        if ( $div_lower ) {
+            $sc_div   = strtolower( trim( $sc['division'] ?? '' ) );
+            $meta_div = strtolower( trim( get_post_meta( $p->ID, 'lgw_sc_division', true ) ) );
+            if ( $sc_div !== $div_lower && $meta_div !== $div_lower ) continue;
+        }
+
+        $fix_date = get_post_meta( $p->ID, 'lgw_fixture_date', true );
+        if ( ! $fix_date ) $fix_date = $sc['fixture_date'] ?? $sc['date'] ?? '';
+        if ( ! $fix_date ) continue;
+
+        $ts = lgw_parse_any_date( $fix_date );
+        if ( ! $ts ) continue;
+
+        $by_date[ $ts ][] = array(
+            'home'         => $home,
+            'away'         => $away,
+            'home_pts'     => (float)( $sc['home_points'] ?? 0 ),
+            'away_pts'     => (float)( $sc['away_points'] ?? 0 ),
+            'home_shots'   => (int)(   $sc['home_total']  ?? 0 ),
+            'away_shots'   => (int)(   $sc['away_total']  ?? 0 ),
+            'date_label'   => $fix_date,
+        );
+    }
+
+    if ( empty( $by_date ) ) {
+        wp_send_json_success( array( 'dates' => array(), 'series' => array() ) );
+        return;
+    }
+
+    ksort( $by_date );
+
+    // Walk through each match date, accumulate running totals, snapshot table
+    $running  = array(); // team => [pts, f, a]
+    $dates    = array();
+    $snaps    = array(); // [ team => [pts, pos], ... ] per date
+
+    foreach ( $by_date as $ts => $matches ) {
+        $dates[] = $matches[0]['date_label'];
+
+        foreach ( $matches as $m ) {
+            foreach ( array( 'home' => $m['home'], 'away' => $m['away'] ) as $side => $name ) {
+                if ( ! isset( $running[ $name ] ) ) {
+                    $running[ $name ] = array( 'pts' => 0.0, 'f' => 0, 'a' => 0 );
+                }
+            }
+            $running[ $m['home'] ]['pts'] += $m['home_pts'];
+            $running[ $m['home'] ]['f']   += $m['home_shots'];
+            $running[ $m['home'] ]['a']   += $m['away_shots'];
+            $running[ $m['away'] ]['pts'] += $m['away_pts'];
+            $running[ $m['away'] ]['f']   += $m['away_shots'];
+            $running[ $m['away'] ]['a']   += $m['home_shots'];
+        }
+
+        // Sort by pts desc then shot-diff desc for position
+        $sorted = $running;
+        uasort( $sorted, function( $a, $b ) {
+            if ( $b['pts'] !== $a['pts'] ) return $b['pts'] <=> $a['pts'];
+            return ( $b['f'] - $b['a'] ) <=> ( $a['f'] - $a['a'] );
+        } );
+
+        $snap = array(); $pos = 1;
+        foreach ( $sorted as $name => $t ) {
+            $snap[ $name ] = array( 'pts' => $t['pts'], 'pos' => $pos++ );
+        }
+        $snaps[] = $snap;
+    }
+
+    // Build per-team series (null where team hadn't appeared yet)
+    $all_teams = array_keys( $running );
+    $series    = array();
+    foreach ( $all_teams as $team ) {
+        $pts_arr = array();
+        $pos_arr = array();
+        foreach ( $snaps as $snap ) {
+            $pts_arr[] = isset( $snap[ $team ] ) ? $snap[ $team ]['pts'] : null;
+            $pos_arr[] = isset( $snap[ $team ] ) ? $snap[ $team ]['pos'] : null;
+        }
+        $series[ $team ] = array( 'pts' => $pts_arr, 'pos' => $pos_arr );
+    }
+
+    wp_send_json_success( array(
+        'dates'      => $dates,
+        'series'     => $series,
+        'team_count' => count( $all_teams ),
+    ) );
 }
 
 // ── Table Compare: helpers + AJAX + admin page ───────────────────────────────

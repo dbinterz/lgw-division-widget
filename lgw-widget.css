@@ -510,3 +510,11 @@ body.lgw-modal-open{overflow:hidden}
   .lgwps-club{display:none}
   .lgwps-tbl th,.lgwps-tbl td{padding:5px 5px;font-size:12px}
 }
+
+/* ── Progress chart ──────────────────────────────────────────────────────────── */
+.lgw-progress-controls{display:flex;gap:8px;padding:12px 14px 0}
+.lgw-progress-toggle{background:var(--lgw-bg-alt,#f0f2f8);border:1px solid var(--lgw-border,#d0d5e8);color:var(--lgw-text,#1a2e5a);border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s}
+.lgw-progress-toggle.active{background:var(--lgw-navy,#1a2e5a);color:#fff;border-color:var(--lgw-navy,#1a2e5a)}
+.lgw-progress-toggle:hover:not(.active){background:var(--lgw-bg-hover,#e4e8f5)}
+.lgw-progress-chart-wrap{position:relative;height:340px;padding:12px 14px 16px}
+@media(max-width:520px){.lgw-progress-chart-wrap{height:260px;padding:10px 8px 12px}}

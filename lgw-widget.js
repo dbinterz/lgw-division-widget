@@ -1037,6 +1037,7 @@
         var name = tab.getAttribute('data-tab');
         activateTab(name);
         try { sessionStorage.setItem(tabStoreKey, name); } catch(e){}
+        if(name==='progress') initProgressTab();
       });
     });
 
@@ -1046,6 +1047,144 @@
       }
       return null;
     }
+
+    // ── Season Progress chart ────────────────────────────────────────────────
+    var progressLoaded=false;
+    var progressChartInst=null;
+    var progressMode='pts';
+    var progressSeriesData=null;
+    var PROGRESS_COLORS=['#1a2e5a','#c0202a','#2a7a2a','#e8b400','#6a4c93','#17a2b8','#ff6b35','#2d6a4f','#9b2335','#4a4e69'];
+
+    function loadChartJs(cb){
+      if(window.Chart){cb();return;}
+      var s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+      s.onload=function(){cb();};
+      s.onerror=function(){cb(new Error('load'));};
+      document.head.appendChild(s);
+    }
+
+    function fmtProgressDate(str){
+      var m=str.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/);
+      return m?m[1]+' '+m[2]:str;
+    }
+
+    function buildProgressChart(data,mode){
+      var pp=getPanel('progress');
+      if(!pp) return;
+      var canvas=pp.querySelector('canvas');
+      if(!canvas) return;
+      var isPos=(mode==='pos');
+      var teams=Object.keys(data.series);
+      var labels=data.dates.map(fmtProgressDate);
+      var datasets=teams.map(function(team,i){
+        var color=PROGRESS_COLORS[i%PROGRESS_COLORS.length];
+        return{
+          label:team,
+          data:data.series[team][mode],
+          borderColor:color,
+          backgroundColor:color+'33',
+          borderWidth:2,
+          pointRadius:4,
+          pointHoverRadius:7,
+          tension:0.15,
+          spanGaps:false
+        };
+      });
+      if(progressChartInst) progressChartInst.destroy();
+      progressChartInst=new Chart(canvas,{
+        type:'line',
+        data:{labels:labels,datasets:datasets},
+        options:{
+          responsive:true,
+          maintainAspectRatio:false,
+          interaction:{mode:'index',intersect:false},
+          plugins:{
+            legend:{position:'bottom',labels:{font:{size:11},padding:10,usePointStyle:true,pointStyleWidth:10}},
+            tooltip:{callbacks:{label:function(item){
+              var v=item.raw;
+              if(v===null||v===undefined) return item.dataset.label+': —';
+              return item.dataset.label+': '+(isPos?'P'+v:v+' pts');
+            }}}
+          },
+          scales:{
+            y:{
+              reverse:isPos,
+              min:isPos?1:undefined,
+              ticks:{stepSize:isPos?1:undefined,callback:function(v){return isPos?'P'+v:v;},font:{size:11}},
+              grid:{color:'rgba(0,0,0,0.07)'}
+            },
+            x:{ticks:{font:{size:10},maxRotation:45,minRotation:30},grid:{color:'rgba(0,0,0,0.07)'}}
+          }
+        }
+      });
+    }
+
+    function updateProgressChart(){
+      if(!progressChartInst||!progressSeriesData) return;
+      var isPos=(progressMode==='pos');
+      progressChartInst.data.datasets.forEach(function(ds){
+        ds.data=progressSeriesData.series[ds.label][progressMode];
+      });
+      progressChartInst.options.scales.y.reverse=isPos;
+      progressChartInst.options.scales.y.min=isPos?1:undefined;
+      progressChartInst.options.scales.y.ticks.stepSize=isPos?1:undefined;
+      progressChartInst.options.plugins.tooltip.callbacks.label=function(item){
+        var v=item.raw;
+        if(v===null||v===undefined) return item.dataset.label+': —';
+        return item.dataset.label+': '+(isPos?'P'+v:v+' pts');
+      };
+      progressChartInst.update();
+    }
+
+    function initProgressTab(){
+      if(progressLoaded) return;
+      progressLoaded=true;
+      var pp=getPanel('progress');
+      if(!pp) return;
+      pp.innerHTML='<div class="lgw-status">Loading…</div>';
+      var division=divisionTitle;
+      var seasonId=(typeof lgwData!=='undefined'&&lgwData.activeSeasonId)?lgwData.activeSeasonId:'';
+      var nonce=(typeof lgwData!=='undefined'&&lgwData.progressNonce)?lgwData.progressNonce:'';
+      var ajaxUrl=(typeof lgwData!=='undefined'&&lgwData.ajaxUrl)?lgwData.ajaxUrl:'';
+      loadChartJs(function(err){
+        if(err){pp.innerHTML='<div class="lgw-status">Charting library unavailable.</div>';return;}
+        var fd=new FormData();
+        fd.append('action','lgw_season_progress');
+        fd.append('nonce',nonce);
+        fd.append('division',division);
+        fd.append('season_id',seasonId);
+        fetch(ajaxUrl,{method:'POST',body:fd})
+          .then(function(r){return r.json();})
+          .then(function(resp){
+            if(!resp.success||!resp.data||!resp.data.dates.length){
+              pp.innerHTML='<div class="lgw-status">No results recorded yet.</div>';
+              return;
+            }
+            progressSeriesData=resp.data;
+            progressMode='pts';
+            pp.innerHTML=
+              '<div class="lgw-progress-controls">'
+              +'<button class="lgw-progress-toggle active" data-mode="pts">Points</button>'
+              +'<button class="lgw-progress-toggle" data-mode="pos">Position</button>'
+              +'</div>'
+              +'<div class="lgw-progress-chart-wrap"><canvas></canvas></div>';
+            pp.querySelectorAll('.lgw-progress-toggle').forEach(function(btn){
+              btn.addEventListener('click',function(){
+                pp.querySelectorAll('.lgw-progress-toggle').forEach(function(b){b.classList.remove('active');});
+                btn.classList.add('active');
+                progressMode=btn.getAttribute('data-mode');
+                updateProgressChart();
+              });
+            });
+            buildProgressChart(progressSeriesData,progressMode);
+          })
+          .catch(function(){pp.innerHTML='<div class="lgw-status">Could not load progress data.</div>';});
+      });
+    }
+
+    // Auto-init if progress tab restored from session storage
+    (function(){var pp=getPanel('progress');if(pp&&pp.classList.contains('active'))initProgressTab();})();
 
     function makePrintBtn(tabName){
       var btn=document.createElement('button');

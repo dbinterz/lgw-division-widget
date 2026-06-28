@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.19]
+### Added
+- **Season Progress chart** — new "📈 Progress" tab on the division widget. Renders a Chart.js line chart (lazy-loaded from CDN) showing each team's cumulative points or league position per match date. Toggle between Points and Position views. Data sourced from WP scorecards via `lgw_ajax_season_progress`; null & void excluded; gaps handled for teams not yet in the table.
+
 ## [2026.26.18]
 ### Fixed
 - **Table Compare: coverage gap detection** — `lgw_match_key` format is inconsistent between regular scorecards (`sanitize_title(home-away)`, no date) and concessions/null-voids (pipe-separated with date). Gap lookup now built from `lgw_scorecard_data` home/away fields + `lgw_fixture_date` meta; bare `home||away` fallback covers older scorecards missing fixture date.
