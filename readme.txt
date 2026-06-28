@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.23
+Stable tag: 2026.26.24
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.24 =
+* fix(widget): progress chart Play/Pause/Resume/Replay button labels now plain
+  text — removed Unicode symbols (▶ ⏸ ↺) that rendered as boxes on some hosts.
 
 = 2026.26.23 =
 * feat(widget): auto-distinct progress chart colours and shapes — golden-ratio

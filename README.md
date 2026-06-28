@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.24]
+### Fixed
+- **Progress chart Play button renders as boxes on live** — removed Unicode symbols (▶ ⏸ ↺) from button labels; replaced with plain text Play/Pause/Resume/Replay. Symbols not present in server font stack.
+
 ## [2026.26.23]
 ### Changed
 - **Progress chart: auto-distinct colours + varied point shapes** — replaced hardcoded colour palette with golden-ratio HSL generation (`idx × 137.508°`) giving maximally distinct colours. Added `POINT_STYLES` array cycling through 8 Chart.js shapes (circle, triangle, rectRot, star, rect, cross, crossRot, rectRounded). Club admin colour pickers still override auto colours. `buildTeamColorMap()` now populates both `progressTeamColorMap` and `progressTeamShapeMap`.

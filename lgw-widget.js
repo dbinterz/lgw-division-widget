@@ -1308,7 +1308,7 @@ function getTeamShape(team){
       if(!progressSeriesData||!progressChartInst) return;
       fromT=fromT||0;
       var playBtn=pp?pp.querySelector('.lgw-progress-play'):null;
-      if(playBtn) playBtn.textContent='⏸ Pause';
+      if(playBtn) playBtn.textContent='Pause';
       var area=progressChartInst.chartArea;
       var totalDuration=Math.max(3000,progressSeriesData.dates.length*700);
       var animStart=null;
@@ -1323,7 +1323,7 @@ function getTeamShape(team){
           progressAnimRaf=null;
           progressClipX=null;
           progressChartInst.draw();
-          if(playBtn) playBtn.textContent='↺ Replay';
+          if(playBtn) playBtn.textContent='Replay';
         }
       }
       progressAnimRaf=requestAnimationFrame(frame);
@@ -1359,7 +1359,7 @@ function getTeamShape(team){
               '<div class="lgw-progress-controls">'
               +'<button class="lgw-progress-toggle active" data-mode="pts">Points</button>'
               +'<button class="lgw-progress-toggle" data-mode="pos">Position</button>'
-              +'<button class="lgw-progress-play">&#x25B6; Play</button>'
+              +'<button class="lgw-progress-play">Play</button>'
               +'</div>'
               +'<div class="lgw-progress-chart-wrap"><canvas></canvas></div>';
             pp.querySelectorAll('.lgw-progress-toggle').forEach(function(btn){
@@ -1370,7 +1370,7 @@ function getTeamShape(team){
                 progressAnimPausedT=0;
                 updateProgressChart();
                 var playBtn=pp.querySelector('.lgw-progress-play');
-                if(playBtn) playBtn.textContent='▶ Play';
+                if(playBtn) playBtn.textContent='Play';
               });
             });
             pp.querySelector('.lgw-progress-play').addEventListener('click',function(){
@@ -1381,7 +1381,7 @@ function getTeamShape(team){
                 progressAnimPausedT=area?(progressClipX-area.left)/(area.right-area.left):0;
                 progressAnimPausedT=Math.max(0,Math.min(1,progressAnimPausedT));
                 stopProgressAnim();
-                btn.textContent='▶ Resume';
+                btn.textContent='Resume';
               } else if(btn.textContent.indexOf('Resume')>=0){
                 startProgressAnim(pp,progressAnimPausedT);
               } else {
