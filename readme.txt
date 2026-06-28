@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.21
+Stable tag: 2026.26.22
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,11 +71,11 @@ Parameters:
 
 == Changelog ==
 
-= 2026.26.21 =
-* feat(clubs): per-club chart colour — colour picker in clubs admin, stored
-  in lgw_clubs option; clubColors map exposed in lgwData (prefix-match,
-  same pattern as clubBadges); progress chart lines use per-club colour with
-  stable palette fallback for uncoloured clubs.
+= 2026.26.22 =
+* feat(clubs): per-club progress chart colours — up to 3 colour pickers (A/B/C)
+  per club in admin; stored as colors[] in lgw_clubs; clubColors in lgwData now
+  an array per club; buildTeamColorMap assigns colours alphabetically to teams
+  sharing a club prefix; palette fallback for clubs without configured colours.
 
 = 2026.26.20 =
 * fix(widget): progress chart uses actual played date, not scheduled fixture

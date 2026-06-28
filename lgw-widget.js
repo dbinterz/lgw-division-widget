@@ -1058,20 +1058,49 @@
     var progressClipX=null;
     var PROGRESS_COLORS=['#1a2e5a','#c0202a','#2a7a2a','#e8b400','#6a4c93','#17a2b8','#ff6b35','#2d6a4f','#9b2335','#4a4e69'];
 var _progressColorIdx={};
+var progressTeamColorMap={};
+function buildTeamColorMap(teams){
+  var clubColors=lgwData.clubColors||{};
+  var map={};
+  var clubGroups={};
+  teams.forEach(function(team){
+    var matched=null;
+    var names=Object.keys(clubColors);
+    for(var n=0;n<names.length;n++){
+      if(team.toLowerCase().indexOf(names[n].toLowerCase())===0){matched=names[n];break;}
+    }
+    var key=matched||'\x00palette';
+    if(!clubGroups[key])clubGroups[key]=[];
+    clubGroups[key].push(team);
+  });
+  Object.keys(clubGroups).forEach(function(cname){
+    var group=clubGroups[cname].slice().sort();
+    if(cname==='\x00palette'){
+      group.forEach(function(team){
+        if(!(_progressColorIdx[team]>=0))_progressColorIdx[team]=Object.keys(_progressColorIdx).length;
+        map[team]=PROGRESS_COLORS[_progressColorIdx[team]%PROGRESS_COLORS.length];
+      });
+    } else {
+      var colors=clubColors[cname];
+      if(!Array.isArray(colors))colors=colors?[colors]:[];
+      group.forEach(function(team,idx){
+        map[team]=colors[idx]||colors[0]||PROGRESS_COLORS[0];
+      });
+    }
+  });
+  return map;
+}
 function getTeamColor(team){
+  if(progressTeamColorMap[team])return progressTeamColorMap[team];
   var colors=lgwData.clubColors||{};
-  // exact match
-  if(colors[team]) return colors[team];
-  // prefix match (same pattern as clubBadges)
   var names=Object.keys(colors);
   for(var n=0;n<names.length;n++){
-    if(team.toLowerCase().indexOf(names[n].toLowerCase())===0) return colors[names[n]];
+    if(team.toLowerCase().indexOf(names[n].toLowerCase())===0){
+      var c=colors[names[n]];
+      return Array.isArray(c)?c[0]:c;
+    }
   }
-  // fallback to palette, stable per team name
-  if(!_progressColorIdx[team]){
-    var used=Object.keys(_progressColorIdx).length;
-    _progressColorIdx[team]=used;
-  }
+  if(!(_progressColorIdx[team]>=0))_progressColorIdx[team]=Object.keys(_progressColorIdx).length;
   return PROGRESS_COLORS[_progressColorIdx[team]%PROGRESS_COLORS.length];
 }
 
@@ -1353,6 +1382,7 @@ function getTeamColor(team){
               }
             });
             var teams=Object.keys(resp.data.series);
+            progressTeamColorMap=buildTeamColorMap(teams);
             preloadProgressBadges(teams,function(){
               buildProgressChart(progressSeriesData,progressMode);
             });

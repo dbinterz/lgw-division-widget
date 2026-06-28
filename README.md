@@ -124,9 +124,9 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
-## [2026.26.21]
+## [2026.26.22]
 ### Added
-- **Per-club chart colour** — colour picker in clubs admin (Badge section). Stored in `lgw_clubs` option as `color`. Exposed in `lgwData.clubColors` (keyed by club name, prefix-match like `clubBadges`). Progress chart lines use per-club colour with stable palette fallback for clubs without a configured colour.
+- **Per-club progress chart colours (up to 3)** — three colour pickers (A/B/C) per club in the Badge section of clubs admin. Stored as `colors[]` array in `lgw_clubs`. `lgwData.clubColors` now exposes an array per club name. `buildTeamColorMap()` groups teams by club prefix, sorts alphabetically, assigns colour by index (ARDS A→color[0], ARDS B→color[1], etc). Palette fallback for uncoloured clubs. Migrates old single `color` field transparently.
 
 ## [2026.26.20]
 ### Fixed

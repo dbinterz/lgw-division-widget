@@ -54,7 +54,13 @@ function lgw_ajax_save_club() {
     $badge_url   = esc_url_raw( wp_unslash( $_POST['club_badge']    ?? '' ) );
     $badge_type  = in_array( wp_unslash( $_POST['club_badge_type'] ?? '' ), array( 'club', 'exact' ), true )
                     ? wp_unslash( $_POST['club_badge_type'] ) : 'club';
-    $club_color  = sanitize_hex_color( wp_unslash( $_POST['club_color'] ?? '' ) ) ?: '';
+    $colors_raw  = isset( $_POST['club_colors'] ) ? (array) wp_unslash( $_POST['club_colors'] ) : array();
+    $club_colors = array();
+    foreach ( array_slice( $colors_raw, 0, 3 ) as $c ) {
+        $hex = sanitize_hex_color( trim( $c ) );
+        if ( $hex ) $club_colors[] = $hex;
+    }
+    if ( empty( $club_colors ) ) $club_colors = array( '#1a2e5a' );
     $pin_raw     = trim( wp_unslash( $_POST['club_pin'] ?? '' ) );
     $is_new      = ! empty( $_POST['club_is_new'] );
 
@@ -104,7 +110,7 @@ function lgw_ajax_save_club() {
         'pin'         => $new_hash,
         'address'     => $address,
         'website'     => $website,
-        'color'       => $club_color,
+        'colors'      => $club_colors,
         'can_submit'  => $can_submit,
         'contacts'    => $contacts,
         'facilities'  => array(
@@ -276,6 +282,7 @@ function lgw_clubs_admin_page() {
                 'website'    => $c['website']  ?? '',
                 'badge_url'  => $bl ? $bl['url']  : '',
                 'badge_type' => $bl ? $bl['type'] : 'club',
+                'colors'     => $c['colors'] ?? ( ! empty( $c['color'] ) ? array( $c['color'] ) : array() ),
                 'contacts'   => $c['contacts']   ?? array(),
                 'facilities' => $c['facilities'] ?? array(),
             );
@@ -298,7 +305,9 @@ function lgw_clubs_render_form( $club, $slug, $badge_info, $is_new = false ) {
     $can_submit  = $club ? ! empty( $club['can_submit'] ) : false;
     $badge_url   = $badge_info ? ( $badge_info['url']  ?? '' ) : '';
     $badge_type  = $badge_info ? ( $badge_info['type'] ?? 'club' ) : 'club';
-    $club_color  = $club ? ( $club['color'] ?? '' ) : '';
+    $club_colors_raw = $club ? ( $club['colors'] ?? ( $club['color'] ? array( $club['color'] ) : array() ) ) : array();
+    while ( count( $club_colors_raw ) < 3 ) $club_colors_raw[] = '';
+    $club_colors_raw = array_slice( $club_colors_raw, 0, 3 );
     $contacts    = $club ? ( $club['contacts'] ?? array() ) : array();
     $fac         = $club ? ( $club['facilities'] ?? array() ) : array();
     $fac_greens      = intval( $fac['greens']      ?? 0 );
@@ -382,11 +391,17 @@ function lgw_clubs_render_form( $club, $slug, $badge_info, $is_new = false ) {
                     </td>
                 </tr>
                 <tr>
-                    <th><label for="club_color_<?php echo esc_attr( $slug ?? 'new' ); ?>">Chart Colour</label></th>
+                    <th><label>Chart Colours</label></th>
                     <td>
-                        <input type="color" name="club_color" id="club_color_<?php echo esc_attr( $slug ?? 'new' ); ?>"
-                               value="<?php echo esc_attr( $club_color ?: '#1a2e5a' ); ?>">
-                        <span style="margin-left:8px;font-size:12px;color:#666">Used in the progress chart</span>
+                        <?php foreach ( array( 'A', 'B', 'C' ) as $i => $lbl ) : ?>
+                        <span style="display:inline-flex;flex-direction:column;align-items:center;margin-right:12px;gap:3px">
+                            <input type="color" name="club_colors[]"
+                                   value="<?php echo esc_attr( $club_colors_raw[ $i ] ?: ( $i === 0 ? '#1a2e5a' : '' ) ); ?>"
+                                   <?php if ( $i > 0 && ! $club_colors_raw[ $i ] ) echo 'data-empty="1"'; ?>>
+                            <span style="font-size:11px;color:#888"><?php echo $lbl; ?></span>
+                        </span>
+                        <?php endforeach; ?>
+                        <span style="margin-left:4px;font-size:12px;color:#666">Assigned A→B→C alphabetically to teams sharing this club prefix</span>
                     </td>
                 </tr>
             </table>
@@ -662,6 +677,9 @@ function lgw_clubs_inline_script() { ?>
         var canSubmit = club ? !!club.can_submit : false;
         var badgeUrl  = club ? club.badge_url : '';
         var badgeType= club ? club.badge_type : 'club';
+        var clubColorsArr = club ? (club.colors || []) : [];
+        while (clubColorsArr.length < 3) clubColorsArr.push('');
+        clubColorsArr = clubColorsArr.slice(0,3);
         var contacts  = club ? (club.contacts   || []) : [];
         var fac       = club ? (club.facilities || {}) : {};
         var facGreens  = fac.greens      || 0;
@@ -724,6 +742,15 @@ function lgw_clubs_inline_script() { ?>
             '<option value="club"'  + (badgeType==='club'  ? ' selected':'') + '>Club prefix (e.g. ARDS matches ARDS A, ARDS B)</option>' +
             '<option value="exact"' + (badgeType==='exact' ? ' selected':'') + '>Exact team name</option>' +
             '</select></td></tr>' +
+        '<tr><th><label>Chart Colours</label></th><td>' +
+            ['A','B','C'].map(function(lbl,i){
+                var val = clubColorsArr[i] || (i===0 ? '#1a2e5a' : '');
+                return '<span style="display:inline-flex;flex-direction:column;align-items:center;margin-right:12px;gap:3px">' +
+                    '<input type="color" name="club_colors[]" value="' + esc(val) + '">' +
+                    '<span style="font-size:11px;color:#888">' + lbl + '</span></span>';
+            }).join('') +
+            '<span style="margin-left:4px;font-size:12px;color:#666">Assigned A→B→C alphabetically to teams sharing this club prefix</span>' +
+            '</td></tr>' +
         '</table></div>' +
 
         '<div class="lgw-club-form-section"><h3>Contacts</h3>' +

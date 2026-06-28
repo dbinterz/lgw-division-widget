@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.26.21
+ * Version: 2026.26.22
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.26.21');
+define('LGW_VERSION', '2026.26.22');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -1020,8 +1020,11 @@ function lgw_enqueue() {
     $sponsors     = get_option('lgw_sponsors',     array());
     $club_colors  = array();
     foreach ( get_option('lgw_clubs', array()) as $c ) {
-        if ( ! empty( $c['color'] ) && ! empty( $c['name'] ) ) {
-            $club_colors[ $c['name'] ] = $c['color'];
+        if ( empty( $c['name'] ) ) continue;
+        if ( ! empty( $c['colors'] ) ) {
+            $club_colors[ $c['name'] ] = array_values( $c['colors'] );
+        } elseif ( ! empty( $c['color'] ) ) {
+            $club_colors[ $c['name'] ] = array( $c['color'] );
         }
     }
     wp_localize_script('lgw-widget', 'lgwData', array(
