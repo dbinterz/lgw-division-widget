@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.14]
+### Fixed
+- **Scorecard modal: concede/postpone panels side-by-side** — both admin panels now have matching bordered-box style; rendered in a flex row with a single HR separator below. Stacks vertically on screens narrower than 520 px.
+
 ## [2026.26.13]
 ### Added
 - **Cup admin: Rename Entry** — correct a team name across the entries list, all bracket slots, and draw pairs without touching scores. Mirrors the championship rename tool.

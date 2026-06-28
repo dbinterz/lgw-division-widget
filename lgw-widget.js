@@ -1128,9 +1128,9 @@
         var isPostponed = !!postEntry2;
         var reschedVal  = postEntry2 ? (postEntry2.rescheduled_for || '') : '';
         html =
-          '<div class="lgw-postpone-panel" id="lgw-postpone-panel">'          +'<div class="lgw-postpone-toggle">'          +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'          +'<input type="checkbox" id="lgw-postpone-chk"'+(isPostponed?' checked':'')+' style="width:16px;height:16px;cursor:pointer">'          +'<span>&#x1F6AB; Mark as postponed</span>'          +'</label>'          +'</div>'          +'<div class="lgw-reschedule-row" id="lgw-reschedule-row" style="margin-top:8px;display:'+(isPostponed?'flex':'none')+';align-items:center;gap:8px">'          +'<label style="font-size:12px;color:#666;white-space:nowrap">Rescheduled for:</label>'          +'<input type="text" id="lgw-reschedule-date" placeholder="dd/mm/yyyy" value="'+reschedVal+'" style="flex:1;padding:5px 8px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px">'          +'</div>'          +'<div style="display:flex;gap:8px;margin-top:8px">'          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-postpone-save">Save</button>'          +(isPostponed?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-postpone-clear">&#x274C; Clear postponement</button>':'')          +'</div>'          +'<p id="lgw-postpone-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'          +'</div>'          +'<hr class="lgw-sc-divider">';
+          '<div class="lgw-postpone-panel" id="lgw-postpone-panel">'          +'<div class="lgw-postpone-toggle">'          +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'          +'<input type="checkbox" id="lgw-postpone-chk"'+(isPostponed?' checked':'')+' style="width:16px;height:16px;cursor:pointer">'          +'<span>&#x1F6AB; Mark as postponed</span>'          +'</label>'          +'</div>'          +'<div class="lgw-reschedule-row" id="lgw-reschedule-row" style="margin-top:8px;display:'+(isPostponed?'flex':'none')+';align-items:center;gap:8px">'          +'<label style="font-size:12px;color:#666;white-space:nowrap">Rescheduled for:</label>'          +'<input type="text" id="lgw-reschedule-date" placeholder="dd/mm/yyyy" value="'+reschedVal+'" style="flex:1;padding:5px 8px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px">'          +'</div>'          +'<div style="display:flex;gap:8px;margin-top:8px">'          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-postpone-save">Save</button>'          +(isPostponed?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-postpone-clear">&#x274C; Clear postponement</button>':'')          +'</div>'          +'<p id="lgw-postpone-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'          +'</div>';
       } else if(postEntry2){
-        html = '<div class="lgw-postponed-notice">'          +'<span class="fx-postponed-pill" style="font-size:13px;padding:4px 14px">&#x1F6AB; This fixture has been postponed'          +(postEntry2.rescheduled_for?' &mdash; Rescheduled for <strong>'+postEntry2.rescheduled_for+'</strong>':'')+'</span>'          +'</div><hr class="lgw-sc-divider">';
+        html = '<div class="lgw-postponed-notice">'          +'<span class="fx-postponed-pill" style="font-size:13px;padding:4px 14px">&#x1F6AB; This fixture has been postponed'          +(postEntry2.rescheduled_for?' &mdash; Rescheduled for <strong>'+postEntry2.rescheduled_for+'</strong>':'')+'</span>'          +'</div>';
       }
       return { html: html, key: pdKey2, entry: postEntry2 };
     }
@@ -1188,13 +1188,15 @@
           +'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-clear">&#x274C; Clear concession</button>'
           +'</div>'
           +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
-          +'<hr class="lgw-sc-divider">';
+          +'</div>';
       }
 
+      var fxAdminPanels = (effectiveAdmin && pp.html && concessionFxPanel)
+        ? '<div class="lgw-admin-panels">'+pp.html+concessionFxPanel+'</div>'
+        : pp.html + concessionFxPanel;
       var bodyHtml=fxStatsHtml
         +'<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
-        + pp.html
-        + concessionFxPanel
+        + fxAdminPanels
         +'<hr class="lgw-sc-divider">'
         +'<div class="lgw-sc-title">Full Scorecard</div>'
         +'<div id="lgw-sc-container"><p class="lgw-sc-loading">Loading…</p></div>';
@@ -1264,13 +1266,12 @@
           +(isConceded2?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-clear">&#x274C; Clear concession</button>':'')
           +'</div>'
           +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
-          +'</div>'
-          +'<hr class="lgw-sc-divider">';
+          +'</div>';
       } else if(concessionEntry2){
         var concedingTeamName2 = concessionEntry2.conceding_team === 'home' ? home : away;
         concessionPanel = '<div class="lgw-conceded-notice">'
           +'<span class="fx-conceded-pill" style="font-size:13px;padding:4px 14px">&#x1F3F3;&#xFE0F; This fixture was conceded by <strong>'+concedingTeamName2+'</strong></span>'
-          +'</div><hr class="lgw-sc-divider">';
+          +'</div>';
       }
 
       // Build postpone panel (admin only)
@@ -1295,20 +1296,21 @@
           +(isPostponed?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-postpone-clear">&#x274C; Clear postponement</button>':'')
           +'</div>'
           +'<p id="lgw-postpone-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
-          +'</div>'
-          +'<hr class="lgw-sc-divider">';
+          +'</div>';
       } else if(postEntry2){
         // Non-admin: just show a notice if postponed
         postponePanel = '<div class="lgw-postponed-notice">'
           +'<span class="fx-postponed-pill" style="font-size:13px;padding:4px 14px">&#x1F6AB; This fixture has been postponed'
           +(postEntry2.rescheduled_for?' &mdash; Rescheduled for <strong>'+postEntry2.rescheduled_for+'</strong>':'')+'</span>'
-          +'</div><hr class="lgw-sc-divider">';
+          +'</div>';
       }
 
+      var adminPanelsHtml = effectiveAdmin
+        ? '<div class="lgw-admin-panels">'+concessionPanel+postponePanel+'</div>'
+        : concessionPanel + postponePanel;
       var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
         + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
-        + concessionPanel
-        + postponePanel
+        + adminPanelsHtml
         + '<hr class="lgw-sc-divider">'
         + '<div id="lgw-sc-modal-submit"></div>';
 
