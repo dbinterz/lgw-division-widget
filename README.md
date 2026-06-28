@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.26.15]
+### Added
+- **Null & void workflow** — admin can mark any league fixture as null & void via checkbox in the fixture modal (both played and unplayed). Creates a confirmed scorecard with 0–0 shots and 0 points for both teams, flagged `lgw_sc_null_void`. Displays a dark grey "❌ Null & Void" pill on fixture rows. Clearing trashes the scorecard. Admin must update the Google Sheets league table separately.
+
 ## [2026.26.14]
 ### Fixed
 - **Scorecard modal: concede/postpone panels side-by-side** — both admin panels now have matching bordered-box style; rendered in a flex row with a single HR separator below. Stacks vertically on screens narrower than 520 px.

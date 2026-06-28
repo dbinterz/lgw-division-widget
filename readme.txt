@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.26.14
+Stable tag: 2026.26.15
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.26.15 =
+* feat(league): null & void workflow — admin checkbox on fixture modal marks a
+  game null & void; creates a confirmed scorecard (0–0, 0 pts both teams) with
+  lgw_sc_null_void flag; grey pill displayed on fixture rows; admin updates
+  Google Sheets table separately. Clears the scorecard on cancel.
 
 = 2026.26.14 =
 * fix(modal): concede/postpone admin panels side-by-side with matching bordered

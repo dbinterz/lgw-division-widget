@@ -11,6 +11,22 @@
   var scorecardStatus = (typeof lgwData !== 'undefined' && lgwData.scorecardStatus) ? lgwData.scorecardStatus : {};
   var postponements   = (typeof lgwData !== 'undefined' && lgwData.postponements)   ? lgwData.postponements   : {};
   var concessions     = (typeof lgwData !== 'undefined' && lgwData.concessions)     ? lgwData.concessions     : {};
+  var nullVoids       = (typeof lgwData !== 'undefined' && lgwData.null_voids)      ? lgwData.null_voids      : {};
+
+  // ── Apply null & void to fixture groups (mark as played, 0–0 result, no pts) ─
+  function applyNullVoidsToFixtures(groups){
+    if(!Object.keys(nullVoids).length) return groups;
+    groups.forEach(function(g){
+      g.matches.forEach(function(m){
+        var key=(m.homeTeam+'||'+m.awayTeam+'||'+g.date).toLowerCase();
+        if(!nullVoids[key]) return;
+        m.shotsHome='0'; m.shotsAway='0';
+        m.ptsHome='0';   m.ptsAway='0';
+        m.played=true;   m.nullVoid=true;
+      });
+    });
+    return groups;
+  }
 
   // ── Apply concession adjustments to parsed table rows ────────────────────────
   // Mirrors lgw_apply_concessions_to_teams() in PHP.
@@ -823,11 +839,13 @@
           var concedingTeam=concessionEntry.conceding_team==='home'?m.homeTeam:m.awayTeam;
           concessionPill='<span class="fx-conceded-pill">&#x1F3F3;&#xFE0F; Conceded ('+concedingTeam+')</span>';
         }
+        // Null & void pill
+        var nullVoidPill=nullVoids[pdKey]?'<span class="fx-null-void-pill">&#x274C; Null &amp; Void</span>':'';
         // Notes column (widescreen): all pills including postponed (split)
-        var notesInner=postponedNotePills+concessionPill+playedPill+scPill;
+        var notesInner=postponedNotePills+concessionPill+nullVoidPill+playedPill+scPill;
         var fxNotes='<div class="fx-notes">'+notesInner+'</div>';
         // Mobile pills row: all pills below the row
-        var fxPills=(postponedPill||concessionPill||playedPill||scPill)?'<div class="fx-pills">'+postponedPill+concessionPill+playedPill+scPill+'</div>':'';
+        var fxPills=(postponedPill||concessionPill||nullVoidPill||playedPill||scPill)?'<div class="fx-pills">'+postponedPill+concessionPill+nullVoidPill+playedPill+scPill+'</div>':'';
         h+='<div class="fx-row'+pc+'"'+fxAttrs+'>'
           +'<div class="fx-ph">'+(m.played?m.ptsHome:'')+'</div>'
           +'<div class="fx-h"><span class="lgw-team-link" data-team="'+m.homeTeam+'">'+badgeImg(m.homeTeam)+m.homeTeam+'</span></div>'
@@ -998,6 +1016,7 @@
     var parseFxGroups = function(rows){
       var groups = parseFixtureGroups(rows);
       if(Object.keys(concessions).length) groups = applyConcessionsToFixtures(groups, maxPts);
+      if(Object.keys(nullVoids).length)   groups = applyNullVoidsToFixtures(groups);
       return groups;
     };
     var panels=widget.querySelectorAll('.lgw-panel');
@@ -1191,9 +1210,34 @@
           +'</div>';
       }
 
-      var fxAdminPanels = (effectiveAdmin && pp.html && concessionFxPanel)
-        ? '<div class="lgw-admin-panels">'+pp.html+concessionFxPanel+'</div>'
-        : pp.html + concessionFxPanel;
+      var nvFx = nullVoids[pdKeyFx] || null;
+      var nullVoidFxPanel = '';
+      if(effectiveAdmin){
+        var isNullVoidFx = !!nvFx;
+        nullVoidFxPanel =
+          '<div class="lgw-null-void-panel" id="lgw-null-void-panel">'
+          +'<div class="lgw-null-void-toggle">'
+          +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'
+          +'<input type="checkbox" id="lgw-null-void-chk"'+(isNullVoidFx?' checked':'')+' style="width:16px;height:16px;cursor:pointer">'
+          +'<span>&#x274C; Null &amp; Void</span>'
+          +'</label>'
+          +'</div>'
+          +'<p style="font-size:12px;color:#888;margin:6px 0 8px">'+(isNullVoidFx?'Declared null &amp; void.':'Both teams receive 0 pts, 0 shots. Update the table in Google Sheets separately.')+'</p>'
+          +'<div style="display:flex;gap:8px;">'
+          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-null-void-save">Save</button>'
+          +(isNullVoidFx?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-null-void-clear">Clear</button>':'')
+          +'</div>'
+          +'<p id="lgw-null-void-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+          +'</div>';
+      } else if(nvFx){
+        nullVoidFxPanel = '<div class="lgw-null-void-notice">'
+          +'<span class="fx-null-void-pill" style="font-size:13px;padding:4px 14px">&#x274C; Null &amp; Void</span>'
+          +'</div>';
+      }
+
+      var fxAdminPanels = effectiveAdmin
+        ? '<div class="lgw-admin-panels">'+pp.html+concessionFxPanel+nullVoidFxPanel+'</div>'
+        : pp.html + concessionFxPanel + nullVoidFxPanel;
       var bodyHtml=fxStatsHtml
         +'<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
         + fxAdminPanels
@@ -1203,6 +1247,7 @@
       openModal(titleHtml, bodyHtml, widget);
       bindPostponePanel(home, away, date, pp.key, pp.entry);
       bindConcedePanel(home, away, date, pdKeyFx, ceFx, divisionTitle);
+      bindNullVoidPanel(home, away, date, pdKeyFx, nvFx, divisionTitle);
       var container=document.getElementById('lgw-sc-container');
       if(!container) return;
 
@@ -1305,9 +1350,35 @@
           +'</div>';
       }
 
+      // Build null & void panel (admin only)
+      var nullVoidPanel = '';
+      var nvEntry2 = nullVoids[pdKey2] || null;
+      if(effectiveAdmin){
+        var isNullVoid2 = !!nvEntry2;
+        nullVoidPanel =
+          '<div class="lgw-null-void-panel" id="lgw-null-void-panel">'
+          +'<div class="lgw-null-void-toggle">'
+          +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'
+          +'<input type="checkbox" id="lgw-null-void-chk"'+(isNullVoid2?' checked':'')+' style="width:16px;height:16px;cursor:pointer">'
+          +'<span>&#x274C; Null &amp; Void</span>'
+          +'</label>'
+          +'</div>'
+          +'<p style="font-size:12px;color:#888;margin:6px 0 8px">'+(isNullVoid2?'Declared null &amp; void.':'Both teams receive 0 pts, 0 shots. Update the table in Google Sheets separately.')+'</p>'
+          +'<div style="display:flex;gap:8px;">'
+          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-null-void-save">Save</button>'
+          +(isNullVoid2?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-null-void-clear">Clear</button>':'')
+          +'</div>'
+          +'<p id="lgw-null-void-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+          +'</div>';
+      } else if(nvEntry2){
+        nullVoidPanel = '<div class="lgw-null-void-notice">'
+          +'<span class="fx-null-void-pill" style="font-size:13px;padding:4px 14px">&#x274C; This fixture has been declared Null &amp; Void</span>'
+          +'</div>';
+      }
+
       var adminPanelsHtml = effectiveAdmin
-        ? '<div class="lgw-admin-panels">'+concessionPanel+postponePanel+'</div>'
-        : concessionPanel + postponePanel;
+        ? '<div class="lgw-admin-panels">'+concessionPanel+postponePanel+nullVoidPanel+'</div>'
+        : concessionPanel + postponePanel + nullVoidPanel;
       var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
         + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
         + adminPanelsHtml
@@ -1317,6 +1388,7 @@
       openModal(titleHtml, bodyHtml, widget);
       bindConcedePanel(home, away, date, pdKey2, concessionEntry2, divisionTitle);
       bindPostponePanel(home, away, date, pdKey2, postEntry2);
+      bindNullVoidPanel(home, away, date, pdKey2, nvEntry2, divisionTitle);
 
       var container = document.getElementById('lgw-sc-modal-submit');
       if(!container) return;
@@ -1572,6 +1644,73 @@
           pillsDiv.style.display = pillsDiv.children.length ? '' : 'none';
         } else if(newSpan){
           row.insertAdjacentHTML('beforeend', '<div class="fx-pills">'+newSpan+'</div>');
+        }
+      });
+    }
+
+    function bindNullVoidPanel(home, away, date, pdKey2, nvEntry2, division){
+      var chk      = document.getElementById('lgw-null-void-chk');
+      var saveBtn  = document.getElementById('lgw-null-void-save');
+      var clearBtn = document.getElementById('lgw-null-void-clear');
+      var statusEl = document.getElementById('lgw-null-void-status');
+      if(!chk) return;
+
+      function doSave(action){
+        var fd = new FormData();
+        fd.append('action',           'lgw_save_null_void');
+        fd.append('nonce',            (typeof lgwData !== 'undefined' ? lgwData.scNonce : ''));
+        fd.append('home',             home);
+        fd.append('away',             away);
+        fd.append('date',             date);
+        fd.append('division',         division || '');
+        fd.append('null_void_action', action);
+        if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = '⏳'; }
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', (typeof lgwData !== 'undefined' ? lgwData.ajaxUrl : '/wp-admin/admin-ajax.php'));
+        xhr.onload = function(){
+          if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+          var res = JSON.parse(xhr.responseText || '{}');
+          if(res.success){
+            if(action === 'set'){
+              nullVoids[pdKey2] = { voided_on: new Date().toISOString().slice(0,10) };
+            } else {
+              delete nullVoids[pdKey2];
+            }
+            showPostponeStatus(statusEl, action === 'set' ? '✅ Saved — fixture marked as null & void.' : '✅ Null & void cleared.', 'ok');
+            refreshNullVoidPill(home, away, date, pdKey2);
+          } else {
+            showPostponeStatus(statusEl, '❌ ' + (res.data || 'Save failed'), 'error');
+          }
+        };
+        xhr.onerror = function(){
+          if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+          showPostponeStatus(statusEl, '❌ Network error', 'error');
+        };
+        xhr.send(fd);
+      }
+
+      if(saveBtn)  saveBtn.addEventListener('click',  function(){ doSave(chk.checked ? 'set' : 'clear'); });
+      if(clearBtn) clearBtn.addEventListener('click', function(){ doSave('clear'); });
+    }
+
+    function refreshNullVoidPill(home, away, date, pdKey2){
+      widget.querySelectorAll('.fx-row[data-home][data-away][data-date]').forEach(function(row){
+        var rKey = (row.getAttribute('data-home')+'||'+row.getAttribute('data-away')+'||'+row.getAttribute('data-date')).toLowerCase();
+        if(rKey !== pdKey2) return;
+        var nv = nullVoids[pdKey2] || null;
+        var newPill = nv ? '<span class="fx-null-void-pill">&#x274C; Null &amp; Void</span>' : '';
+        var notesDiv = row.querySelector('.fx-notes');
+        if(notesDiv){
+          notesDiv.querySelectorAll('.fx-null-void-pill').forEach(function(el){ el.parentNode.removeChild(el); });
+          if(newPill) notesDiv.insertAdjacentHTML('afterbegin', newPill);
+        }
+        var pillsDiv = row.querySelector('.fx-pills');
+        if(pillsDiv){
+          pillsDiv.querySelectorAll('.fx-null-void-pill').forEach(function(el){ el.parentNode.removeChild(el); });
+          if(newPill) pillsDiv.insertAdjacentHTML('afterbegin', newPill);
+          pillsDiv.style.display = pillsDiv.children.length ? '' : 'none';
+        } else if(newPill){
+          row.insertAdjacentHTML('beforeend', '<div class="fx-pills">'+newPill+'</div>');
         }
       });
     }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.26.14
+ * Version: 2026.26.15
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.26.14');
+define('LGW_VERSION', '2026.26.15');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -719,6 +719,114 @@ function lgw_ajax_save_concession() {
     ));
 }
 
+// ── Null & Void ──────────────────────────────────────────────────────────────
+function lgw_get_null_voids() {
+    return lgw_get_option_array('lgw_null_voids');
+}
+
+add_action('wp_ajax_lgw_save_null_void', 'lgw_ajax_save_null_void');
+function lgw_ajax_save_null_void() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Not authorised');
+    }
+
+    $home_raw = sanitize_text_field(wp_unslash($_POST['home'] ?? ''));
+    $away_raw = sanitize_text_field(wp_unslash($_POST['away'] ?? ''));
+    $date_raw = sanitize_text_field(wp_unslash($_POST['date'] ?? ''));
+    $action   = sanitize_text_field($_POST['null_void_action'] ?? 'set');
+    $division = sanitize_text_field(wp_unslash($_POST['division'] ?? ''));
+
+    if (!$home_raw || !$away_raw || !$date_raw) {
+        wp_send_json_error('Missing fixture details');
+    }
+
+    $key = strtolower($home_raw) . '||' . strtolower($away_raw) . '||' . strtolower($date_raw);
+    $map = lgw_get_null_voids();
+
+    if ($action === 'clear') {
+        unset($map[$key]);
+        update_option('lgw_null_voids', $map);
+        $existing = get_posts(array(
+            'post_type'      => 'lgw_scorecard',
+            'meta_query'     => array(
+                array('key' => 'lgw_sc_null_void', 'value' => '1'),
+                array('key' => 'lgw_match_key',    'value' => $key),
+            ),
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+        ));
+        if (!empty($existing)) {
+            wp_update_post(array('ID' => $existing[0], 'post_status' => 'trash'));
+        }
+        wp_send_json_success(array('key' => $key, 'action' => 'clear'));
+        return;
+    }
+
+    // SET: create/update a confirmed scorecard with 0–0 result
+    $season_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+    $sc = array(
+        'home_team'   => $home_raw,
+        'away_team'   => $away_raw,
+        'date'        => $date_raw,
+        'division'    => $division,
+        'home_total'  => 0,
+        'away_total'  => 0,
+        'home_points' => 0,
+        'away_points' => 0,
+        'rinks'       => array(),
+        'null_void'   => true,
+    );
+
+    $existing = get_posts(array(
+        'post_type'      => 'lgw_scorecard',
+        'meta_query'     => array(
+            array('key' => 'lgw_sc_null_void', 'value' => '1'),
+            array('key' => 'lgw_match_key',    'value' => $key),
+        ),
+        'posts_per_page' => 1,
+        'fields'         => 'ids',
+    ));
+
+    if (!empty($existing)) {
+        $post_id = $existing[0];
+        wp_update_post(array('ID' => $post_id, 'post_status' => 'publish'));
+        update_post_meta($post_id, 'lgw_scorecard_data', $sc);
+        update_post_meta($post_id, 'lgw_sc_status', 'confirmed');
+    } else {
+        $title   = $home_raw . ' v ' . $away_raw . ' (' . $date_raw . ') [Null & Void]';
+        $post_id = wp_insert_post(array(
+            'post_type'   => 'lgw_scorecard',
+            'post_title'  => $title,
+            'post_status' => 'publish',
+        ));
+        if (is_wp_error($post_id)) {
+            wp_send_json_error('Could not create null & void scorecard: ' . $post_id->get_error_message());
+            return;
+        }
+        update_post_meta($post_id, 'lgw_match_key',      $key);
+        update_post_meta($post_id, 'lgw_scorecard_data', $sc);
+        update_post_meta($post_id, 'lgw_sc_status',      'confirmed');
+        update_post_meta($post_id, 'lgw_sc_context',     'league');
+        update_post_meta($post_id, 'lgw_sc_null_void',   '1');
+        if ($division)  update_post_meta($post_id, 'lgw_sc_division',    $division);
+        if ($season_id) update_post_meta($post_id, 'lgw_sc_season',      $season_id);
+        if (!empty($date_raw)) update_post_meta($post_id, 'lgw_fixture_date', $date_raw);
+    }
+
+    try {
+        do_action('lgw_scorecard_confirmed', $post_id);
+    } catch (\Throwable $e) {
+        error_log('[LGW] lgw_ajax_save_null_void: hook failed — ' . $e->getMessage()
+            . ' in ' . basename($e->getFile()) . ':' . $e->getLine());
+    }
+
+    $map[$key] = array('voided_on' => current_time('Y-m-d'), 'scorecard_id' => $post_id);
+    update_option('lgw_null_voids', $map);
+
+    wp_send_json_success(array('key' => $key, 'action' => 'set', 'scorecard_id' => $post_id));
+}
+
 // ── Scorecard submission status map ──────────────────────────────────────────
 /**
  * Returns a map of fixture keys → submission status ('pending'|'confirmed'|'disputed')
@@ -927,6 +1035,7 @@ function lgw_enqueue() {
         'scorecardStatus'  => lgw_build_scorecard_status_map(),
         'postponements'    => lgw_build_postponements_map(),
         'concessions'      => lgw_get_concessions(),
+        'null_voids'       => lgw_get_null_voids(),
         'recentResults'  => lgw_get_recent_results(30),
     ));
 }
