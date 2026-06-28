@@ -1101,11 +1101,18 @@
           interaction:{mode:'index',intersect:false},
           plugins:{
             legend:{position:'bottom',labels:{font:{size:11},padding:10,usePointStyle:true,pointStyleWidth:10}},
-            tooltip:{callbacks:{label:function(item){
-              var v=item.raw;
-              if(v===null||v===undefined) return item.dataset.label+': —';
-              return item.dataset.label+': '+(isPos?'P'+v:v+' pts');
-            }}}
+            tooltip:{
+              itemSort:function(a,b){
+                var av=a.raw===null||a.raw===undefined?-Infinity:a.raw;
+                var bv=b.raw===null||b.raw===undefined?-Infinity:b.raw;
+                return isPos?(av-bv):(bv-av);
+              },
+              callbacks:{label:function(item){
+                var v=item.raw;
+                if(v===null||v===undefined) return item.dataset.label+': —';
+                return item.dataset.label+': '+(isPos?'P'+v:v+' pts');
+              }}
+            }
           },
           scales:{
             y:{
@@ -1121,20 +1128,9 @@
     }
 
     function updateProgressChart(){
-      if(!progressChartInst||!progressSeriesData) return;
-      var isPos=(progressMode==='pos');
-      progressChartInst.data.datasets.forEach(function(ds){
-        ds.data=progressSeriesData.series[ds.label][progressMode];
-      });
-      progressChartInst.options.scales.y.reverse=isPos;
-      progressChartInst.options.scales.y.min=isPos?1:undefined;
-      progressChartInst.options.scales.y.ticks.stepSize=isPos?1:undefined;
-      progressChartInst.options.plugins.tooltip.callbacks.label=function(item){
-        var v=item.raw;
-        if(v===null||v===undefined) return item.dataset.label+': —';
-        return item.dataset.label+': '+(isPos?'P'+v:v+' pts');
-      };
-      progressChartInst.update();
+      if(!progressSeriesData) return;
+      // Rebuild with new mode so itemSort closure captures correct isPos value
+      buildProgressChart(progressSeriesData, progressMode);
     }
 
     function initProgressTab(){
