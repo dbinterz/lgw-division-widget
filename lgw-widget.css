@@ -516,6 +516,8 @@ body.lgw-modal-open{overflow:hidden}
 .lgw-progress-toggle{background:var(--lgw-bg-alt,#f0f2f8);border:1px solid var(--lgw-border,#d0d5e8);color:var(--lgw-text,#1a2e5a);border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s}
 .lgw-progress-toggle.active{background:var(--lgw-navy,#1a2e5a);color:#fff;border-color:var(--lgw-navy,#1a2e5a)}
 .lgw-progress-toggle:hover:not(.active){background:var(--lgw-bg-hover,#e4e8f5)}
+.lgw-progress-clear{background:transparent;border:1px solid var(--lgw-border,#d0d5e8);color:var(--lgw-text-muted,#666);border-radius:20px;padding:5px 14px;font-size:12px;cursor:pointer;transition:background .15s,color .15s}
+.lgw-progress-clear:hover{background:var(--lgw-bg-hover,#e4e8f5);color:var(--lgw-text,#1a1a1a)}
 .lgw-progress-play{background:var(--lgw-red,#c0202a);border:none;color:#fff;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto;transition:background .15s;white-space:nowrap}
 .lgw-progress-play:hover{background:#a01820}
 .lgw-progress-chart-wrap{position:relative;height:340px;padding:12px 14px 16px}

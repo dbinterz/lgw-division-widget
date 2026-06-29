@@ -1055,6 +1055,7 @@
     var progressSeriesData=null;
     var progressAnimRaf=null;
     var progressAnimPausedT=0;
+    var progressHiddenTeams={};
     var progressClipX=null;
     var POINT_STYLES=['circle','triangle','rectRot','star','rect','cross','crossRot','rectRounded'];
 var progressTeamColorMap={};
@@ -1244,6 +1245,7 @@ function getTeamShape(team){
         return{
           label:team,
           data:data.series[team][mode],
+          hidden:!!progressHiddenTeams[team],
           borderColor:color,
           backgroundColor:color+'33',
           borderWidth:2,
@@ -1266,7 +1268,7 @@ function getTeamShape(team){
           animation:{duration:500,easing:'easeInOutQuart'},
           interaction:{mode:'index',intersect:false},
           plugins:{
-            legend:{position:'bottom',labels:{font:{size:11},padding:10,usePointStyle:true,pointStyleWidth:10}},
+            legend:{position:'bottom',labels:{font:{size:11},padding:10,usePointStyle:true,pointStyleWidth:10},onClick:function(e,legendItem,legend){var idx=legendItem.datasetIndex;var meta=legend.chart.getDatasetMeta(idx);meta.hidden=!meta.hidden;var label=legend.chart.data.datasets[idx].label;if(meta.hidden){progressHiddenTeams[label]=true;}else{delete progressHiddenTeams[label];}legend.chart.update();var pp=getPanel('progress');if(pp){var cb=pp.querySelector('.lgw-progress-clear');if(cb)cb.style.display=Object.keys(progressHiddenTeams).length?'':'none';}}},
             tooltip:{
               itemSort:function(a,b){
                 var av=a.raw===null||a.raw===undefined?-Infinity:a.raw;
@@ -1359,6 +1361,7 @@ function getTeamShape(team){
               '<div class="lgw-progress-controls">'
               +'<button class="lgw-progress-toggle active" data-mode="pts">Points</button>'
               +'<button class="lgw-progress-toggle" data-mode="pos">Position</button>'
+              +'<button class="lgw-progress-clear" style="display:none">Clear Filter</button>'
               +'<button class="lgw-progress-play">Play</button>'
               +'</div>'
               +'<div class="lgw-progress-chart-wrap"><canvas></canvas></div>';
@@ -1389,6 +1392,11 @@ function getTeamShape(team){
                 progressAnimPausedT=0;
                 startProgressAnim(pp,0);
               }
+            });
+            pp.querySelector('.lgw-progress-clear').addEventListener('click',function(){
+              progressHiddenTeams={};
+              this.style.display='none';
+              updateProgressChart();
             });
             var teams=Object.keys(resp.data.series);
             progressTeamColorMap=buildTeamColorMap(teams);

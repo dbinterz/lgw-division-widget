@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.27.1]
+### Added
+- **Progress chart team filter persistence** — hidden teams retained when switching between Points and Position tabs. Clear Filter button appears when any team is hidden.
+
 ## [2026.26.25]
 ### Fixed
 - **Progress chart CSS** — play button hover state (`background:#a01820`), `white-space:nowrap`, and `flex-wrap:wrap` + `align-items:center` on controls bar.
