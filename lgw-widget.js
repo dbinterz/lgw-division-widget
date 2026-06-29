@@ -1195,7 +1195,7 @@ function getTeamShape(team){
         var R=11;
         chart.data.datasets.forEach(function(ds,i){
           var meta=chart.getDatasetMeta(i);
-          if(meta.hidden) return;
+          if(!chart.isDatasetVisible(i)) return;
           var firstIdx=-1,lastIdx=-1;
           ds.data.forEach(function(v,j){
             if(v!==null&&v!==undefined){if(firstIdx<0)firstIdx=j;lastIdx=j;}

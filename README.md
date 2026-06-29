@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.27.2]
+### Fixed
+- **Progress chart badge circles** — club badge/initials circles remained visible for hidden datasets. Fixed by using `chart.isDatasetVisible()` instead of `meta.hidden` check in badge plugin.
+
 ## [2026.27.1]
 ### Added
 - **Progress chart team filter persistence** — hidden teams retained when switching between Points and Position tabs. Clear Filter button appears when any team is hidden.

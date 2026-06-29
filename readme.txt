@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.1
+Stable tag: 2026.27.2
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.2 =
+* fix(progress): badge circles no longer rendered for hidden datasets — use
+  chart.isDatasetVisible() instead of meta.hidden check.
 
 = 2026.27.1 =
 * feat(progress): retain team filter across Points/Position tab switches; add
