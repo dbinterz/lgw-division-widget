@@ -522,3 +522,9 @@ body.lgw-modal-open{overflow:hidden}
 .lgw-progress-play:hover{background:#a01820}
 .lgw-progress-chart-wrap{position:relative;height:340px;padding:12px 14px 16px}
 @media(max-width:520px){.lgw-tab[data-tab="progress"]{display:none}}
+
+/* ── Custom player-name dropdown (cross-browser datalist replacement) ────────── */
+.lgw-player-dropdown{position:fixed;background:#fff;border:1px solid var(--lgw-border,#d0d5e8);border-radius:6px;max-height:180px;overflow-y:auto;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,.15);display:none}
+.lgw-player-dropdown ul{list-style:none;margin:0;padding:4px 0}
+.lgw-player-dropdown li{padding:8px 12px;cursor:pointer;font-size:14px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lgw-player-dropdown li:hover{background:var(--lgw-bg-hover,#e4e8f5)}

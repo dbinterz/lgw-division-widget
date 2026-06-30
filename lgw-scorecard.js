@@ -1510,6 +1510,76 @@
 
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+  // ── Custom player-name dropdown (replaces native <datalist> for Firefox mobile) ─
+  var lgwPlayerDD = null;
+  var lgwPlayerDDInput = null;
+  var lgwPlayerDDBlurTimer = null;
+
+  function lgwEnsureDropdown() {
+    if (!lgwPlayerDD) {
+      lgwPlayerDD = document.createElement('div');
+      lgwPlayerDD.className = 'lgw-player-dropdown';
+      lgwPlayerDD.innerHTML = '<ul></ul>';
+      document.body.appendChild(lgwPlayerDD);
+      lgwPlayerDD.addEventListener('mousedown', function(e) {
+        var li = e.target.closest ? e.target.closest('li') : (e.target.tagName === 'LI' ? e.target : null);
+        if (li && lgwPlayerDDInput) {
+          e.preventDefault();
+          var val = li.getAttribute('data-val');
+          var isFemale = lgwPlayerDDInput.dataset.female === '1';
+          lgwPlayerDDInput.value = isFemale ? val + '*' : val;
+          lgwPlayerDDInput.dispatchEvent(new Event('input', {bubbles:true}));
+          lgwHidePlayerDD();
+        }
+      });
+    }
+    return lgwPlayerDD;
+  }
+
+  function lgwShowPlayerDD(inp) {
+    var dd = lgwEnsureDropdown();
+    var side = inp.dataset.side;
+    var dlId = side === 'home' ? 'lgw-dl-home' : 'lgw-dl-away';
+    var dl = document.getElementById(dlId);
+    if (!dl || !dl.options.length) { lgwHidePlayerDD(); return; }
+    var q = inp.value.replace(/\*/g,'').trim().toLowerCase();
+    var all = Array.from(dl.options).map(function(o){ return o.value; });
+    var filtered = all.filter(function(n){ return !q || n.toLowerCase().indexOf(q) !== -1; });
+    if (!filtered.length) { lgwHidePlayerDD(); return; }
+    var ul = dd.querySelector('ul');
+    ul.innerHTML = filtered.slice(0,20).map(function(n){
+      return '<li data-val="'+esc(n)+'">'+esc(n)+'</li>';
+    }).join('');
+    var rect = inp.getBoundingClientRect();
+    dd.style.left  = rect.left + 'px';
+    dd.style.top   = (rect.bottom + 2) + 'px';
+    dd.style.width = Math.max(rect.width, 180) + 'px';
+    dd.style.display = 'block';
+    lgwPlayerDDInput = inp;
+  }
+
+  function lgwHidePlayerDD() {
+    if (lgwPlayerDD) lgwPlayerDD.style.display = 'none';
+    lgwPlayerDDInput = null;
+  }
+
+  function lgwBindPlayerDropdown(containerEl) {
+    containerEl.addEventListener('focus', function(e) {
+      if (!e.target.classList.contains('lgw-player-name-input')) return;
+      clearTimeout(lgwPlayerDDBlurTimer);
+      lgwShowPlayerDD(e.target);
+    }, true);
+    containerEl.addEventListener('input', function(e) {
+      if (!e.target.classList.contains('lgw-player-name-input')) return;
+      clearTimeout(lgwPlayerDDBlurTimer);
+      lgwShowPlayerDD(e.target);
+    });
+    containerEl.addEventListener('blur', function(e) {
+      if (!e.target.classList.contains('lgw-player-name-input')) return;
+      lgwPlayerDDBlurTimer = setTimeout(lgwHidePlayerDD, 150);
+    }, true);
+  }
+
   // ── In-modal submission form (called from lgw-widget.js) ──────────────────────
   // opts: { home, away, date, division, maxPts, isAdmin, submissionMode, authClub }
   window.lgwOpenSubmitInModal = function(containerEl, opts) {
@@ -1551,12 +1621,12 @@
           var posLabel = POSITIONS[pos];
           homeSide += '<div class="lgw-player-row">'
             +'<span class="lgw-pos-label">'+posLabel+'</span>'
-            +'<input type="text" class="lgw-player-name-input" data-rink="'+r+'" data-side="home" data-pos="'+pos+'" list="lgw-dl-home" autocomplete="off" spellcheck="false">'
+            +'<input type="text" class="lgw-player-name-input" data-rink="'+r+'" data-side="home" data-pos="'+pos+'" autocomplete="off" spellcheck="false">'
             +'<button type="button" class="lgw-female-toggle" title="Mark as female player" tabindex="-1">♀</button>'
             +'</div>';
           awaySide += '<div class="lgw-player-row">'
             +'<span class="lgw-pos-label">'+posLabel+'</span>'
-            +'<input type="text" class="lgw-player-name-input" data-rink="'+r+'" data-side="away" data-pos="'+pos+'" list="lgw-dl-away" autocomplete="off" spellcheck="false">'
+            +'<input type="text" class="lgw-player-name-input" data-rink="'+r+'" data-side="away" data-pos="'+pos+'" autocomplete="off" spellcheck="false">'
             +'<button type="button" class="lgw-female-toggle" title="Mark as female player" tabindex="-1">♀</button>'
             +'</div>';
         }
@@ -1894,6 +1964,7 @@
             authClub = currentClub;
             containerEl.innerHTML = renderModalForm(currentClub);
             bindModalForm(containerEl);
+            lgwBindPlayerDropdown(containerEl);
             lgwFetchTeamPlayers(home, 'lgw-dl-home');
             lgwFetchTeamPlayers(away, 'lgw-dl-away');
           } else {
@@ -1923,6 +1994,7 @@
     // Involved club or admin — show form directly
     containerEl.innerHTML = renderModalForm(isAdm ? 'Admin' : currentClub);
     bindModalForm(containerEl);
+    lgwBindPlayerDropdown(containerEl);
     lgwFetchTeamPlayers(home, 'lgw-dl-home');
     lgwFetchTeamPlayers(away, 'lgw-dl-away');
     // Pre-fill with existing scorecard data if provided (amend flow)

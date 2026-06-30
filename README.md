@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.27.3]
+### Fixed
+- **Scorecard player name suggestions** — replaced native `<datalist>` with a custom JS dropdown, fixing Firefox Android where datalist suggestions were not appearing.
+
 ## [2026.27.2]
 ### Fixed
 - **Progress chart badge circles** — club badge/initials circles remained visible for hidden datasets. Fixed by using `chart.isDatasetVisible()` instead of `meta.hidden` check in badge plugin.
