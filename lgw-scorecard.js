@@ -1271,13 +1271,14 @@
   }
 
   // ── Scorecard display (called from lgw-widget.js for played fixtures) ─────────
-  window.lgwFetchScorecard = function(home, away, date, containerEl) {
+  window.lgwFetchScorecard = function(home, away, date, containerEl, division) {
     containerEl.innerHTML = '<p class="lgw-sc-loading">Loading scorecard…</p>';
     var xhr = new XMLHttpRequest();
     xhr.open('GET', ajaxUrl+'?action=lgw_get_scorecard'
       +'&home='+encodeURIComponent(home)
       +'&away='+encodeURIComponent(away)
       +'&date='+encodeURIComponent(date)
+      +'&division='+encodeURIComponent(division||'')
       +'&_='+Date.now());
     xhr.onload = function(){
       var res = JSON.parse(xhr.responseText || '{}');
@@ -1302,6 +1303,7 @@
       +'&away='+encodeURIComponent(away)
       +'&date='+encodeURIComponent(date)
       +'&context='+encodeURIComponent(opts.context||'')
+      +'&division='+encodeURIComponent(opts.division||'')
       +'&_='+Date.now());
     xhr.onload = function(){
       var res;

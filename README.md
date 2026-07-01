@@ -124,6 +124,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ### Fixed
 - (previous fixes)
 
+## [2026.27.4]
+### Fixed
+- **Cross-competition scorecard bleed** — scorecard identity is now scoped by division, so competitions that share team names (e.g. the Midweek league and a Saturday division) no longer cross-match. A Midweek fixture no longer shows a Division 2 scorecard. The match key includes the (normalised) division; lookups pass division and fall back to legacy keys only when the stored division agrees. Existing scorecards are upgraded to the new key on next save.
+
 ## [2026.27.3]
 ### Fixed
 - **Scorecard player name suggestions** — replaced native `<datalist>` with a custom JS dropdown, fixing Firefox Android where datalist suggestions were not appearing.

@@ -66,7 +66,7 @@ function lgw_club_involved($club, $home_team, $away_team) {
 }
 
 // ── Scorecard lookup ──────────────────────────────────────────────────────────
-function lgw_get_scorecard($home, $away, $date = '', $context = '') {
+function lgw_get_scorecard($home, $away, $date = '', $context = '', $division = '') {
     // Build meta query — always scope by context when provided, to prevent
     // cup scorecards matching league lookups and vice versa.
     $meta_query = array();
@@ -76,18 +76,44 @@ function lgw_get_scorecard($home, $away, $date = '', $context = '') {
         );
     }
 
-    // Primary: match by sanitized key (home+away slug)
+    // Division separates competitions that share team names (e.g. the Midweek
+    // league and a Saturday division). When supplied we scope the lookup by it
+    // so a scorecard from one competition never surfaces on the other's fixture.
+    $div_norm = lgw_normalise_division($division);
+
+    // Primary: division-scoped key (new format) when a division is supplied
+    if ($div_norm !== '') {
+        $div_key = lgw_scorecard_match_key($home, $away, $division);
+        $args    = array(
+            'post_type'      => 'lgw_scorecard',
+            'posts_per_page' => 1,
+            'post_status'    => 'publish',
+            'meta_key'       => 'lgw_match_key',
+            'meta_value'     => $div_key,
+        );
+        if (!empty($meta_query)) $args['meta_query'] = $meta_query;
+        $posts = get_posts($args);
+        if (!empty($posts)) return $posts[0];
+    }
+
+    // Secondary: legacy key (home+away slug only). Older scorecards were keyed
+    // without a division; accept them only when their stored division agrees,
+    // so a same-named fixture in another competition cannot cross-match.
     $key   = sanitize_title($home . '-' . $away);
     $args  = array(
         'post_type'      => 'lgw_scorecard',
-        'posts_per_page' => 1,
+        'posts_per_page' => 10,
         'post_status'    => 'publish',
         'meta_key'       => 'lgw_match_key',
         'meta_value'     => $key,
     );
     if (!empty($meta_query)) $args['meta_query'] = $meta_query;
     $posts = get_posts($args);
-    if (!empty($posts)) return $posts[0];
+    foreach ($posts as $p) {
+        if ($div_norm === '') return $p;
+        $sc = get_post_meta($p->ID, 'lgw_scorecard_data', true);
+        if (lgw_normalise_division($sc['division'] ?? '') === $div_norm) return $p;
+    }
 
     // Fallback: scan recent scorecards and match on normalised team names
     $all_args = array(
@@ -106,10 +132,35 @@ function lgw_get_scorecard($home, $away, $date = '', $context = '') {
         if (!$sc) continue;
         if (lgw_normalise_team($sc['home_team'] ?? '') === $home_norm &&
             lgw_normalise_team($sc['away_team'] ?? '') === $away_norm) {
+            if ($div_norm !== '' && lgw_normalise_division($sc['division'] ?? '') !== $div_norm) continue;
             return $p;
         }
     }
     return null;
+}
+
+/**
+ * Build the scorecard identity key. Includes the division (normalised) so that
+ * competitions sharing team names — e.g. "Midweek 1" and "Division 2" — get
+ * distinct keys and never collide on lookup or save.
+ */
+function lgw_scorecard_match_key($home, $away, $division = '') {
+    $div_norm = lgw_normalise_division($division);
+    $base     = $home . '-' . $away . ($div_norm !== '' ? '-' . $div_norm : '');
+    return sanitize_title($base);
+}
+
+/**
+ * Normalise a division name for matching: lowercased, trailing season year
+ * stripped (e.g. "Division 2 2026" → "division 2"), punctuation removed,
+ * whitespace collapsed.
+ */
+function lgw_normalise_division($name) {
+    $name = strtolower(trim((string) $name));
+    $name = preg_replace('/\s+\d{4}$/', '', $name); // drop trailing season year
+    $name = preg_replace('/[^a-z0-9\s]/', '', $name);
+    $name = preg_replace('/\s+/', ' ', $name);
+    return trim($name);
 }
 
 /**
@@ -724,9 +775,9 @@ function lgw_ajax_save_scorecard() {
         $club = ($submitted_for === 'away') ? $sc['away_team'] : $sc['home_team'];
     }
 
-    $match_key = sanitize_title($sc['home_team'] . '-' . $sc['away_team']);
+    $match_key = lgw_scorecard_match_key($sc['home_team'], $sc['away_team'], $sc['division'] ?? '');
     $sc_context = sanitize_key($raw['context'] ?? 'league');
-    $existing  = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context);
+    $existing  = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context, $sc['division'] ?? '');
 
     if ($existing) {
         $existing_status = get_post_meta($existing->ID, 'lgw_sc_status', true);
@@ -745,6 +796,8 @@ function lgw_ajax_save_scorecard() {
                 update_post_meta($existing->ID, 'lgw_confirmed_by', '');
             }
             update_post_meta($existing->ID, 'lgw_scorecard_data', $sc);
+            update_post_meta($existing->ID, 'lgw_match_key', $match_key); // upgrade legacy key to division-scoped
+            if (!empty($sc['division'])) update_post_meta($existing->ID, 'lgw_sc_division', $sc['division']);
             if (!empty($sc['fixture_date'])) update_post_meta($existing->ID, 'lgw_fixture_date', $sc['fixture_date']);
             wp_send_json_success(array('message' => 'Scorecard updated. Awaiting confirmation from the other club.', 'status' => 'pending'));
         } else {
@@ -777,6 +830,7 @@ function lgw_ajax_save_scorecard() {
         if (is_wp_error($post_id)) wp_send_json_error('The scorecard could not be saved to the database: ' . $post_id->get_error_message() . '. Please try again or contact the league administrator.');
         update_post_meta($post_id, 'lgw_match_key',     $match_key);
         update_post_meta($post_id, 'lgw_scorecard_data',$sc);
+        if (!empty($sc['division'])) update_post_meta($post_id, 'lgw_sc_division', $sc['division']);
         if (!empty($sc['fixture_date'])) update_post_meta($post_id, 'lgw_fixture_date', $sc['fixture_date']);
         // Tag context (league/cup) so lookups don't cross-match
         $ctx = sanitize_key($raw['context'] ?? 'league');
@@ -812,14 +866,16 @@ function lgw_ajax_save_scorecard() {
 
 // ── Admin "both teams" submission — immediately confirmed ─────────────────────
 function lgw_save_scorecard_admin_both($sc) {
-    $match_key  = sanitize_title($sc['home_team'] . '-' . $sc['away_team']);
+    $match_key  = lgw_scorecard_match_key($sc['home_team'], $sc['away_team'], $sc['division'] ?? '');
     $sc_context = sanitize_key($sc['context'] ?? 'league');
-    $existing   = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context);
+    $existing   = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context, $sc['division'] ?? '');
     $admin_login = wp_get_current_user()->user_login;
 
     if ($existing) {
         // Overwrite existing with confirmed status
         update_post_meta($existing->ID, 'lgw_scorecard_data', $sc);
+        update_post_meta($existing->ID, 'lgw_match_key',      $match_key); // upgrade legacy key
+        if (!empty($sc['division'])) update_post_meta($existing->ID, 'lgw_sc_division', $sc['division']);
         update_post_meta($existing->ID, 'lgw_sc_status',      'confirmed');
         update_post_meta($existing->ID, 'lgw_submitted_by',   $sc['home_team']);
         update_post_meta($existing->ID, 'lgw_confirmed_by',   $sc['away_team']);
@@ -850,6 +906,7 @@ function lgw_save_scorecard_admin_both($sc) {
     update_post_meta($post_id, 'lgw_confirmed_by',   $sc['away_team']);
     update_post_meta($post_id, 'lgw_submitted_for',  'both');
     update_post_meta($post_id, 'lgw_sc_context',     $sc_context);
+    if (!empty($sc['division'])) update_post_meta($post_id, 'lgw_sc_division', $sc['division']);
     if (!empty($sc['fixture_date'])) update_post_meta($post_id, 'lgw_fixture_date', $sc['fixture_date']);
 
     if (function_exists('lgw_get_active_season_id')) {
@@ -896,15 +953,17 @@ function lgw_save_scorecard_admin_both($sc) {
  * @param string $confirm_as    The other team's name (the one being confirmed for).
  */
 function lgw_save_scorecard_admin_confirm($sc, $submitted_for, $confirm_as) {
-    $match_key   = sanitize_title($sc['home_team'] . '-' . $sc['away_team']);
+    $match_key   = lgw_scorecard_match_key($sc['home_team'], $sc['away_team'], $sc['division'] ?? '');
     $sc_context  = sanitize_key($sc['context'] ?? 'league');
-    $existing    = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context);
+    $existing    = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context, $sc['division'] ?? '');
     $admin_login = wp_get_current_user()->user_login;
     $submitted_by = ($submitted_for === 'away') ? $sc['away_team'] : $sc['home_team'];
     $audit_note  = 'Admin submitted for ' . $submitted_by . ' and confirmed on behalf of ' . $confirm_as . ' (' . $admin_login . ')';
 
     if ($existing) {
         update_post_meta($existing->ID, 'lgw_scorecard_data', $sc);
+        update_post_meta($existing->ID, 'lgw_match_key',      $match_key); // upgrade legacy key
+        if (!empty($sc['division'])) update_post_meta($existing->ID, 'lgw_sc_division', $sc['division']);
         update_post_meta($existing->ID, 'lgw_sc_status',      'confirmed');
         update_post_meta($existing->ID, 'lgw_submitted_by',   $submitted_by);
         update_post_meta($existing->ID, 'lgw_confirmed_by',   $confirm_as);
@@ -944,6 +1003,7 @@ function lgw_save_scorecard_admin_confirm($sc, $submitted_for, $confirm_as) {
     update_post_meta($post_id, 'lgw_confirmed_by',   $confirm_as);
     update_post_meta($post_id, 'lgw_submitted_for',  $submitted_for);
     update_post_meta($post_id, 'lgw_sc_context',     $sc_context);
+    if (!empty($sc['division'])) update_post_meta($post_id, 'lgw_sc_division', $sc['division']);
     if (!empty($sc['fixture_date'])) update_post_meta($post_id, 'lgw_fixture_date', $sc['fixture_date']);
 
     if (function_exists('lgw_get_active_season_id')) {
@@ -998,11 +1058,12 @@ function lgw_scores_match($a, $b) {
 add_action('wp_ajax_nopriv_lgw_get_scorecard', 'lgw_ajax_get_scorecard');
 add_action('wp_ajax_lgw_get_scorecard',        'lgw_ajax_get_scorecard');
 function lgw_ajax_get_scorecard() {
-    $home    = sanitize_text_field($_GET['home']    ?? '');
-    $away    = sanitize_text_field($_GET['away']    ?? '');
-    $date    = sanitize_text_field($_GET['date']    ?? '');
-    $context = sanitize_key(       $_GET['context'] ?? '');
-    $post = lgw_get_scorecard($home, $away, $date, $context);
+    $home     = sanitize_text_field($_GET['home']     ?? '');
+    $away     = sanitize_text_field($_GET['away']     ?? '');
+    $date     = sanitize_text_field($_GET['date']     ?? '');
+    $context  = sanitize_key(       $_GET['context']  ?? '');
+    $division = sanitize_text_field($_GET['division'] ?? '');
+    $post = lgw_get_scorecard($home, $away, $date, $context, $division);
     if (!$post) { wp_send_json_error('No scorecard found'); }
     $sc                  = lgw_get_scorecard_data($post->ID);
     $sc['_id']           = $post->ID;

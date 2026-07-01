@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.3
+Stable tag: 2026.27.4
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.4 =
+* fix(scorecard): scope scorecard identity by division so competitions that
+  share team names (e.g. Midweek vs a Saturday division) no longer cross-match.
+  Fixes a Midweek fixture showing a Division 2 scorecard.
 
 = 2026.27.3 =
 * fix(scorecard): replace native datalist with custom JS dropdown for

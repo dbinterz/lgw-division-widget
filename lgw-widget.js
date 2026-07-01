@@ -600,7 +600,8 @@
               row.getAttribute('data-home'),
               row.getAttribute('data-away'),
               '',
-              container
+              container,
+              row.getAttribute('data-division') || (sourceWidget ? sourceWidget.getAttribute('data-division') : '') || ''
             );
             container.dataset.loaded = '1';
           } else {
@@ -1628,7 +1629,7 @@ function getTeamShape(team){
           authClub: widgetAuthClub,
         });
       } else if(typeof window.lgwFetchScorecard === 'function'){
-        window.lgwFetchScorecard(home, away, date, container);
+        window.lgwFetchScorecard(home, away, date, container, divisionTitle);
       } else {
         container.innerHTML='<p class="lgw-sc-none">Scorecard feature not loaded.</p>';
       }
