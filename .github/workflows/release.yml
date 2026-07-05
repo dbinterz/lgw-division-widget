@@ -98,8 +98,19 @@ jobs:
           if [ -z "$NOTES" ]; then
             NOTES="See readme.txt for changelog."
           fi
-          # Write to file to avoid quoting issues
-          echo "$NOTES" > release_notes.txt
+          # Normalise WordPress-readme bullets ("* ") to "• " so they read
+          # cleanly both on GitHub (markdown) and in the WordPress
+          # "View details" popup, which HTML-escapes the release body
+          # (see lgw_plugin_info) and would otherwise show a literal "* ".
+          NOTES=$(printf '%s\n' "$NOTES" | sed -E 's/^[[:space:]]*\*[[:space:]]+/• /')
+          # Title line + notes + link back to the full changelog at this tag.
+          {
+            echo "LGW Division Widget v${VERSION}"
+            echo ""
+            printf '%s\n' "$NOTES"
+            echo ""
+            echo "Full changelog: https://github.com/${{ github.repository }}/blob/v${VERSION}/readme.txt"
+          } > release_notes.txt
           echo "✅ Extracted changelog for v${VERSION}"
 
       - name: Create GitHub Release
