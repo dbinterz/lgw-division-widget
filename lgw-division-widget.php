@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.27.6
+ * Version: 2026.27.7
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.27.6');
+define('LGW_VERSION', '2026.27.7');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -259,10 +259,50 @@ function lgw_plugin_info($result, $action, $args) {
         'last_updated'  => isset($release->published_at) ? $release->published_at : '',
         'sections'      => array(
             'description' => 'Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues.',
-            'changelog'   => nl2br(isset($release->body) ? esc_html($release->body) : 'See GitHub releases for changelog.'),
+            'changelog'   => lgw_format_changelog(isset($release->body) ? $release->body : ''),
         ),
         'download_link' => $asset_url,
     );
+}
+
+// Render a GitHub release body as safe HTML for the "View details" popup.
+// Bullet lines (•, *, -) become a <ul>; bare URLs are linkified; the first
+// non-bullet line is treated as a heading; everything is escaped.
+function lgw_format_changelog($body) {
+    $body = trim((string) $body);
+    if ($body === '') return 'See GitHub releases for changelog.';
+
+    $lines   = preg_split('/\r\n|\r|\n/', $body);
+    $html    = '';
+    $in_list = false;
+    $seen_heading = false;
+
+    $linkify = function ($text) {
+        // Escape first, then turn escaped URLs into links.
+        $esc = esc_html($text);
+        return preg_replace_callback('#https?://[^\s<]+#', function ($m) {
+            $url = html_entity_decode($m[0], ENT_QUOTES);
+            return '<a href="' . esc_url($url) . '" target="_blank" rel="noopener">' . esc_html($url) . '</a>';
+        }, $esc);
+    };
+
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '') { if ($in_list) { $html .= '</ul>'; $in_list = false; } continue; }
+
+        if (preg_match('/^[•*\-]\s+(.*)$/u', $line, $m)) {
+            if (!$in_list) { $html .= '<ul style="list-style:disc;margin-left:20px">'; $in_list = true; }
+            $html .= '<li>' . $linkify($m[1]) . '</li>';
+            continue;
+        }
+
+        if ($in_list) { $html .= '</ul>'; $in_list = false; }
+        if (!$seen_heading) { $html .= '<h4>' . $linkify($line) . '</h4>'; $seen_heading = true; }
+        else               { $html .= '<p>' . $linkify($line) . '</p>'; }
+    }
+    if ($in_list) $html .= '</ul>';
+
+    return $html;
 }
 
 // Check for updates now action

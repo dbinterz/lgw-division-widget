@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.7]
+### Added
+- `lgw_format_changelog()` renders the GitHub release body in the "View details" popup as safe HTML — first line as a heading, `•`/`*`/`-` lines as a `<ul>` bullet list, and bare URLs linkified — replacing the previous `nl2br(esc_html(...))` flat block.
+
 ## [2026.27.6]
 ### Fixed
 - "View version details" popup returned **"Plugin not found"**. The `plugins_api` `plugin_information` handler guarded on a hardcoded slug (`lgw-division-widget`); WordPress passes the plugin's *installed folder* slug, so on any renamed install folder the filter fell through to wordpress.org. Now matches `lgw_plugin_slug()` (the real folder), also used for the update-transient slug. Added a GitHub API HTTP-200 check and `last_updated`; changelog/details render from the release notes.
