@@ -433,13 +433,20 @@
       fd.append('photo',  photoFile);
       var xhr = new XMLHttpRequest();
       xhr.open('POST', ajaxUrl);
+      xhr.timeout = 90000; // longer than the server-side Anthropic call (40s) + overhead
       xhr.onload = function(){
         setLoading(parsePhotoBtn, lbl, false);
-        var res = JSON.parse(xhr.responseText || '{}');
+        var res;
+        try { res = JSON.parse(xhr.responseText || '{}'); }
+        catch (e) {
+          showStatus(photoStatus, '❌ Server returned an invalid response (HTTP ' + xhr.status + '). The AI request likely timed out or the server could not reach api.anthropic.com.', 'error');
+          return;
+        }
         if (res.success) { populateForm(res.data); showStatus(photoStatus, '✅ Scorecard read — please check all fields below.', 'ok'); }
         else showStatus(photoStatus, '❌ ' + (res.data || 'Could not read scorecard'), 'error');
       };
-      xhr.onerror = function(){ setLoading(parsePhotoBtn, lbl, false); showStatus(photoStatus, '❌ Network error', 'error'); };
+      xhr.onerror = function(){ setLoading(parsePhotoBtn, lbl, false); showStatus(photoStatus, '❌ Network error — could not reach the server.', 'error'); };
+      xhr.ontimeout = function(){ setLoading(parsePhotoBtn, lbl, false); showStatus(photoStatus, '❌ Timed out waiting for the AI service (90s). The server may be blocked from reaching api.anthropic.com.', 'error'); };
       xhr.send(fd);
     });
   }
@@ -2166,13 +2173,20 @@
           fd.append('photo',  modalPhotoFile);
           var xhr3 = new XMLHttpRequest();
           xhr3.open('POST', ajaxUrl);
+          xhr3.timeout = 90000; // longer than the server-side Anthropic call (40s) + overhead
           xhr3.onload = function(){
             parseBtn2.disabled = false; parseBtn2.textContent = 'Read Scorecard with AI';
-            var res = JSON.parse(xhr3.responseText || '{}');
+            var res;
+            try { res = JSON.parse(xhr3.responseText || '{}'); }
+            catch (e) {
+              showStatus(photoStat2, '❌ Server returned an invalid response (HTTP ' + xhr3.status + '). The AI request likely timed out or the server could not reach api.anthropic.com.', 'error');
+              return;
+            }
             if(res.success){ populateModalForm(el, res.data); showStatus(photoStat2, '✅ Scorecard read — please check all fields below.', 'ok'); lgwShowImportReview(el, home, away); }
             else showStatus(photoStat2, '❌ ' + (res.data || 'Could not read scorecard'), 'error');
           };
-          xhr3.onerror = function(){ parseBtn2.disabled=false; parseBtn2.textContent='Read Scorecard with AI'; showStatus(photoStat2,'❌ Network error','error'); };
+          xhr3.onerror = function(){ parseBtn2.disabled=false; parseBtn2.textContent='Read Scorecard with AI'; showStatus(photoStat2,'❌ Network error — could not reach the server.','error'); };
+          xhr3.ontimeout = function(){ parseBtn2.disabled=false; parseBtn2.textContent='Read Scorecard with AI'; showStatus(photoStat2,'❌ Timed out waiting for the AI service (90s). The server may be blocked from reaching api.anthropic.com.','error'); };
           xhr3.send(fd);
         });
       }

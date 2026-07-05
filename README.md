@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.10]
+### Fixed
+- Scorecard photo "Read with AI" no longer hangs on an endless spinner when the Anthropic request is slow or the server can't reach `api.anthropic.com`. The `XMLHttpRequest` now sets `timeout = 90000` with an `ontimeout` handler, wraps `JSON.parse` in try/catch (non-JSON 504/500 pages previously threw silently inside `onload`), and surfaces a clear error with the HTTP status. Applied to both photo upload call sites (standalone tab + fixture-modal tab). Server/model code unchanged — the Anthropic call itself verified working (HTTP 200) against the stored key.
+
 ## [2026.27.9]
 ### Added
 - **Manual team-roster seeder** for new seasons (no spreadsheet). In League Setup → Division Cache, "Seed a division from a team list": pick a division, paste team names (one per line), and `lgw_cache_seed_teams()` writes a zeroed standings table (P/W/D/L/F/A/Pts = 0) into the WP cache via the `lgw_cache_seed_teams` AJAX action. Existing fixtures / CSV URL on the division are preserved; confirmed scorecards + concessions fill the table in.
