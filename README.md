@@ -108,6 +108,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.9]
+### Added
+- **Manual team-roster seeder** for new seasons (no spreadsheet). In League Setup → Division Cache, "Seed a division from a team list": pick a division, paste team names (one per line), and `lgw_cache_seed_teams()` writes a zeroed standings table (P/W/D/L/F/A/Pts = 0) into the WP cache via the `lgw_cache_seed_teams` AJAX action. Existing fixtures / CSV URL on the division are preserved; confirmed scorecards + concessions fill the table in.
+
+### Changed
+- In WordPress data-source mode, the Google Sheets Writeback section is labelled optional (keeps the sheet mirrored as a backup; standings no longer depend on it). The Google integration (OAuth + Drive PDF archive) and per-division CSV URLs remain available in WP mode as seed/backup.
+
 ## [2026.27.8]
 ### Added
 - **WordPress-authoritative data source.** The "WordPress DB (Google Sheets backup)" option in League Setup → Data Source is now selectable. Standings/fixtures are served from the WP DB (Division Cache) and maintained by confirmed scorecards + concessions; Google Sheets CSV seeds an empty division once and is the automatic per-division fallback.

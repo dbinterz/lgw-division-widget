@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.27.8
+ * Version: 2026.27.9
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.27.8');
+define('LGW_VERSION', '2026.27.9');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -3041,6 +3041,9 @@ function lgw_league_setup_divisions_html() {
     <hr>
     <h2>📋 Google Sheets Writeback</h2>
     <p>When a scorecard is confirmed, the result is automatically written to the spreadsheet configured for that division above. Each division can point to a different spreadsheet — useful when seasons use separate files.</p>
+    <?php if ( get_option( 'lgw_data_source', 'google_sheets' ) === 'wordpress' ) : ?>
+    <p class="description" style="color:#8a5a00"><strong>WordPress mode:</strong> writeback is optional — standings no longer depend on the sheet. Leave it on only if you want the Google Sheet kept mirrored as a backup.</p>
+    <?php endif; ?>
     <table class="form-table">
     <tr>
         <th>Enable writeback</th>

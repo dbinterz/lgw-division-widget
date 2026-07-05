@@ -48,6 +48,7 @@ add_action( 'lgw_scorecard_admin_edited', 'lgw_cache_merge_result' );
 // ── AJAX: admin sync now ──────────────────────────────────────────────────────
 add_action( 'wp_ajax_lgw_cache_sync_now',       'lgw_ajax_cache_sync_now' );
 add_action( 'wp_ajax_lgw_cache_sync_division',  'lgw_ajax_cache_sync_division' );
+add_action( 'wp_ajax_lgw_cache_seed_teams',     'lgw_ajax_cache_seed_teams' );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC API
@@ -849,6 +850,70 @@ function lgw_ajax_cache_sync_division() {
     wp_send_json_success( [ 'status' => $all_status ] );
 }
 
+/**
+ * Seed a division's standings from a plain list of team names — used to start a
+ * new season with no spreadsheet. Writes a zeroed table (P/W/D/L/F/A/Pts = 0);
+ * confirmed scorecards + concessions fill it in from there. Existing fixtures /
+ * csv_url on the division are preserved.
+ *
+ * @param  string   $season_id
+ * @param  string   $division
+ * @param  string[] $names       Team names.
+ * @return int|WP_Error  Number of teams seeded, or WP_Error.
+ */
+function lgw_cache_seed_teams( $season_id, $division, $names ) {
+    $names = array_values( array_filter( array_map( 'trim', (array) $names ), function ( $x ) { return $x !== ''; } ) );
+    if ( empty( $names ) ) return new WP_Error( 'no_names', 'No team names provided.' );
+
+    $teams = [];
+    foreach ( $names as $idx => $name ) {
+        $teams[] = [
+            'pos'  => $idx + 1,
+            'team' => $name,
+            'pl'   => 0,
+            'pts'  => 0,
+            'diff' => '0',
+            'w'    => '0',
+            'l'    => '0',
+            'd'    => '0',
+            'f'    => '0',
+            'a'    => '0',
+        ];
+    }
+
+    // Preserve any existing fixtures / CSV URL already stored for the division.
+    $existing = get_option( lgw_cache_option_key( $season_id, $division ), null );
+    $data = [
+        'teams'    => $teams,
+        'fixtures' => is_array( $existing ) ? ( $existing['fixtures'] ?? [] ) : [],
+        'csv_url'  => is_array( $existing ) ? ( $existing['csv_url'] ?? '' ) : '',
+    ];
+    lgw_cache_set_division( $season_id, $division, $data );
+    lgw_cache_clear_sync_error( $division );
+    lgw_cache_log( 'info', "Seeded {$division} with " . count( $teams ) . " teams (manual roster)." );
+    return count( $teams );
+}
+
+function lgw_ajax_cache_seed_teams() {
+    check_ajax_referer( 'lgw_cache_sync', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized' );
+
+    $division  = sanitize_text_field( wp_unslash( $_POST['division']  ?? '' ) );
+    $season_id = sanitize_text_field( wp_unslash( $_POST['season_id'] ?? '' ) );
+    if ( ! $season_id && function_exists( 'lgw_get_active_season_id' ) ) {
+        $season_id = lgw_get_active_season_id();
+    }
+    if ( ! $division || ! $season_id ) wp_send_json_error( 'Missing division or season.' );
+
+    $raw   = isset( $_POST['teams'] ) ? wp_unslash( $_POST['teams'] ) : '';
+    $names = array_map( 'sanitize_text_field', preg_split( '/\r\n|\r|\n/', (string) $raw ) );
+
+    $res = lgw_cache_seed_teams( $season_id, $division, $names );
+    if ( is_wp_error( $res ) ) wp_send_json_error( $res->get_error_message() );
+
+    wp_send_json_success( [ 'count' => $res, 'status' => lgw_cache_get_all_status() ] );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SETTINGS HTML — cache health panel
 // Called from the main plugin's Settings page renderer.
@@ -899,6 +964,37 @@ function lgw_cache_settings_html() {
     <div id="lgw-cache-health-wrap" style="margin-top:16px">
         <?php lgw_cache_health_table_html( $all_status, $nonce ); ?>
     </div>
+
+    <details style="margin-top:16px;max-width:760px">
+        <summary style="cursor:pointer;font-weight:600">➕ Seed a division from a team list (no spreadsheet)</summary>
+        <div style="padding:10px 2px">
+            <p class="description" style="margin-top:0">
+                For starting a new season with no Google Sheet yet. Pick a division, paste the team
+                names (one per line), and a zeroed table (Played/Won/Drawn/Lost/For/Against/Points = 0)
+                is written to WordPress. Confirmed scorecards and concessions fill it in from there.
+                <strong>This replaces the selected division's current standings.</strong>
+            </p>
+            <?php if ( empty( $all_status ) ) : ?>
+                <p style="color:#8a5a00">No active-season divisions found — add divisions in “Active Season Divisions” first.</p>
+            <?php else : ?>
+                <p>
+                    <label for="lgw-seed-division" style="font-weight:600">Division:</label>
+                    <select id="lgw-seed-division">
+                        <?php foreach ( $all_status as $s ) : ?>
+                            <option value="<?php echo esc_attr( $s['division'] ); ?>"><?php echo esc_html( $s['division'] ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </p>
+                <textarea id="lgw-seed-teams" rows="8" style="width:100%;max-width:420px;font-family:inherit"
+                    placeholder="Belmont&#10;Cregagh&#10;Ballygowan&#10;…"></textarea>
+                <p>
+                    <button type="button" class="button button-primary" id="lgw-seed-btn"
+                        data-nonce="<?php echo esc_attr( $nonce ); ?>">Seed division</button>
+                    <span id="lgw-seed-status" style="margin-left:8px;font-size:13px"></span>
+                </p>
+            <?php endif; ?>
+        </div>
+    </details>
 
     <script>
     (function(){
@@ -981,6 +1077,51 @@ function lgw_cache_settings_html() {
             });
         }
         bindSyncButtons();
+
+        // Seed a division from a pasted team list (new-season, no spreadsheet).
+        var seedBtn = document.getElementById('lgw-seed-btn');
+        if (seedBtn) {
+            seedBtn.addEventListener('click', function(){
+                var sel    = document.getElementById('lgw-seed-division');
+                var ta     = document.getElementById('lgw-seed-teams');
+                var statEl = document.getElementById('lgw-seed-status');
+                var div    = sel ? sel.value : '';
+                var teams  = ta ? ta.value : '';
+                var names  = teams.split(/\r\n|\r|\n/).map(function(s){return s.trim();}).filter(Boolean);
+                if (!div)          { statEl.textContent = 'Pick a division.'; statEl.style.color = 'red'; return; }
+                if (!names.length) { statEl.textContent = 'Paste at least one team name.'; statEl.style.color = 'red'; return; }
+                if (!confirm('Seed "' + div + '" with ' + names.length + ' teams? This replaces its current standings with a zeroed table.')) return;
+
+                var seasonId = <?php echo json_encode( function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '' ); ?>;
+                seedBtn.disabled = true;
+                statEl.textContent = 'Seeding…'; statEl.style.color = '#333';
+                var fd = new FormData();
+                fd.append('action', 'lgw_cache_seed_teams');
+                fd.append('nonce', syncNonce);
+                fd.append('division', div);
+                fd.append('season_id', seasonId);
+                fd.append('teams', teams);
+                fetch(ajaxurl, {method:'POST', body:fd, credentials:'same-origin'})
+                    .then(function(r){return r.json();})
+                    .then(function(r){
+                        seedBtn.disabled = false;
+                        if (r.success) {
+                            statEl.textContent = '✅ Seeded ' + r.data.count + ' teams';
+                            statEl.style.color = 'green';
+                            refreshTable(r.data.status);
+                        } else {
+                            statEl.textContent = '❌ ' + (r.data || 'Seed failed');
+                            statEl.style.color = 'red';
+                        }
+                        setTimeout(function(){ statEl.textContent=''; }, 6000);
+                    })
+                    .catch(function(){
+                        seedBtn.disabled = false;
+                        statEl.textContent = '❌ Request failed';
+                        statEl.style.color = 'red';
+                    });
+            });
+        }
     })();
     </script>
     <?php
