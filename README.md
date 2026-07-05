@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.11]
+### Changed
+- Scorecard photo analysis model updated `claude-sonnet-4-5` → `claude-sonnet-4-6` (current Sonnet; 4.5 is legacy-but-active). Verified HTTP 200 against the configured key. `lgw-scorecards.php`.
+
 ## [2026.27.10]
 ### Fixed
 - Scorecard photo "Read with AI" no longer hangs on an endless spinner when the Anthropic request is slow or the server can't reach `api.anthropic.com`. The `XMLHttpRequest` now sets `timeout = 90000` with an `ontimeout` handler, wraps `JSON.parse` in try/catch (non-JSON 504/500 pages previously threw silently inside `onload`), and surfaces a clear error with the HTTP status. Applied to both photo upload call sites (standalone tab + fixture-modal tab). Server/model code unchanged — the Anthropic call itself verified working (HTTP 200) against the stored key.

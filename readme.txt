@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.10
+Stable tag: 2026.27.11
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.11 =
+* Change: Scorecard photo analysis now uses the current Claude Sonnet 4.6 model (claude-sonnet-4-6), up from the legacy 4.5. Verified working against the configured API key.
 
 = 2026.27.10 =
 * Fix: Scorecard photo "Read with AI" could spin forever with no error if the server was slow or could not reach api.anthropic.com. The upload now has a 90s client timeout, guards against non-JSON (HTTP 504/500) responses, and shows a clear error (including HTTP status and a hint about API reachability) instead of hanging. Applies to both the standalone and in-modal photo tabs.

@@ -373,7 +373,7 @@ function lgw_ajax_parse_photo() {
 Return exactly 4 rink objects. Use null for any value you cannot read clearly.';
 
     $body = json_encode(array(
-        'model'      => 'claude-sonnet-4-5',
+        'model'      => 'claude-sonnet-4-6',
         'max_tokens' => 2000,
         'messages'   => array(array(
             'role'    => 'user',
