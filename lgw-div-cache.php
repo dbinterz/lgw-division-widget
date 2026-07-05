@@ -122,7 +122,10 @@ function lgw_cache_invalidate_all() {
  * @return bool  true on success, false on failure (existing cache untouched).
  */
 function lgw_cache_sync_from_csv( $csv_url, $season_id, $division ) {
-    if ( ! $csv_url ) return false;
+    if ( ! $csv_url ) {
+        lgw_cache_set_sync_error( $division, 'No CSV URL configured for this division.' );
+        return false;
+    }
 
     // Fetch — use WP HTTP API with a reasonable timeout
     $response = wp_remote_get( $csv_url, [
@@ -131,19 +134,23 @@ function lgw_cache_sync_from_csv( $csv_url, $season_id, $division ) {
     ] );
 
     if ( is_wp_error( $response ) ) {
-        lgw_cache_log( 'warn', "CSV fetch failed for {$division}: " . $response->get_error_message() );
+        $msg = $response->get_error_message();
+        lgw_cache_log( 'warn', "CSV fetch failed for {$division}: " . $msg );
+        lgw_cache_set_sync_error( $division, 'CSV fetch failed: ' . $msg );
         return false;
     }
 
     $code = wp_remote_retrieve_response_code( $response );
     if ( $code !== 200 ) {
         lgw_cache_log( 'warn', "CSV returned HTTP {$code} for {$division}" );
+        lgw_cache_set_sync_error( $division, "CSV returned HTTP {$code} — check the published sheet URL is still valid." );
         return false;
     }
 
     $body = wp_remote_retrieve_body( $response );
     if ( empty( $body ) ) {
         lgw_cache_log( 'warn', "Empty CSV body for {$division}" );
+        lgw_cache_set_sync_error( $division, 'CSV response was empty.' );
         return false;
     }
 
@@ -158,6 +165,7 @@ function lgw_cache_sync_from_csv( $csv_url, $season_id, $division ) {
 
     if ( empty( $teams ) && empty( $fixtures ) ) {
         lgw_cache_log( 'warn', "CSV parsed to empty teams+fixtures for {$division} — skipping cache write" );
+        lgw_cache_set_sync_error( $division, 'CSV loaded but parsed to zero teams and zero fixtures — check the sheet columns/tab.' );
         return false;
     }
 
@@ -171,9 +179,50 @@ function lgw_cache_sync_from_csv( $csv_url, $season_id, $division ) {
     ];
 
     lgw_cache_set_division( $season_id, $division, $data );
+    lgw_cache_clear_sync_error( $division );
     lgw_cache_log( 'info', "Synced {$division} — " . count( $teams ) . " teams, " . count( $fixtures ) . " fixtures" );
 
     return true;
+}
+
+// ── Sync error tracking ───────────────────────────────────────────────────────
+// CSV sync runs on WP-Cron, so failures were previously log-only and invisible.
+// Persist the last error per division so the health table + an admin notice can
+// show why a division is stale/empty.
+
+function lgw_cache_set_sync_error( $division, $message ) {
+    $errors = get_option( 'lgw_cache_sync_errors', [] );
+    if ( ! is_array( $errors ) ) $errors = [];
+    $errors[ $division ] = [ 'message' => (string) $message, 'time' => time() ];
+    update_option( 'lgw_cache_sync_errors', $errors, false );
+}
+
+function lgw_cache_clear_sync_error( $division ) {
+    $errors = get_option( 'lgw_cache_sync_errors', [] );
+    if ( is_array( $errors ) && isset( $errors[ $division ] ) ) {
+        unset( $errors[ $division ] );
+        update_option( 'lgw_cache_sync_errors', $errors, false );
+    }
+}
+
+function lgw_cache_get_sync_error( $division ) {
+    $errors = get_option( 'lgw_cache_sync_errors', [] );
+    return ( is_array( $errors ) && isset( $errors[ $division ] ) ) ? $errors[ $division ] : null;
+}
+
+// Summary admin notice when one or more divisions failed to sync from CSV.
+add_action( 'admin_notices', 'lgw_cache_sync_error_notice' );
+function lgw_cache_sync_error_notice() {
+    if ( ! current_user_can( 'manage_options' ) ) return;
+    $errors = get_option( 'lgw_cache_sync_errors', [] );
+    if ( ! is_array( $errors ) || empty( $errors ) ) return;
+
+    $divs  = implode( ', ', array_map( 'sanitize_text_field', array_keys( $errors ) ) );
+    $setup = admin_url( 'admin.php?page=' . ( defined( 'LGW_SETUP_PAGE' ) ? LGW_SETUP_PAGE : '' ) );
+    echo '<div class="notice notice-warning"><p><strong>LGW league tables:</strong> '
+       . intval( count( $errors ) ) . ' division(s) failed their last data sync (' . esc_html( $divs )
+       . ') — these tables are serving stale/empty data. '
+       . '<a href="' . esc_url( $setup ) . '">Open League Setup → Division Cache</a> for details.</p></div>';
 }
 
 /**
@@ -365,6 +414,8 @@ function lgw_cache_get_all_status() {
         $key    = lgw_cache_option_key( $season_id, $div_name );
         $cached = get_option( $key, null );
 
+        $sync_err = lgw_cache_get_sync_error( $div_name );
+
         if ( ! is_array( $cached ) ) {
             $result[] = [
                 'division'       => $div_name,
@@ -372,6 +423,7 @@ function lgw_cache_get_all_status() {
                 'fixture_count'  => 0,
                 'team_count'     => 0,
                 'status'         => 'empty',
+                'error'          => $sync_err['message'] ?? '',
             ];
             continue;
         }
@@ -393,6 +445,7 @@ function lgw_cache_get_all_status() {
             'fixture_count' => count( $cached['fixtures'] ?? [] ),
             'team_count'    => count( $cached['teams']    ?? [] ),
             'status'        => $status,
+            'error'         => $sync_err['message'] ?? '',
         ];
     }
 
@@ -838,6 +891,9 @@ function lgw_cache_settings_html() {
                           : s.status === 'expired' ? '<span style="color:#8a0000;font-weight:700">🔴 Expired</span>'
                           : '<span style="color:#555">— Empty</span>';
                 var enc = encodeURIComponent(s.division);
+                var errRow = s.error
+                    ? '<tr><td colspan="6" style="padding:2px 10px 8px 10px;color:#8a0000;font-size:12px">⚠️ Last sync error: ' + escHtml(s.error) + '</td></tr>'
+                    : '';
                 return '<tr>'
                      + '<td style="padding:6px 10px">' + escHtml(s.division) + '</td>'
                      + '<td style="padding:6px 10px">' + ageStr + '</td>'
@@ -845,7 +901,7 @@ function lgw_cache_settings_html() {
                      + '<td style="padding:6px 10px;text-align:center">' + s.team_count + '</td>'
                      + '<td style="padding:6px 10px">' + badge + '</td>'
                      + '<td style="padding:6px 10px"><button type="button" class="button button-small lgw-cache-sync-one" data-div="' + escHtml(s.division) + '" data-nonce="' + escHtml(syncNonce) + '">Sync</button></td>'
-                     + '</tr>';
+                     + '</tr>' + errRow;
             }).join('');
             var tbl = wrap.querySelector('tbody');
             if (tbl) tbl.innerHTML = rows || '<tr><td colspan="6" style="padding:8px 10px;color:#888">No active season divisions found.</td></tr>';
@@ -949,6 +1005,13 @@ function lgw_cache_health_table_html( $all_status, $nonce ) {
                         data-nonce="<?php echo esc_attr( $nonce ); ?>">Sync</button>
                 </td>
             </tr>
+            <?php if ( ! empty( $s['error'] ) ) : ?>
+            <tr>
+                <td colspan="6" style="padding:2px 10px 8px 10px;color:#8a0000;font-size:12px">
+                    ⚠️ Last sync error: <?php echo esc_html( $s['error'] ); ?>
+                </td>
+            </tr>
+            <?php endif; ?>
             <?php endforeach; ?>
         <?php endif; ?>
         </tbody>

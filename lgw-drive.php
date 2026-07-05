@@ -12,6 +12,49 @@
  * Versioning: if a file already exists, saves as -v2, -v3 etc.
  */
 
+// ── Auth error tracking ───────────────────────────────────────────────────────
+// The OAuth token refresh runs during scorecard writeback, far from any admin
+// screen — failures used to be error_log()-only and therefore silent. We now
+// persist the last failure so it can be surfaced as an admin notice.
+
+function lgw_drive_set_auth_error($message) {
+    update_option('lgw_drive_auth_error', array(
+        'message' => (string) $message,
+        'time'    => time(),
+    ), false);
+}
+
+function lgw_drive_clear_auth_error() {
+    if (get_option('lgw_drive_auth_error')) {
+        delete_option('lgw_drive_auth_error');
+    }
+}
+
+function lgw_drive_get_auth_error() {
+    $e = get_option('lgw_drive_auth_error');
+    return is_array($e) ? $e : null;
+}
+
+// Surface the last Google auth failure to admins on any wp-admin screen.
+add_action('admin_notices', 'lgw_drive_auth_error_notice');
+function lgw_drive_auth_error_notice() {
+    if (!current_user_can('manage_options')) return;
+    $e = lgw_drive_get_auth_error();
+    if (!$e) return;
+
+    $hint = '';
+    if (stripos($e['message'], 'invalid_grant') !== false) {
+        $hint = ' Your Google refresh token has been revoked or expired — reconnect the Google account. '
+              . '(Refresh tokens expire after 7 days while the OAuth consent screen is in "Testing"; '
+              . 'set it to "In production" in the Google Cloud console to stop this recurring.)';
+    }
+    $setup = admin_url('admin.php?page=' . (defined('LGW_SETUP_PAGE') ? LGW_SETUP_PAGE : ''));
+    echo '<div class="notice notice-error"><p><strong>LGW Google Drive:</strong> '
+       . esc_html($e['message']) . esc_html($hint)
+       . ' <a href="' . esc_url($setup) . '">Open League Setup</a> '
+       . '<span style="color:#888">(' . esc_html(human_time_diff($e['time'])) . ' ago)</span></p></div>';
+}
+
 // ── Settings helpers ──────────────────────────────────────────────────────────
 
 function lgw_drive_get_settings() {
@@ -78,6 +121,7 @@ function lgw_drive_oauth_callback() {
     update_option('lgw_drive', $s);
     delete_transient('lgw_drive_token');
     delete_transient('lgw_drive_oauth_token');
+    lgw_drive_clear_auth_error();
 
     // Redirect back to settings without the OAuth params in the URL
     wp_redirect(admin_url('admin.php?page=' . LGW_SETUP_PAGE . '&lgw_oauth_connected=1'));
@@ -389,16 +433,22 @@ function lgw_drive_get_oauth_token($client_id, $client_secret, $refresh_token) {
         ),
     ));
     if (is_wp_error($response)) {
-        error_log('LGW Drive OAuth: ' . $response->get_error_message());
+        $msg = $response->get_error_message();
+        error_log('LGW Drive OAuth: ' . $msg);
+        lgw_drive_set_auth_error('Token refresh request failed: ' . $msg);
         return false;
     }
     $data = json_decode(wp_remote_retrieve_body($response), true);
     if (empty($data['access_token'])) {
-        error_log('LGW Drive OAuth token refresh failed — ' . wp_remote_retrieve_body($response));
+        $body = wp_remote_retrieve_body($response);
+        error_log('LGW Drive OAuth token refresh failed — ' . $body);
+        $detail = $data['error_description'] ?? $data['error'] ?? $body;
+        lgw_drive_set_auth_error('Token refresh rejected by Google: ' . $detail);
         return false;
     }
     $expires = intval($data['expires_in'] ?? 3600) - 60;
     set_transient('lgw_drive_oauth_token', $data['access_token'], $expires);
+    lgw_drive_clear_auth_error();
     return $data['access_token'];
 }
 
@@ -408,11 +458,13 @@ function lgw_drive_get_sa_token($key_path) {
 
     if (!file_exists($key_path)) {
         error_log('LGW Drive: key file not found at ' . $key_path);
+        lgw_drive_set_auth_error('Service account key file not found at ' . $key_path);
         return false;
     }
     $key_data = json_decode(file_get_contents($key_path), true);
     if (empty($key_data['private_key']) || empty($key_data['client_email'])) {
         error_log('LGW Drive: invalid service account JSON');
+        lgw_drive_set_auth_error('Service account JSON is invalid (missing private_key/client_email).');
         return false;
     }
 
@@ -426,15 +478,22 @@ function lgw_drive_get_sa_token($key_path) {
             'assertion'  => $jwt,
         ),
     ));
-    if (is_wp_error($response)) return false;
+    if (is_wp_error($response)) {
+        lgw_drive_set_auth_error('Service account token request failed: ' . $response->get_error_message());
+        return false;
+    }
 
     $data = json_decode(wp_remote_retrieve_body($response), true);
     if (empty($data['access_token'])) {
-        error_log('LGW Drive: token exchange failed — ' . wp_remote_retrieve_body($response));
+        $body = wp_remote_retrieve_body($response);
+        error_log('LGW Drive: token exchange failed — ' . $body);
+        $detail = $data['error_description'] ?? $data['error'] ?? $body;
+        lgw_drive_set_auth_error('Service account token exchange rejected: ' . $detail);
         return false;
     }
 
     set_transient('lgw_drive_token', $data['access_token'], 55 * MINUTE_IN_SECONDS);
+    lgw_drive_clear_auth_error();
     return $data['access_token'];
 }
 

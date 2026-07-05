@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.4
+Stable tag: 2026.27.5
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.5 =
+* Feature: Google auth failures during scorecard→Drive writeback are no longer silent — the last OAuth/service-account token error is stored and shown as an admin notice, with an `invalid_grant` hint pointing to reconnecting the account / moving the OAuth consent screen to production.
+* Feature: Division cache CSV sync failures are now recorded per division, shown inline in the Division Cache health table and summarised in an admin notice, so stale/empty league tables report *why* they failed to refresh.
 
 = 2026.27.4 =
 * fix(scorecard): scope scorecard identity by division so competitions that

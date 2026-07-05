@@ -108,6 +108,14 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.5]
+### Added
+- Google auth failures are no longer silent. The last OAuth / service-account token error from scorecard→Drive writeback is persisted (`lgw_drive_auth_error`) and shown as an admin notice, including an `invalid_grant` hint (revoked/expired refresh token — reconnect the account; move the OAuth consent screen to "In production" to stop 7-day expiry).
+- Division cache CSV sync failures are recorded per division (`lgw_cache_sync_errors`), surfaced inline in the Division Cache health table and summarised in an admin notice — stale/empty league tables now explain *why* they failed to refresh (bad published URL, HTTP error, empty/zero-parse body).
+
+### Notes
+- League tables render from the WordPress **Division Cache** (`lgw-div-cache.php`, materialised standings/fixtures in WP options); Google Sheets CSV remains the authoritative source. This is separate from Google OAuth, which only powers scorecard Drive writeback and team-name validation.
+
 ## [7.6.7]
 ### Fixed
 - Form guide column missing: PHP SSR path (`lgw_cache_render_table`) now generates form pips, matching JS `renderTable`.
