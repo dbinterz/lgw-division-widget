@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.27.5
+ * Version: 2026.27.6
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.27.5');
+define('LGW_VERSION', '2026.27.6');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -116,6 +116,17 @@ function lgw_github_request_args() {
     return array('headers' => $headers, 'timeout' => 10);
 }
 
+// ── Installed plugin slug ────────────────────────────────────────────────────
+// WordPress derives the "View details" slug from the plugin's installed folder
+// name, which may differ from the repo name (e.g. the folder is renamed on
+// install). Match against the real slug so the info popup resolves instead of
+// falling through to wordpress.org ("Plugin not found").
+function lgw_plugin_slug() {
+    $base = plugin_basename(__FILE__);
+    $dir  = dirname($base);
+    return ($dir && $dir !== '.') ? $dir : basename($base, '.php');
+}
+
 // ── Inject PAT when WP downloads the release zip from GitHub ─────────────────
 add_filter('http_request_args', 'lgw_inject_github_auth', 10, 2);
 function lgw_inject_github_auth($args, $url) {
@@ -197,7 +208,7 @@ function lgw_check_for_update($transient) {
             $asset_url = "https://github.com/{$github_user}/{$github_repo}/releases/download/{$tag}/{$github_repo}-{$tag}.zip";
         }
         $transient->response[$plugin_slug] = (object) array(
-            'slug'        => 'lgw-division-widget',
+            'slug'        => lgw_plugin_slug(),
             'plugin'      => $plugin_slug,
             'new_version' => $latest_version,
             'url'         => "https://github.com/{$github_user}/{$github_repo}",
@@ -211,7 +222,7 @@ function lgw_check_for_update($transient) {
 // Show plugin info popup from GitHub release notes
 add_filter('plugins_api', 'lgw_plugin_info', 10, 3);
 function lgw_plugin_info($result, $action, $args) {
-    if ($action !== 'plugin_information' || $args->slug !== 'lgw-division-widget') return $result;
+    if ($action !== 'plugin_information' || empty($args->slug) || $args->slug !== lgw_plugin_slug()) return $result;
 
     $github_user = 'dbinterz';
     $github_repo = 'lgw-division-widget';
@@ -220,7 +231,7 @@ function lgw_plugin_info($result, $action, $args) {
         "https://api.github.com/repos/{$github_user}/{$github_repo}/releases/latest",
         lgw_github_request_args()
     );
-    if (is_wp_error($response)) return $result;
+    if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) return $result;
 
     $release = json_decode(wp_remote_retrieve_body($response));
     if (empty($release->tag_name)) return $result;
@@ -241,12 +252,13 @@ function lgw_plugin_info($result, $action, $args) {
 
     return (object) array(
         'name'          => 'LGW Division Widget',
-        'slug'          => 'lgw-division-widget',
+        'slug'          => lgw_plugin_slug(),
         'version'       => ltrim($release->tag_name, 'v'),
         'author'        => 'LGW',
         'homepage'      => "https://github.com/{$github_user}/{$github_repo}",
+        'last_updated'  => isset($release->published_at) ? $release->published_at : '',
         'sections'      => array(
-            'description' => 'Scorecard records submitted via the LGW scorecard submission form.',
+            'description' => 'Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues.',
             'changelog'   => nl2br(isset($release->body) ? esc_html($release->body) : 'See GitHub releases for changelog.'),
         ),
         'download_link' => $asset_url,

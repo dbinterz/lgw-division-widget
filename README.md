@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.6]
+### Fixed
+- "View version details" popup returned **"Plugin not found"**. The `plugins_api` `plugin_information` handler guarded on a hardcoded slug (`lgw-division-widget`); WordPress passes the plugin's *installed folder* slug, so on any renamed install folder the filter fell through to wordpress.org. Now matches `lgw_plugin_slug()` (the real folder), also used for the update-transient slug. Added a GitHub API HTTP-200 check and `last_updated`; changelog/details render from the release notes.
+
 ## [2026.27.5]
 ### Added
 - Google auth failures are no longer silent. The last OAuth / service-account token error from scorecard→Drive writeback is persisted (`lgw_drive_auth_error`) and shown as an admin notice, including an `invalid_grant` hint (revoked/expired refresh token — reconnect the account; move the OAuth consent screen to "In production" to stop 7-day expiry).
