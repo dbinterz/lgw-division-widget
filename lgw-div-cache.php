@@ -66,13 +66,24 @@ function lgw_cache_get_division( $season_id, $division ) {
 
     if ( ! is_array( $data ) ) return null;
 
-    // Enforce hard TTL — if beyond this we must fall back to the XHR path
+    // Enforce hard TTL — if beyond this we must fall back to the XHR path.
+    // In WordPress-authoritative mode the WP copy IS the source of truth, so
+    // it never ages out into the CSV fallback purely because of its timestamp.
     $synced_at = intval( $data['synced_at'] ?? 0 );
-    if ( $synced_at > 0 && ( time() - $synced_at ) > LGW_CACHE_HARD_TTL ) {
+    if ( ! lgw_source_is_wordpress()
+        && $synced_at > 0 && ( time() - $synced_at ) > LGW_CACHE_HARD_TTL ) {
         return null;
     }
 
     return $data;
+}
+
+/**
+ * Is the widget configured to treat the WordPress DB as the authoritative
+ * source for standings/fixtures (with Google Sheets CSV as a seed/fallback)?
+ */
+function lgw_source_is_wordpress() {
+    return get_option( 'lgw_data_source', 'google_sheets' ) === 'wordpress';
 }
 
 /**
@@ -167,6 +178,19 @@ function lgw_cache_sync_from_csv( $csv_url, $season_id, $division ) {
         lgw_cache_log( 'warn', "CSV parsed to empty teams+fixtures for {$division} — skipping cache write" );
         lgw_cache_set_sync_error( $division, 'CSV loaded but parsed to zero teams and zero fixtures — check the sheet columns/tab.' );
         return false;
+    }
+
+    // WordPress-authoritative mode: CSV seeds an empty division once, but never
+    // overwrites standings already maintained in WP (via scorecards/concessions).
+    // The CSV fallback transients above are still refreshed so the XHR fallback
+    // stays available if the WP copy is ever cleared.
+    if ( lgw_source_is_wordpress() ) {
+        $existing = get_option( lgw_cache_option_key( $season_id, $division ), null );
+        if ( is_array( $existing ) && ! empty( $existing['teams'] ) ) {
+            lgw_cache_clear_sync_error( $division );
+            lgw_cache_log( 'info', "WP-authoritative: {$division} already populated — CSV refresh skipped (seed-only)." );
+            return true;
+        }
     }
 
     // Overlay confirmed scorecard statuses from WP DB

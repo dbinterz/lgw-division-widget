@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.27.7
+ * Version: 2026.27.8
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.27.7');
+define('LGW_VERSION', '2026.27.8');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -3153,12 +3153,24 @@ function lgw_league_setup_page() {
                     <td>
                         <select id="lgw_data_source" name="lgw_data_source" onchange="lgwToggleDataSource(this.value)">
                             <option value="google_sheets" <?php selected($data_source, 'google_sheets'); ?>>Google Sheets CSV</option>
+                            <option value="wordpress" <?php selected($data_source, 'wordpress'); ?>>WordPress DB (Google Sheets backup)</option>
                             <option value="upload" <?php selected($data_source, 'upload'); ?> disabled>Spreadsheet upload — coming soon</option>
-                        <option value="wordpress" <?php selected($data_source, 'wordpress'); ?> disabled>WordPress DB — coming soon</option>
                         </select>
                     </td>
                 </tr>
             </table>
+
+            <div id="lgw-ds-wordpress" class="lgw-ds-section">
+                <div style="background:#f0f6fc;border-left:4px solid #2271b1;padding:10px 14px;max-width:760px">
+                    <p style="margin:0 0 6px"><strong>WordPress-authoritative mode.</strong> Standings and fixtures are served from the WordPress database and kept up to date by confirmed scorecards and concessions. Google Sheets is used only to <em>seed</em> a division the first time and as an automatic fallback if a division has no WP data yet.</p>
+                    <ul style="margin:0 0 6px 18px;list-style:disc;font-size:13px;color:#333">
+                        <li>Switching is safe and reversible — divisions with no WP data fall back to the live CSV, so nothing goes blank.</li>
+                        <li>The CSV cron no longer overwrites WP standings; it only fills empty divisions.</li>
+                        <li>Seed a division from its CSV with the <strong>Sync</strong> buttons in the Division Cache panel below.</li>
+                    </ul>
+                    <p style="margin:0;font-size:13px;color:#666">Keep the published CSV URLs configured — they remain the backup source.</p>
+                </div>
+            </div>
 
             <div id="lgw-ds-google_sheets" class="lgw-ds-section">
                 <table class="form-table">
@@ -3447,8 +3459,10 @@ function lgw_league_setup_page() {
         });
         var target = document.getElementById('lgw-ds-' + val);
         if (target) target.style.display = '';
+        // WordPress mode still uses the CSV URLs as seed/backup, so keep the
+        // Google Sheets integration (CSV URL config) visible there too.
         var goog = document.getElementById('lgw-ds-google_sheets-integration');
-        if (goog) goog.style.display = (val === 'google_sheets') ? '' : 'none';
+        if (goog) goog.style.display = (val === 'google_sheets' || val === 'wordpress') ? '' : 'none';
     }
     function lgwToggleVisionProvider(val) {
         document.querySelectorAll('.lgw-vision-section').forEach(function(el) {

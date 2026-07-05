@@ -108,6 +108,15 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.8]
+### Added
+- **WordPress-authoritative data source.** The "WordPress DB (Google Sheets backup)" option in League Setup → Data Source is now selectable. Standings/fixtures are served from the WP DB (Division Cache) and maintained by confirmed scorecards + concessions; Google Sheets CSV seeds an empty division once and is the automatic per-division fallback.
+  - `lgw_source_is_wordpress()` gates the new behaviour.
+  - In WP mode `lgw_cache_sync_from_csv()` is **seed-only** — it never overwrites a division that already has WP standings (so scorecard-driven edits persist), while still refreshing the CSV fallback transients.
+  - In WP mode `lgw_cache_get_division()` ignores the hard TTL, so WP data never ages out into the CSV fallback purely by timestamp.
+  - Settings UI: WP-mode help panel; the CSV URL config stays visible in WP mode since CSV remains the seed/backup.
+- Switching is non-destructive and reversible: divisions with no WP data fall back to live CSV, so nothing goes blank.
+
 ## [2026.27.7]
 ### Added
 - `lgw_format_changelog()` renders the GitHub release body in the "View details" popup as safe HTML — first line as a heading, `•`/`*`/`-` lines as a `<ul>` bullet list, and bare URLs linkified — replacing the previous `nl2br(esc_html(...))` flat block.

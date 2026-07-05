@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.7
+Stable tag: 2026.27.8
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.8 =
+* Feature: Data source "WordPress DB (Google Sheets backup)" is now selectable. Standings/fixtures are served from the WordPress database and kept current by confirmed scorecards + concessions; Google Sheets CSV seeds an empty division once and acts as an automatic per-division fallback. Switching is safe/reversible — divisions with no WP data fall back to live CSV. In WP mode the CSV cron no longer overwrites WP standings (seed-only) and WP data does not age-expire to CSV.
 
 = 2026.27.7 =
 * Feature: "View details" changelog popup now renders GitHub release notes as a proper heading + bulleted list with clickable links, instead of a flat escaped block.
