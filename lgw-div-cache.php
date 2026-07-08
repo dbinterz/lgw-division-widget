@@ -18,6 +18,7 @@
  * to pick up scorecards confirmed after seeding.
  *
  * @since 2026.27.15  Recompute standings from fixtures in WP-authoritative mode.
+ * @since 2026.27.16  W/D/L decided by aggregate shots, not match points.
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
@@ -1220,8 +1221,8 @@ function lgw_cache_health_table_html( $all_status, $nonce ) {
  * count either way.
  *
  * Team names and identity come from $teams (the seed); only the numeric standing
- * columns are replaced. W/D/L is decided by match points (ptsHome vs ptsAway),
- * consistent with the Pts column and tolerant of half points.
+ * columns are replaced. W/D/L is decided by aggregate shots (shotsHome vs
+ * shotsAway) — the overall match result — while Pts sums the awarded match points.
  *
  * @param array $teams    Seeded team rows from lgw_cache_parse_teams().
  * @param array $fixtures Fixture rows (post overlay/override/concession passes).
@@ -1268,9 +1269,9 @@ function lgw_compute_teams_from_fixtures( $teams, $fixtures ) {
         $teams[ $ai ]['f']   += $shotsA;
         $teams[ $ai ]['a']   += $shotsH;
 
-        if ( $ptsH > $ptsA )      { $teams[ $hi ]['w']++; $teams[ $ai ]['l']++; }
-        elseif ( $ptsH < $ptsA )  { $teams[ $hi ]['l']++; $teams[ $ai ]['w']++; }
-        else                      { $teams[ $hi ]['d']++; $teams[ $ai ]['d']++; }
+        if ( $shotsH > $shotsA )      { $teams[ $hi ]['w']++; $teams[ $ai ]['l']++; }
+        elseif ( $shotsH < $shotsA )  { $teams[ $hi ]['l']++; $teams[ $ai ]['w']++; }
+        else                          { $teams[ $hi ]['d']++; $teams[ $ai ]['d']++; }
     }
 
     // Diff = For − Against.

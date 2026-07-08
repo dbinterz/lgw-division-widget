@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.16]
+### Changed
+- **W/D/L decided by shots, not points.** `lgw_compute_teams_from_fixtures()` now derives Won/Drawn/Lost from aggregate shots (`shotsHome` vs `shotsAway`) — the overall match result — matching how the league tables are compiled. The Pts column still sums awarded match points; only the W/D/L counts change.
+
 ## [2026.27.15]
 ### Fixed
 - **WordPress-authoritative standings no longer freeze at the seed.** The table was rendered straight from the seeded standings block, which `lgw_cache_merge_result` never updates — it merges confirmed scorecards into the *fixtures* only. So any result confirmed after seeding showed in the fixtures but not the table (Ballymena A on 41 while their fixtures summed to 46). `lgw_cache_render_division` now calls new `lgw_compute_teams_from_fixtures()` in WP mode, rebuilding Pl/W/D/L/For/Against/Diff/Pts from fixtures with a final result (`status` `csv_played` or `confirmed`); `pending`/`disputed`/`unplayed` are excluded. Concessions still layer on top via `lgw_apply_concessions_to_teams` with no double-count (manual concessions stay `unplayed`; auto-created ones are `confirmed`). Google Sheets mode is untouched.
