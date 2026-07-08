@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.11
+Stable tag: 2026.27.15
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,23 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.14 =
+* Fix: Round-robin fixture generation now avoids scheduling two teams from the same club at home on the same day. Sibling teams (e.g. DUNBARTON A and DUNBARTON B, which share a green) can't both host in the same round — the generator flips one fixture's home/away so each club hosts at most once per date. Club identity is derived by stripping a trailing team letter/number from the name. Note: divisions are still scheduled independently, so this applies within a division; if two divisions are given the same dates a club with a team in each could still host both.
+
+= 2026.27.13 =
+* Fix: The Setup Wizard no longer touches the live league until you hit "Finish". Team rosters, divisions, data source, and Google Sheet settings are now staged and applied only on the final confirm — going Back from the Review step (or abandoning the wizard there) leaves your existing league fully intact. Previously step 2 wrote and overwrote before confirmation.
+
+= 2026.27.15 =
+* Fix: In WordPress-authoritative mode the league table was frozen at the values seeded from the spreadsheet — results confirmed after seeding showed in the fixtures but never moved the table (e.g. Ballymena A stuck on 41 while their fixtures totalled 46). The standings are now rebuilt from the fixtures on every render, so each confirmed (or seeded) result is counted. Pending and disputed scorecards are excluded until final. Google Sheets mode is unchanged (it keeps reading the sheet's own LEAGUE TABLE block).
+
+= 2026.27.12 =
+* Feature: First-run Setup Wizard (LGW ▸ 🚀 Setup). Auto-launches on activation and guides a fresh install through picking a data source — Google published CSV, uploaded spreadsheet, or WordPress database — then bootstraps divisions and team rosters accordingly. Upload accepts a two-column Division,Team CSV and seeds the WP cache; the WordPress-DB path lets you type divisions and rosters directly. Re-runnable any time from the menu.
+* Feature: Optional round-robin fixture generator in the upload and WordPress-DB steps — single or double round (home & away), configurable first-round date and weeks between rounds. Odd team counts get a bye each round. Generated fixtures are written into each division as unplayed.
+* Feature: The Review step now previews the generated fixtures per division (round-by-round) and lets you set the first-round date, interval, and single/double round per division — or tick a group of divisions and bulk-apply a date/interval to all of them at once. "Regenerate" refreshes the preview; "Finish" writes the fixtures.
+* Feature: Overwrite guard — when a league already exists, step 1 warns and requires an explicit confirm before the wizard replaces the active season's divisions and data source. Enforced server-side.
+* Feature: "Start fresh" reset — wipes the active season's divisions, seeded standings, and data-source setting to begin from a clean slate. Leaves sponsors, theme, players, and scorecards untouched.
+* Validation: duplicate team names within a single division are now rejected (case-insensitive) in the wizard and in the team seeder, with a clear message asking you to rename or remove the duplicate. Same name across different divisions/competitions remains valid.
 
 = 2026.27.11 =
 * Change: Scorecard photo analysis now uses the current Claude Sonnet 4.6 model (claude-sonnet-4-6), up from the legacy 4.5. Verified working against the configured API key.

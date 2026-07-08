@@ -11,8 +11,13 @@
  *                    scorecard confirmation hook (result merge only)
  *                    admin "Sync now" button
  *
- * The CSV remains the authoritative source for standings. This module never
- * writes standings data — it only reads from the CSV and caches the result.
+ * In Google Sheets mode the CSV LEAGUE TABLE block is authoritative for
+ * standings — this module reads and caches it, never writes it. In WordPress-
+ * authoritative mode the seeded block is only a starting snapshot, so the table
+ * is recomputed from the fixtures at render time (lgw_compute_teams_from_fixtures)
+ * to pick up scorecards confirmed after seeding.
+ *
+ * @since 2026.27.15  Recompute standings from fixtures in WP-authoritative mode.
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
@@ -865,6 +870,13 @@ function lgw_cache_seed_teams( $season_id, $division, $names ) {
     $names = array_values( array_filter( array_map( 'trim', (array) $names ), function ( $x ) { return $x !== ''; } ) );
     if ( empty( $names ) ) return new WP_Error( 'no_names', 'No team names provided.' );
 
+    // Reject duplicate team names within a division (case-insensitive).
+    $lc = array_map( 'strtolower', $names );
+    if ( count( array_unique( $lc ) ) !== count( $lc ) ) {
+        $dupes = array_values( array_unique( array_diff_key( $names, array_unique( $lc ) ) ) );
+        return new WP_Error( 'dupe_team', 'Duplicate team name(s) in ' . $division . ': ' . implode( ', ', $dupes ) . '. Each team must be unique within a division.' );
+    }
+
     $teams = [];
     foreach ( $names as $idx => $name ) {
         $teams[] = [
@@ -1190,6 +1202,86 @@ function lgw_cache_health_table_html( $all_status, $nonce ) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Recompute a division's standings from its fixtures.
+ *
+ * WordPress-authoritative mode seeds the standings block once from the CSV and
+ * never rewrites it — confirmed scorecards are merged into the *fixtures* only
+ * (see lgw_cache_merge_result). That leaves the seeded table frozen, so any
+ * result confirmed after seeding shows in the fixtures but not in the table.
+ *
+ * This rebuilds Pl/W/D/L/For/Against/Diff/Pts for each seeded team by summing
+ * the fixtures that carry a final result: status 'csv_played' (came in with the
+ * seed) or 'confirmed' (a confirmed scorecard). Pending, disputed and unplayed
+ * fixtures are excluded — nothing not-yet-final touches the table.
+ *
+ * Manual concessions are NOT counted here: they stay 'unplayed' and are applied
+ * separately by lgw_apply_concessions_to_teams(). Auto-created concessions carry
+ * a confirmed scorecard, so they are counted here and skipped there — no double
+ * count either way.
+ *
+ * Team names and identity come from $teams (the seed); only the numeric standing
+ * columns are replaced. W/D/L is decided by match points (ptsHome vs ptsAway),
+ * consistent with the Pts column and tolerant of half points.
+ *
+ * @param array $teams    Seeded team rows from lgw_cache_parse_teams().
+ * @param array $fixtures Fixture rows (post overlay/override/concession passes).
+ * @return array Teams with Pl/W/D/L/F/A/Diff/Pts recomputed from fixtures.
+ */
+function lgw_compute_teams_from_fixtures( $teams, $fixtures ) {
+    if ( empty( $teams ) ) return $teams;
+
+    // Name → index map (case-insensitive) + zero the standing columns.
+    $idx_map = [];
+    foreach ( $teams as $i => $t ) {
+        $idx_map[ strtoupper( trim( $t['team'] ) ) ] = $i;
+        $teams[ $i ]['pl']   = 0;
+        $teams[ $i ]['pts']  = 0;
+        $teams[ $i ]['w']    = 0;
+        $teams[ $i ]['d']    = 0;
+        $teams[ $i ]['l']    = 0;
+        $teams[ $i ]['f']    = 0;
+        $teams[ $i ]['a']    = 0;
+        $teams[ $i ]['diff'] = 0;
+    }
+
+    foreach ( (array) $fixtures as $fx ) {
+        $status = $fx['status'] ?? '';
+        // Only final results feed the table.
+        if ( $status !== 'csv_played' && $status !== 'confirmed' ) continue;
+        if ( empty( $fx['played'] ) ) continue;
+
+        $hi = $idx_map[ strtoupper( trim( $fx['homeTeam'] ?? '' ) ) ] ?? null;
+        $ai = $idx_map[ strtoupper( trim( $fx['awayTeam'] ?? '' ) ) ] ?? null;
+        if ( $hi === null || $ai === null ) continue; // cross-division / unknown
+
+        $ptsH   = floatval( $fx['ptsHome']   ?? 0 );
+        $ptsA   = floatval( $fx['ptsAway']   ?? 0 );
+        $shotsH = intval(   $fx['shotsHome'] ?? 0 );
+        $shotsA = intval(   $fx['shotsAway'] ?? 0 );
+
+        $teams[ $hi ]['pl']  += 1;
+        $teams[ $ai ]['pl']  += 1;
+        $teams[ $hi ]['pts'] = floatval( $teams[ $hi ]['pts'] ) + $ptsH;
+        $teams[ $ai ]['pts'] = floatval( $teams[ $ai ]['pts'] ) + $ptsA;
+        $teams[ $hi ]['f']   += $shotsH;
+        $teams[ $hi ]['a']   += $shotsA;
+        $teams[ $ai ]['f']   += $shotsA;
+        $teams[ $ai ]['a']   += $shotsH;
+
+        if ( $ptsH > $ptsA )      { $teams[ $hi ]['w']++; $teams[ $ai ]['l']++; }
+        elseif ( $ptsH < $ptsA )  { $teams[ $hi ]['l']++; $teams[ $ai ]['w']++; }
+        else                      { $teams[ $hi ]['d']++; $teams[ $ai ]['d']++; }
+    }
+
+    // Diff = For − Against.
+    foreach ( $teams as $i => $t ) {
+        $teams[ $i ]['diff'] = intval( $t['f'] ) - intval( $t['a'] );
+    }
+
+    return $teams;
+}
+
+/**
  * Apply concession penalties to the teams standings array.
  *
  * For each concession:
@@ -1312,6 +1404,14 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
         }
     }
     unset( $fx );
+
+    // WordPress-authoritative mode: the seeded standings block is a one-time
+    // snapshot and never absorbs scorecards confirmed after seeding. Rebuild the
+    // table from the fixtures so every final result is counted. (Sheets mode keeps
+    // trusting the CSV LEAGUE TABLE block, which the sheet itself keeps current.)
+    if ( lgw_source_is_wordpress() ) {
+        $teams = lgw_compute_teams_from_fixtures( $teams, $fixtures );
+    }
 
     // Apply concession adjustments to team standings (penalty deduction)
     if ( ! empty( $concessions ) ) {

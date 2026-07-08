@@ -108,6 +108,29 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.15]
+### Fixed
+- **WordPress-authoritative standings no longer freeze at the seed.** The table was rendered straight from the seeded standings block, which `lgw_cache_merge_result` never updates — it merges confirmed scorecards into the *fixtures* only. So any result confirmed after seeding showed in the fixtures but not the table (Ballymena A on 41 while their fixtures summed to 46). `lgw_cache_render_division` now calls new `lgw_compute_teams_from_fixtures()` in WP mode, rebuilding Pl/W/D/L/For/Against/Diff/Pts from fixtures with a final result (`status` `csv_played` or `confirmed`); `pending`/`disputed`/`unplayed` are excluded. Concessions still layer on top via `lgw_apply_concessions_to_teams` with no double-count (manual concessions stay `unplayed`; auto-created ones are `confirmed`). Google Sheets mode is untouched.
+
+## [2026.27.14]
+### Fixed
+- **Club-aware fixture scheduling.** `lgw_setup_generate_fixtures` now runs each round through `lgw_setup_balance_home_clubs`, which re-orients pairs (home/away swap only — always a valid fixture) so no club hosts more than one match per date. Club identity comes from `lgw_setup_club_of`, which strips a trailing single letter/digit designator (`DUNBARTON A`/`DUNBARTON B` → `DUNBARTON`) and normalises case/whitespace. Applied to single and double rounds; the review-step preview reflects it. Scheduling is still per-division, so cross-division same-date club clashes are not deduplicated.
+
+## [2026.27.13]
+### Fixed
+- **Setup Wizard no longer overwrites the live league before confirmation.** Step 2 previously called `lgw_cache_seed_teams` / `lgw_setup_set_divisions` / `update_option('lgw_data_source')` / `lgw_drive` writes immediately, so going Back from Review (or abandoning there) had already destroyed the existing league. All of it is now staged in a single `lgw_setup_pending` option (choice, data_source, divisions, teams, sheet config) and applied only when the user clicks **Finish** on the review step, via `lgw_setup_ensure_season` + seed/set/data-source/drive/fixture-generation. The review preview and per-division team counts read from `lgw_setup_pending` instead of the live cache. `lgw_setup_reset` and Finish both clear the pending option.
+
+## [2026.27.12]
+### Added
+- First-run **Setup Wizard** (`lgw-setup-wizard.php`, menu **LGW ▸ 🚀 Setup**). Auto-redirects on activation via a `lgw_setup_redirect` transient; re-runnable from the menu. Four steps: pick data source → configure → review → done. Form posts route through an `admin_post_lgw_setup_wizard` handler so redirects fire before admin headers.
+- Three bootstrap paths: **Google published CSV** (enter division CSV URLs → `data_source=google_sheets`, writes active-season divisions + `lgw_drive` sheets_tabs); **Upload spreadsheet** (two-column `Division,Team` CSV parsed → `lgw_cache_seed_teams` → `data_source=wordpress`); **WordPress DB** (type divisions + rosters → seeded → `data_source=wordpress`).
+- **Round-robin fixture generator** (`lgw_setup_round_robin` circle method + `lgw_setup_generate_fixtures`) offered on the upload and WP-DB steps: single/double round, first-round date, weeks between rounds, bye for odd counts. Fixtures written per division via `lgw_setup_store_fixtures` in the `lgw_cache` shape (`played=false`, `status=unplayed`).
+- **Review step fixture editor** — step 2 now stores fixture choices as defaults (`lgw_setup_fx`); the review step generates a live per-division preview (round-by-round), with per-division first-round date / interval / double overrides (`lgw_setup_fx_div`, resolved by `lgw_setup_fx_for_division`) and a JS bulk-apply for a ticked group of divisions. "Regenerate" (`lgw_setup_action=regen`) refreshes the preview; "Finish" commits fixtures per division. Fixtures no longer generated at step 2.
+- **Overwrite guard** (`lgw_setup_is_configured` + `lgw_setup_confirm_overwrite`) — step 1 warns and requires confirmation before replacing an existing league; enforced server-side.
+- **Start fresh** reset (`admin_post_lgw_setup_reset`) — clears active-season divisions, seeded division caches, `lgw_data_source`, and wizard state; leaves sponsors/theme/players/scorecards intact.
+- **Within-division duplicate guard** — `lgw_setup_dupes()` (case-insensitive) blocks the wizard's upload and WP-DB paths before any write; `lgw_cache_seed_teams()` gains a matching backstop returning `WP_Error dupe_team`. Same name across different divisions/competitions stays valid (caches are `season+division` keyed).
+- Registered `lgw-setup-wizard.php` in the module loader.
+
 ## [2026.27.11]
 ### Changed
 - Scorecard photo analysis model updated `claude-sonnet-4-5` → `claude-sonnet-4-6` (current Sonnet; 4.5 is legacy-but-active). Verified HTTP 200 against the configured key. `lgw-scorecards.php`.
