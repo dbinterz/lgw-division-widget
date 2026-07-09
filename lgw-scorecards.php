@@ -737,6 +737,11 @@ function lgw_ajax_save_scorecard() {
         'home_team'    => sanitize_text_field($raw['home_team']    ?? ''),
         'away_team'    => sanitize_text_field($raw['away_team']    ?? ''),
         'submitter'    => sanitize_text_field($raw['submitter']    ?? ''),
+        // Context (league/cup/multichamp) — must live on $sc so the admin
+        // "both teams" and "confirm on behalf" handlers tag it correctly.
+        // Without this they read $sc['context'] (undefined) and default to
+        // 'league', mis-tagging cup scorecards. See lgw_save_scorecard_admin_both().
+        'context'      => sanitize_key($raw['context'] ?? 'league') ?: 'league',
         'home_total'  => is_numeric($raw['home_total']  ?? '') ? floatval($raw['home_total'])  : null,
         'away_total'  => is_numeric($raw['away_total']  ?? '') ? floatval($raw['away_total'])  : null,
         'home_points' => is_numeric($raw['home_points'] ?? '') ? floatval($raw['home_points']) : null,
@@ -776,7 +781,10 @@ function lgw_ajax_save_scorecard() {
     }
 
     $match_key = lgw_scorecard_match_key($sc['home_team'], $sc['away_team'], $sc['division'] ?? '');
-    $sc_context = sanitize_key($raw['context'] ?? 'league');
+    $sc_context = sanitize_key($raw['context'] ?? 'league') ?: 'league';
+    if ($sc_context !== 'cup' && function_exists('lgw_scorecard_is_cup_by_data') && lgw_scorecard_is_cup_by_data($sc)) {
+        $sc_context = 'cup';
+    }
     $existing  = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context, $sc['division'] ?? '');
 
     if ($existing) {
@@ -833,8 +841,11 @@ function lgw_ajax_save_scorecard() {
         if (!empty($sc['division'])) update_post_meta($post_id, 'lgw_sc_division', $sc['division']);
         if (!empty($sc['fixture_date'])) update_post_meta($post_id, 'lgw_fixture_date', $sc['fixture_date']);
         // Tag context (league/cup) so lookups don't cross-match
-        $ctx = sanitize_key($raw['context'] ?? 'league');
-        update_post_meta($post_id, 'lgw_sc_context', $ctx ?: 'league');
+        $ctx = sanitize_key($raw['context'] ?? 'league') ?: 'league';
+        if ($ctx !== 'cup' && function_exists('lgw_scorecard_is_cup_by_data') && lgw_scorecard_is_cup_by_data($sc)) {
+            $ctx = 'cup';
+        }
+        update_post_meta($post_id, 'lgw_sc_context', $ctx);
         update_post_meta($post_id, 'lgw_sc_status',     'pending');
         update_post_meta($post_id, 'lgw_submitted_by',  $club);
         // Tag with the active season so scorecards are attributable per season
@@ -868,6 +879,11 @@ function lgw_ajax_save_scorecard() {
 function lgw_save_scorecard_admin_both($sc) {
     $match_key  = lgw_scorecard_match_key($sc['home_team'], $sc['away_team'], $sc['division'] ?? '');
     $sc_context = sanitize_key($sc['context'] ?? 'league');
+    // Fallback: if division matches a known cup title, force cup context even
+    // when the payload didn't carry it — prevents mis-tagging as league.
+    if ($sc_context !== 'cup' && function_exists('lgw_scorecard_is_cup_by_data') && lgw_scorecard_is_cup_by_data($sc)) {
+        $sc_context = 'cup';
+    }
     $existing   = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context, $sc['division'] ?? '');
     $admin_login = wp_get_current_user()->user_login;
 
@@ -955,6 +971,10 @@ function lgw_save_scorecard_admin_both($sc) {
 function lgw_save_scorecard_admin_confirm($sc, $submitted_for, $confirm_as) {
     $match_key   = lgw_scorecard_match_key($sc['home_team'], $sc['away_team'], $sc['division'] ?? '');
     $sc_context  = sanitize_key($sc['context'] ?? 'league');
+    // Fallback: cup-title division forces cup context (see admin_both above).
+    if ($sc_context !== 'cup' && function_exists('lgw_scorecard_is_cup_by_data') && lgw_scorecard_is_cup_by_data($sc)) {
+        $sc_context = 'cup';
+    }
     $existing    = lgw_get_scorecard($sc['home_team'], $sc['away_team'], $sc['date'], $sc_context, $sc['division'] ?? '');
     $admin_login = wp_get_current_user()->user_login;
     $submitted_by = ($submitted_for === 'away') ? $sc['away_team'] : $sc['home_team'];

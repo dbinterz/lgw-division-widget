@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.21
+Stable tag: 2026.27.22
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.22 =
+* Fix: Cup scorecards submitted by an admin (via "submit for both teams" or "confirm on behalf of the other club") are no longer mis-tagged as league games. The submission's league/cup context was only read on the club-submitted path; the admin paths defaulted to league, so those cup scorecards lost the Cup badge and re-triggered the false "Unresolved" warning. Context is now applied consistently on every save path, with a data-based fallback that recognises a cup scorecard from its division (a configured cup title) even if the context is missing from the request.
 
 = 2026.27.21 =
 * Fix: Cup scorecards no longer show a false "⚠️ Unresolved — sheet writeback blocked" warning on the Scorecards list and edit modal. A cup scorecard tagged (or defaulted) as a league game was flagged because a cup title never maps to a league sheet tab. Cup scorecards are now recognised from their own data (their division is a configured cup title), so they are treated as cup even when the stored context is stale — no false warning, and the sheet writeback is correctly skipped. Saving a mis-tagged cup scorecard in the admin now self-heals its context to "cup" instead of cementing it as league. Adds lgw_backfill_cup_contexts() to repair existing records in bulk (run once via WP-CLI: wp eval 'echo lgw_backfill_cup_contexts();').

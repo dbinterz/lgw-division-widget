@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.22]
+### Fixed
+- **Cup scorecards submitted by an admin were mis-tagged as `league`.** The submission payload's `context` (league/cup) was only read on the non-admin first-submission path. The admin "both teams" and "confirm on behalf of the other club" handlers read `$sc['context']`, which was never populated on the `$sc` array — so they silently defaulted to `league`, leaving cup scorecards without the 🏆 Cup badge and re-flagging the "Unresolved" warning fixed in 2026.27.21. `context` is now carried on `$sc`, so all three save paths tag it consistently. Added a data-based fallback (`lgw_scorecard_is_cup_by_data()`) on every path: a scorecard whose division is a configured cup title is forced to `cup` context even if the payload omits it. Resaving a mis-tagged card in the admin already self-healed it; new submissions are now tagged correctly at source.
+
 ## [2026.27.21]
 ### Fixed
 - **Cup scorecards falsely flagged "Unresolved".** A cup scorecard tagged (or defaulted) as `league` tripped the division-unresolved / sheet-writeback-blocked warning on the Scorecards list (`lgw-division-widget.php`) and the edit modal (`lgw-sc-admin.php`), because its division is a cup title that never maps to a league sheet tab. New helpers `lgw_all_cup_titles()` / `lgw_scorecard_is_cup_by_data()` in `lgw-cup.php` recognise a cup scorecard from its own data, so it is treated as cup even when the context meta is stale — the warning no longer shows and writeback stays correctly skipped. Distinguishes a real league game between the same two clubs (its division is a genuine league division, not a cup title). The admin edit handler now **self-heals** a mis-tagged cup scorecard's context to `cup` (and clears the stale flag) instead of cementing it as `league` on first save. Adds `lgw_backfill_cup_contexts()` to repair existing records in bulk — run once via WP-CLI: `wp eval 'echo lgw_backfill_cup_contexts();'`.
