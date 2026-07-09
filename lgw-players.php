@@ -1350,6 +1350,14 @@ function lgw_players_admin_page() {
         $page_title .= ' â ' . $viewing_season['label'];
     }
     lgw_page_header($page_title);
+
+    // One-off result notice from the "Email Tracked Players to Secretaries" action
+    $email_result = get_transient('lgw_email_tracked_result_' . get_current_user_id());
+    if ($email_result) {
+        delete_transient('lgw_email_tracked_result_' . get_current_user_id());
+        $cls = !empty($email_result['sent']) ? 'notice-success' : 'notice-warning';
+        echo '<div class="notice ' . $cls . ' is-dismissible"><p>' . wp_kses_post($email_result['msg']) . '</p></div>';
+    }
     ?>
 
     <style>
@@ -1528,6 +1536,13 @@ function lgw_players_admin_page() {
         document.querySelectorAll('.lgw-pt-panel').forEach(function(p){
             p.classList.toggle('active', p.id==='lgw-panel-'+tab);
         });
+    }
+    // Activate a tab from the URL hash (e.g. after the email-secretaries redirect)
+    if (location.hash === '#clubs') lgwTab('clubs');
+    function lgwConfirmEmailSecretaries(form) {
+        var sel = Array.prototype.slice.call(form.querySelectorAll('select[name="clubs[]"] option:checked')).map(function(o){ return o.value; });
+        var who = sel.length ? sel.length + ' selected club' + (sel.length > 1 ? 's' : '') + ' (' + sel.join(', ') + ')' : 'ALL clubs';
+        return confirm('Send an individual email — with a CSV of the players currently tracked — to the Secretary of ' + who + '?\n\nClubs with no Secretary email on file are skipped.');
     }
     function lgwConfirmDelete(name) {
         return confirm('Delete player "' + name + '" and all their appearance records? This cannot be undone.');
@@ -2567,6 +2582,34 @@ function lgw_players_admin_page() {
                 🖨 Export as PDF
             </a>
         </div>
+        </form>
+
+        <?php
+        // ── Email tracked players to club secretaries ─────────────────────────
+        // Kept as its own <form> OUTSIDE the paid-counts form above — nested
+        // forms are invalid HTML and the browser would submit the paid form.
+        $email_clubs = array();
+        foreach ($club_summary as $cn => $cs) { if ($cs['players'] > 0) $email_clubs[] = $cn; }
+        ?>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+              style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0"
+              onsubmit="return lgwConfirmEmailSecretaries(this);">
+            <?php wp_nonce_field('lgw_email_tracked_secretaries'); ?>
+            <input type="hidden" name="action" value="lgw_email_tracked_secretaries">
+            <?php if (!empty($viewing_season['id'])): ?>
+                <input type="hidden" name="season" value="<?php echo esc_attr($viewing_season['id']); ?>">
+            <?php endif; ?>
+            <select name="clubs[]" multiple size="1" style="min-width:190px;height:30px;vertical-align:middle"
+                    title="Ctrl/Cmd-click to pick clubs. Leave nothing selected to email every club.">
+                <?php foreach ($email_clubs as $cn): ?>
+                    <option value="<?php echo esc_attr($cn); ?>"><?php echo esc_html($cn); ?></option>
+                <?php endforeach; ?>
+            </select>
+            <button type="submit" class="button button-secondary"
+                    title="Email the selected clubs' secretaries a CSV of their tracked players (none selected = all clubs)">
+                ✉ Email Tracked Players to Secretaries
+            </button>
+            <span class="description" style="font-size:11px">none selected = all clubs</span>
         </form>
         <?php endif; ?>
     </div>
@@ -3956,4 +3999,152 @@ function lgw_ajax_get_player_appearances() {
     }
 
     wp_send_json_success( $out );
+}
+
+// ── Email tracked players to club secretaries ────────────────────────────────
+//
+// On-demand action: for every club with players in the tracker, send the club's
+// Secretary an individual email carrying a CSV of that club's tracked players.
+// Clubs without a Secretary email on file (from the Clubs directory) are skipped
+// and reported back to the admin. Respects the season being viewed.
+
+/**
+ * Resolve a club's Secretary email from the lgw_clubs directory.
+ * Matches on club name (case-insensitive) and returns the email of the contact
+ * whose role is "Secretary". Returns '' when no valid Secretary email is found.
+ */
+function lgw_club_secretary_email( $club_name ) {
+    $club_name = strtolower( trim( $club_name ) );
+    if ( $club_name === '' ) return '';
+    foreach ( lgw_get_clubs() as $club ) {
+        if ( strtolower( trim( $club['name'] ?? '' ) ) !== $club_name ) continue;
+        foreach ( $club['contacts'] ?? array() as $ct ) {
+            if ( strtolower( trim( $ct['role'] ?? '' ) ) !== 'secretary' ) continue;
+            $email = is_email( $ct['email'] ?? '' );
+            if ( $email ) return $email;
+        }
+        return '';
+    }
+    return '';
+}
+
+add_action( 'admin_post_lgw_email_tracked_secretaries', 'lgw_email_tracked_secretaries' );
+function lgw_email_tracked_secretaries() {
+    if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+    check_admin_referer( 'lgw_email_tracked_secretaries' );
+
+    global $wpdb;
+    $pt = lgw_players_table();
+    $at = lgw_appearances_table();
+
+    // ── Season context (mirrors the export actions) ───────────────────────────
+    $sid        = sanitize_text_field( $_POST['season'] ?? $_GET['season'] ?? '' );
+    $season_obj = $sid ? lgw_get_season_by_id( $sid ) : lgw_get_active_season();
+    if ( $season_obj ) {
+        $season = array( 'start' => $season_obj['start'] ?? '', 'end' => $season_obj['end'] ?? '', 'label' => $season_obj['label'] ?? '' );
+    } else {
+        $season = lgw_get_season();
+    }
+    $label = ! empty( $season['label'] ) ? $season['label'] : 'All Time';
+
+    $season_where = '';
+    if ( ! empty( $season['start'] ) && ! empty( $season['end'] ) ) {
+        $start = esc_sql( $season['start'] );
+        $end   = esc_sql( $season['end'] );
+        $season_where = "AND STR_TO_DATE(a.match_date, '%d/%m/%Y') >= '$start' AND STR_TO_DATE(a.match_date, '%d/%m/%Y') <= '$end'";
+    }
+
+    // ── Tracked players + season-scoped stats, grouped by club ────────────────
+    $players = $wpdb->get_results(
+        "SELECT p.id, p.club, p.name, p.female,
+                COUNT(DISTINCT a.id) as appearances,
+                GROUP_CONCAT(DISTINCT a.team ORDER BY a.team SEPARATOR ', ') as teams,
+                SUM(CASE WHEN a.result='W' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN a.result='D' THEN 1 ELSE 0 END) as draws,
+                SUM(CASE WHEN a.result='L' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN a.shots_for IS NOT NULL THEN a.shots_for ELSE 0 END) as shots_for,
+                SUM(CASE WHEN a.shots_against IS NOT NULL THEN a.shots_against ELSE 0 END) as shots_against
+         FROM $pt p
+         LEFT JOIN $at a ON a.player_id = p.id " .
+        ( $season_where ? "WHERE 1=1 $season_where " : "" ) . "
+         GROUP BY p.id ORDER BY p.club, p.name"
+    );
+
+    $by_club = array();
+    foreach ( $players as $pl ) { $by_club[ $pl->club ][] = $pl; }
+
+    // Optional club selection — empty means every club with tracked players
+    $selected = isset( $_POST['clubs'] ) ? array_filter( array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['clubs'] ) ) ) : array();
+    if ( $selected ) {
+        $by_club = array_intersect_key( $by_club, array_flip( $selected ) );
+    }
+
+    // Reply-To the committee inbox so secretaries' replies reach a real mailbox
+    $headers = array( 'Reply-To: NIPGL League Secretary <leaguesecretary@nipgl.co.uk>' );
+
+    // Temp working dir under uploads for CSV attachments
+    $upload  = wp_upload_dir();
+    $tmp_dir = trailingslashit( $upload['basedir'] ) . 'lgw-tmp';
+    if ( ! file_exists( $tmp_dir ) ) wp_mkdir_p( $tmp_dir );
+
+    $sent = 0; $skipped = array(); $failed = array();
+
+    foreach ( $by_club as $club => $club_players ) {
+        if ( empty( $club_players ) ) continue;
+
+        $to = lgw_club_secretary_email( $club );
+        if ( ! $to ) { $skipped[] = $club; continue; }
+
+        // Build the CSV in memory
+        $fh = fopen( 'php://temp', 'r+' );
+        fputcsv( $fh, array( 'Player', 'Gender', 'Appearances', 'Teams', 'Wins', 'Draws', 'Losses', 'Shots For', 'Shots Against' ) );
+        foreach ( $club_players as $pl ) {
+            fputcsv( $fh, array(
+                $pl->name,
+                $pl->female ? 'F' : 'M',
+                intval( $pl->appearances ),
+                $pl->teams,
+                intval( $pl->wins ),
+                intval( $pl->draws ),
+                intval( $pl->losses ),
+                intval( $pl->shots_for ),
+                intval( $pl->shots_against ),
+            ) );
+        }
+        rewind( $fh );
+        $csv = stream_get_contents( $fh );
+        fclose( $fh );
+
+        $file = trailingslashit( $tmp_dir ) . 'lgw-tracked-' . sanitize_file_name( $club ) . '-' . sanitize_file_name( $label ) . '.csv';
+        file_put_contents( $file, $csv );
+
+        $count   = count( $club_players );
+        $subject = sprintf( 'NIPGL Player Tracking — %s (%s)', $club, $label );
+        $body    = sprintf(
+            "Dear %s Secretary,\n\n" .
+            "Attached is the current list of players registered in the NIPGL player tracker for your club (%s season).\n\n" .
+            "%d player%s %s currently tracked. Please review the attached CSV and let the committee know of any corrections.\n\n" .
+            "Regards,\nNIPGL",
+            $club, $label, $count, $count === 1 ? '' : 's', $count === 1 ? 'is' : 'are'
+        );
+
+        $ok = wp_mail( $to, $subject, $body, $headers, array( $file ) );
+        @unlink( $file );
+
+        if ( $ok ) $sent++; else $failed[] = $club;
+    }
+
+    // ── Result notice (shown once via transient on the players page) ──────────
+    $parts   = array();
+    $parts[] = sprintf( '%d club%s emailed.', $sent, $sent === 1 ? '' : 's' );
+    if ( $skipped ) $parts[] = 'No Secretary email on file: ' . esc_html( implode( ', ', $skipped ) ) . '.';
+    if ( $failed )  $parts[] = 'Failed to send: ' . esc_html( implode( ', ', $failed ) ) . '.';
+    $msg = implode( ' ', $parts );
+
+    set_transient( 'lgw_email_tracked_result_' . get_current_user_id(), array( 'sent' => $sent, 'msg' => $msg ), 60 );
+
+    $redirect = admin_url( 'admin.php?page=lgw-players' );
+    if ( $sid ) $redirect = add_query_arg( 'season', $sid, $redirect );
+    wp_safe_redirect( $redirect . '#clubs' );
+    exit;
 }

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.18
+Stable tag: 2026.27.19
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.19 =
+* Feature: Player Tracking → Club Summary now has an "Email Tracked Players to Secretaries" button. On demand, it sends each club an individual email addressed to their Secretary (from the Club Directory) with a CSV attachment listing the players currently tracked for that club — name, gender, appearances, teams, W/D/L and shots — scoped to the season being viewed. Clubs with no Secretary email on file are skipped and reported back in an admin notice.
 
 = 2026.27.14 =
 * Fix: Round-robin fixture generation now avoids scheduling two teams from the same club at home on the same day. Sibling teams (e.g. DUNBARTON A and DUNBARTON B, which share a green) can't both host in the same round — the generator flips one fixture's home/away so each club hosts at most once per date. Club identity is derived by stripping a trailing team letter/number from the name. Note: divisions are still scheduled independently, so this applies within a division; if two divisions are given the same dates a club with a team in each could still host both.

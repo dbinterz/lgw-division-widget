@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.19]
+### Added
+- **Email tracked players to club secretaries.** New "✉ Email Tracked Players to Secretaries" button on Player Tracking → Club Summary (`admin_post_lgw_email_tracked_secretaries` in `lgw-players.php`). For every club with players in the tracker it sends an individual `wp_mail` to the club's Secretary email (resolved from the `lgw_clubs` directory via new helper `lgw_club_secretary_email()`) with a per-club CSV attachment — Player, Gender, Appearances, Teams, Wins, Draws, Losses, Shots For, Shots Against — season-scoped to the view. CSVs are written to `uploads/lgw-tmp` and unlinked after send. Clubs without a Secretary email are skipped; a one-off transient notice reports sent / skipped / failed counts.
+
 ## [2026.27.18]
 ### Added
 - **Club Directory CSV import.** New "⬆ Import CSV" tool on the Clubs admin screen (`admin_post_lgw_import_clubs` in `lgw-clubs.php`). Upload a CSV with header `club_name,address,website,contact_role,contact_name,contact_phone,contact_email` (one row per contact, `club_name` repeated). Clubs are matched by slug: existing clubs have address/website/contacts refreshed while passphrase, badge, chart colours, facilities and the can-submit flag are preserved; unseen names are added. Ships `lgw-club-contacts.csv` pre-populated from the NIPGL PG club-contacts directory (33 clubs). Clubhouse phone numbers are folded into the address field.
