@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.27.16
+ * Version: 2026.27.17
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.27.16');
+define('LGW_VERSION', '2026.27.17');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -82,6 +82,10 @@ $lgw_modules = array(
     'lgw-seasons.php',
     'lgw-div-cache.php',
     'lgw-clubs.php',
+);
+// Optional modules — in-flight/experimental. Loaded if present, but a missing
+// or broken file is silently skipped (no admin notice) so it can't nag users.
+$lgw_optional_modules = array(
     'lgw-setup-wizard.php',
 );
 $lgw_missing = array();
@@ -95,6 +99,17 @@ foreach ($lgw_modules as $lgw_module) {
         require_once $lgw_path;
     } catch (\Throwable $e) {
         $lgw_missing[] = $lgw_module . ' (' . $e->getMessage() . ')';
+    }
+}
+foreach ($lgw_optional_modules as $lgw_module) {
+    $lgw_path = plugin_dir_path(__FILE__) . $lgw_module;
+    if (!file_exists($lgw_path)) {
+        continue;
+    }
+    try {
+        require_once $lgw_path;
+    } catch (\Throwable $e) {
+        // Optional module — swallow load failure, keep core plugin running.
     }
 }
 if (!empty($lgw_missing)) {

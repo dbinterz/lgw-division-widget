@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.17]
+### Fixed
+- **Setup Wizard loaded optionally.** `lgw-setup-wizard.php` moved to an optional-modules list in the loader — if the (in-flight) file is missing or throws on load it is silently skipped rather than raising a "modules could not be loaded" admin notice. Core modules still surface load failures.
+
 ## [2026.27.16]
 ### Changed
 - **W/D/L decided by shots, not points.** `lgw_compute_teams_from_fixtures()` now derives Won/Drawn/Lost from aggregate shots (`shotsHome` vs `shotsAway`) — the overall match result — matching how the league tables are compiled. The Pts column still sums awarded match points; only the W/D/L counts change.

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.16
+Stable tag: 2026.27.17
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -76,6 +76,9 @@ Parameters:
 
 = 2026.27.13 =
 * Fix: The Setup Wizard no longer touches the live league until you hit "Finish". Team rosters, divisions, data source, and Google Sheet settings are now staged and applied only on the final confirm — going Back from the Review step (or abandoning the wizard there) leaves your existing league fully intact. Previously step 2 wrote and overwrote before confirmation.
+
+= 2026.27.17 =
+* Fix: The experimental Setup Wizard module is now loaded optionally — if the file is missing or fails to load it is silently skipped instead of showing a "modules could not be loaded" admin notice. Core plugin behaviour is unchanged.
 
 = 2026.27.16 =
 * Change: Recomputed WP-mode standings now decide W/D/L by aggregate shots (the overall match result) rather than by match points, matching how the league tables are compiled. Points totals are unaffected.
