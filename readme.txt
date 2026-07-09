@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.19
+Stable tag: 2026.27.20
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.20 =
+* Fix: Cup bracket — preliminary-round winners now display in the correct Round 2 slot. The bracket view mapped prelim matches to R2 slots by scanning for empty team names, so as each winner was filled in the remaining "winner of…" placeholders shifted by one — making a winner appear to face its own team while the real opponent seemed to drop to the next fixture. Placement now keys on the stored slot structure (bye slots carry a draw number, prelim-fed slots do not), so the mapping is stable no matter how many results are entered. Stored data and advancement were already correct; this was display-only. The PHP winner-advancement helper was aligned to the same structural rule for robustness against legacy/hand-edited draws.
 
 = 2026.27.19 =
 * Feature: Player Tracking → Club Summary now has an "Email Tracked Players to Secretaries" button. On demand, it sends each club an individual email addressed to their Secretary (from the Club Directory) with a CSV attachment listing the players currently tracked for that club — name, gender, appearances, teams, W/D/L and shots — scoped to the season being viewed. Clubs with no Secretary email on file are skipped and reported back in an admin notice.

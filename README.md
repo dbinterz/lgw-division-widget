@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.20]
+### Fixed
+- **Cup bracket prelim placeholder mapping (display).** `renderBracket()` in `lgw-cup.js` built the prelim→R2 feed map by enumerating slots with an empty **name**, so once a prelim winner was written into an R2 slot it dropped out of the list and every remaining TBD placeholder shifted by one — a winner appeared to face its own team while the expected opponent seemed to move to the next R2 fixture. Now enumerates prelim-fed slots **structurally** by absent `draw_num_home`/`draw_num_away` (bye slots always carry a draw number), keeping the mapping stable regardless of how many results are entered. Stored bracket data and winner advancement were already correct — this was display-only. `lgw_cup_next_slot()` in `lgw-cup.php` was switched to the same structural rule (reads real prelim-fed slots rather than recomputing the even-distribution formula) so it can never drop a winner onto a bye slot in legacy or hand-edited draws.
+
 ## [2026.27.19]
 ### Added
 - **Email tracked players to club secretaries.** New "✉ Email Tracked Players to Secretaries" button on Player Tracking → Club Summary (`admin_post_lgw_email_tracked_secretaries` in `lgw-players.php`). For every club with players in the tracker it sends an individual `wp_mail` to the club's Secretary email (resolved from the `lgw_clubs` directory via new helper `lgw_club_secretary_email()`) with a per-club CSV attachment — Player, Gender, Appearances, Teams, Wins, Draws, Losses, Shots For, Shots Against — season-scoped to the view. CSVs are written to `uploads/lgw-tmp` and unlinked after send. Clubs without a Secretary email are skipped; a one-off transient notice reports sent / skipped / failed counts.

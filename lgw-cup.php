@@ -525,9 +525,18 @@ function lgw_ajax_cup_perform_draw() {
 /**
  * Compute the next-round target slot for a winner from $round_idx/$match_idx.
  *
- * For the prelim round (round 0), winners are spread evenly across R2 using the
- * same spacing formula as the draw builder, not the naive floor(match_idx/2).
- * For all subsequent rounds the standard formula applies.
+ * For the prelim round (round 0), winners feed a subset of R2 slots that are
+ * interleaved with bye teams. Rather than recomputing that distribution with a
+ * spacing formula (which drifts from the stored bracket for older or hand-edited
+ * draws, dropping winners onto bye slots), we read the ACTUAL prelim-fed slots
+ * from the stored bracket: a slot is prelim-fed exactly when it has no draw
+ * number (byes always carry one; prelim-winner slots never do, and that stays
+ * true as winners are written in). The Nth prelim match feeds the Nth prelim-fed
+ * slot in board order (match ascending, home before away) — the exact inverse of
+ * how lgw_draw_build_bracket lays them out, and identical to the JS placeholder
+ * mapping in renderBracket().
+ *
+ * For all subsequent rounds the standard floor(match_idx/2) formula applies.
  *
  * Returns ['round'=>int, 'match'=>int, 'slot'=>'home'|'away'] or null if no
  * next round exists.
@@ -537,19 +546,19 @@ function lgw_cup_next_slot(&$bracket, $round_idx, $match_idx) {
     if (!isset($bracket['matches'][$next_round])) return null;
 
     if ($round_idx === 0 && isset($bracket['matches'][1])) {
-        // Prelim → R2: mirror the evenly-distributed winner_positions the draw builder uses.
-        $prelim_count   = count($bracket['matches'][0]);
-        $r2_match_count = count($bracket['matches'][1]);
-        $half           = $r2_match_count * 2;
-        if ($prelim_count > 0 && $half > 0) {
-            $step    = $half / $prelim_count;
-            $r2_slot = (int) round($match_idx * $step);
-            return array(
-                'round' => 1,
-                'match' => intval(floor($r2_slot / 2)),
-                'slot'  => $r2_slot % 2 === 0 ? 'home' : 'away',
-            );
+        // Prelim → R2: walk the real prelim-fed slots (those with no draw number)
+        // and hand this prelim match the one at its ordinal position.
+        $slot_idx = 0;
+        foreach ($bracket['matches'][1] as $m_idx => $m) {
+            foreach (array('home', 'away') as $slot) {
+                if (!empty($m['draw_num_' . $slot])) continue; // bye slot — skip
+                if ($slot_idx === $match_idx) {
+                    return array('round' => 1, 'match' => $m_idx, 'slot' => $slot);
+                }
+                $slot_idx++;
+            }
         }
+        // No matching prelim-fed slot found — fall through to the naive mapping.
     }
 
     return array(

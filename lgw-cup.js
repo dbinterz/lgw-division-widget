@@ -207,17 +207,20 @@
       var slotsEl = qs('.lgw-cup-round-slots', roundEl);
 
       // For the first main round (ri===1) after a prelim round (ri===0), build a
-      // mapping from each null slot to the prelim match that feeds it.
-      // Prelim winners are spaced evenly across R2 — the simple mi*2 formula is wrong.
+      // mapping from each prelim-fed R2 slot to the prelim match that feeds it.
+      // A slot is prelim-fed when it carries no draw number (bye slots always do);
+      // enumerate those STRUCTURALLY, not by empty name — otherwise the mapping
+      // shifts as winners fill in, mislabelling the remaining TBD slots (a winner
+      // appears to face its own team, the real opponent seems to move down).
       var prelimFeed = null;
       if (ri === 1 && matches[0] && matches[0].length > 0) {
         prelimFeed = {};
-        var nullSlots = [];
+        var fedSlots = [];
         roundMatches.forEach(function(rm, rmi) {
-          if (!rm.home) nullSlots.push(rmi + ':home');
-          if (!rm.away) nullSlots.push(rmi + ':away');
+          if (!rm.draw_num_home) fedSlots.push(rmi + ':home');
+          if (!rm.draw_num_away) fedSlots.push(rmi + ':away');
         });
-        nullSlots.forEach(function(key, pi) {
+        fedSlots.forEach(function(key, pi) {
           if (matches[0][pi]) prelimFeed[key] = matches[0][pi];
         });
       }
