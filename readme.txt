@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.20
+Stable tag: 2026.27.21
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.21 =
+* Fix: Cup scorecards no longer show a false "⚠️ Unresolved — sheet writeback blocked" warning on the Scorecards list and edit modal. A cup scorecard tagged (or defaulted) as a league game was flagged because a cup title never maps to a league sheet tab. Cup scorecards are now recognised from their own data (their division is a configured cup title), so they are treated as cup even when the stored context is stale — no false warning, and the sheet writeback is correctly skipped. Saving a mis-tagged cup scorecard in the admin now self-heals its context to "cup" instead of cementing it as league. Adds lgw_backfill_cup_contexts() to repair existing records in bulk (run once via WP-CLI: wp eval 'echo lgw_backfill_cup_contexts();').
 
 = 2026.27.20 =
 * Fix: Cup bracket — preliminary-round winners now display in the correct Round 2 slot. The bracket view mapped prelim matches to R2 slots by scanning for empty team names, so as each winner was filled in the remaining "winner of…" placeholders shifted by one — making a winner appear to face its own team while the real opponent seemed to drop to the next fixture. Placement now keys on the stored slot structure (bye slots carry a draw number, prelim-fed slots do not), so the mapping is stable no matter how many results are entered. Stored data and advancement were already correct; this was display-only. The PHP winner-advancement helper was aligned to the same structural rule for robustness against legacy/hand-edited draws.

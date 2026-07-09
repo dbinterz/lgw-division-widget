@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.27.20
+ * Version: 2026.27.21
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.27.20');
+define('LGW_VERSION', '2026.27.21');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -2064,8 +2064,10 @@ function lgw_scorecards_admin_page() {
             // Re-evaluate live so stale flags don't persist after division is corrected
             $drive_opts_list  = lgw_get_option_array('lgw_drive');
             $sc_arr           = is_array($sc) ? $sc : array(); // guard: meta may be false on new/malformed posts
+            // Treat cup scorecards as cup even if the context meta is stale/mis-tagged
+            $is_league_ctx_list = ($sc_ctx === 'league') && !(function_exists('lgw_scorecard_is_cup_by_data') && lgw_scorecard_is_cup_by_data($sc_arr));
             $resolved_tab_list = lgw_sheets_tab_for_division($sc_arr['division'] ?? '', $drive_opts_list);
-            $div_unresolved   = ($sc_ctx === 'league') && (empty($sc_arr['division']) || !$resolved_tab_list);
+            $div_unresolved   = $is_league_ctx_list && (empty($sc_arr['division']) || !$resolved_tab_list);
             if (!$div_unresolved) delete_post_meta($p->ID, 'lgw_division_unresolved');
             $result   = ($sc_arr && isset($sc_arr['home_total']))
                 ? $sc_arr['home_total'].' ('.($sc_arr['home_points'] ?? '?').'pts) – '.$sc_arr['away_total'].' ('.($sc_arr['away_points'] ?? '?').'pts)'

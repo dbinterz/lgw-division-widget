@@ -1257,3 +1257,85 @@ function lgw_cup_edit_page($cup_id) {
     </div>
     <?php
 }
+
+// ── Cup-context inference ─────────────────────────────────────────────────────
+//
+// A scorecard submitted from the cup modal stores the cup title in its
+// `division` field (see lgw-cup.js) and is tagged lgw_sc_context = 'cup'. Older
+// or mis-submitted cup scorecards can end up tagged 'league', which then trips
+// the "division unresolved / sheet writeback blocked" warning because a cup
+// title never maps to a league sheet tab. These helpers let us recognise a cup
+// scorecard from its own data even when the context meta is wrong or missing —
+// reliably, and without confusing a genuine league game between the same two
+// clubs (that game's division is a real league division, not a cup title).
+
+/**
+ * All configured cup titles, lower-cased and trimmed. Cached per request.
+ *
+ * @return string[]
+ */
+function lgw_all_cup_titles() {
+    static $titles = null;
+    if ($titles !== null) return $titles;
+    global $wpdb;
+    $titles = array();
+    $rows = $wpdb->get_results(
+        "SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE 'lgw_cup_%'"
+    );
+    foreach ($rows as $row) {
+        $cup = maybe_unserialize($row->option_value);
+        if (is_array($cup) && !empty($cup['title'])) {
+            $titles[] = strtolower(trim($cup['title']));
+        }
+    }
+    return $titles;
+}
+
+/**
+ * True when a scorecard's stored data identifies it as a cup match — i.e. its
+ * division (or competition) equals a configured cup title.
+ *
+ * @param array $sc  Decoded lgw_scorecard_data.
+ */
+function lgw_scorecard_is_cup_by_data($sc) {
+    if (!is_array($sc)) return false;
+    $div  = strtolower(trim($sc['division']    ?? ''));
+    $comp = strtolower(trim($sc['competition'] ?? ''));
+    if ($div === '' && $comp === '') return false;
+    foreach (lgw_all_cup_titles() as $t) {
+        if ($t !== '' && ($t === $div || $t === $comp)) return true;
+    }
+    return false;
+}
+
+/**
+ * One-shot repair: scan every scorecard and correct any that are cup matches by
+ * data but tagged league/blank. Sets lgw_sc_context = 'cup', clears the stale
+ * lgw_division_unresolved flag, and re-logs appearances so player stats move
+ * from league to cup. Returns the number of scorecards fixed.
+ *
+ * Run manually, e.g. via WP-CLI:
+ *   wp eval 'echo lgw_backfill_cup_contexts();'
+ */
+function lgw_backfill_cup_contexts() {
+    $q = new WP_Query(array(
+        'post_type'      => 'lgw_scorecard',
+        'post_status'    => 'any',
+        'posts_per_page' => -1,
+        'fields'         => 'ids',
+    ));
+    $fixed = 0;
+    foreach ($q->posts as $post_id) {
+        $ctx = get_post_meta($post_id, 'lgw_sc_context', true);
+        if ($ctx === 'cup') continue;
+        $sc = get_post_meta($post_id, 'lgw_scorecard_data', true);
+        if (!lgw_scorecard_is_cup_by_data($sc)) continue;
+        update_post_meta($post_id, 'lgw_sc_context', 'cup');
+        delete_post_meta($post_id, 'lgw_division_unresolved');
+        if (function_exists('lgw_log_appearances')) {
+            lgw_log_appearances($post_id); // re-log so game_type flips to cup
+        }
+        $fixed++;
+    }
+    return $fixed;
+}

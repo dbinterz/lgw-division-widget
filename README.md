@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.21]
+### Fixed
+- **Cup scorecards falsely flagged "Unresolved".** A cup scorecard tagged (or defaulted) as `league` tripped the division-unresolved / sheet-writeback-blocked warning on the Scorecards list (`lgw-division-widget.php`) and the edit modal (`lgw-sc-admin.php`), because its division is a cup title that never maps to a league sheet tab. New helpers `lgw_all_cup_titles()` / `lgw_scorecard_is_cup_by_data()` in `lgw-cup.php` recognise a cup scorecard from its own data, so it is treated as cup even when the context meta is stale — the warning no longer shows and writeback stays correctly skipped. Distinguishes a real league game between the same two clubs (its division is a genuine league division, not a cup title). The admin edit handler now **self-heals** a mis-tagged cup scorecard's context to `cup` (and clears the stale flag) instead of cementing it as `league` on first save. Adds `lgw_backfill_cup_contexts()` to repair existing records in bulk — run once via WP-CLI: `wp eval 'echo lgw_backfill_cup_contexts();'`.
+
 ## [2026.27.20]
 ### Fixed
 - **Cup bracket prelim placeholder mapping (display).** `renderBracket()` in `lgw-cup.js` built the prelim→R2 feed map by enumerating slots with an empty **name**, so once a prelim winner was written into an R2 slot it dropped out of the list and every remaining TBD placeholder shifted by one — a winner appeared to face its own team while the expected opponent seemed to move to the next R2 fixture. Now enumerates prelim-fed slots **structurally** by absent `draw_num_home`/`draw_num_away` (bye slots always carry a draw number), keeping the mapping stable regardless of how many results are entered. Stored bracket data and winner advancement were already correct — this was display-only. `lgw_cup_next_slot()` in `lgw-cup.php` was switched to the same structural rule (reads real prelim-fed slots rather than recomputing the even-distribution formula) so it can never drop a winner onto a bye slot in legacy or hand-edited draws.

@@ -182,9 +182,16 @@ function lgw_ajax_admin_edit_scorecard() {
         update_post_meta($post_id, 'lgw_confirmed_by',   wp_get_current_user()->user_login);
         lgw_audit_on_resolve($post_id, 'admin_edit', $sub_by_res, $con_by_res);
     }
-    // Ensure sc_context is set (may be missing on older records — default to league)
+    // Ensure sc_context is set, and self-heal cup scorecards that were mis-tagged
+    // as league (their division is a cup title — see lgw_scorecard_is_cup_by_data).
+    // Blindly defaulting missing context to league used to cement cup scorecards
+    // as league on the first admin save, leaving them permanently "unresolved".
     $existing_ctx = get_post_meta($post_id, 'lgw_sc_context', true);
-    if (empty($existing_ctx)) {
+    $is_cup_data  = function_exists('lgw_scorecard_is_cup_by_data') && lgw_scorecard_is_cup_by_data($after);
+    if ($is_cup_data) {
+        if ($existing_ctx !== 'cup') update_post_meta($post_id, 'lgw_sc_context', 'cup');
+        delete_post_meta($post_id, 'lgw_division_unresolved');
+    } elseif (empty($existing_ctx)) {
         update_post_meta($post_id, 'lgw_sc_context', 'league');
     }
     // Clear division-unresolved flag if division now maps to a known sheet tab
@@ -322,9 +329,12 @@ function lgw_render_admin_edit_form($post_id, $sc) {
     $known_divisions = array_map(function($e){ return $e['division']; }, $drive_opts['sheets_tabs'] ?? array());
     $sc_ctx          = get_post_meta($post_id, 'lgw_sc_context', true) ?: 'league';
     $mc_game_id      = get_post_meta($post_id, 'lgw_multichamp_game_id', true);
+    // Treat cup scorecards as cup even if the context meta is stale/mis-tagged —
+    // their division is a cup title and never maps to a league sheet tab.
+    $is_league_ctx  = ($sc_ctx === 'league') && !(function_exists('lgw_scorecard_is_cup_by_data') && lgw_scorecard_is_cup_by_data($sc));
     // Re-evaluate live so a stale flag doesn't persist after the division is corrected
-    $resolved_tab   = ($sc_ctx === 'league') ? lgw_sheets_tab_for_division($sc['division'] ?? '', $drive_opts) : true;
-    $div_unresolved = ($sc_ctx === 'league') && (empty($sc['division']) || !$resolved_tab);
+    $resolved_tab   = $is_league_ctx ? lgw_sheets_tab_for_division($sc['division'] ?? '', $drive_opts) : true;
+    $div_unresolved = $is_league_ctx && (empty($sc['division']) || !$resolved_tab);
     if (!$div_unresolved) {
         // Proactively clear any stale flag
         delete_post_meta($post_id, 'lgw_division_unresolved');
