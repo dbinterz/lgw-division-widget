@@ -1,4 +1,4 @@
-/* LGW Cup Bracket CSS - v7.1.17 */
+/* LGW Cup Bracket CSS - v7.1.17 (modal dark-mode contrast fix 2026.27.23) */
 
 /* ── Default light-mode CSS variables ──────────────────────────────────────── */
 /* These mirror the division widget defaults so the cup widget looks correct    */
@@ -731,6 +731,24 @@
   padding: 16px;
 }
 .lgw-cup-sc-modal-box {
+  /* Re-assert the light palette. The modal is appended to document.body, so in
+     OS dark mode it inherits :root's dark --lgw-* vars (lgw-widget.css). The box
+     is forced white, so var()-based text colours in the injected scorecard would
+     otherwise resolve to light values → no contrast. Pin them light here. */
+  --lgw-bg:          #ffffff;
+  --lgw-bg-alt:      #f0f2f8;
+  --lgw-bg-hover:    #e6e9f5;
+  --lgw-border:      #d0d5e8;
+  --lgw-navy:        #1a2e5a;
+  --lgw-navy-mid:    #243d78;
+  --lgw-red:         #c0202a;
+  --lgw-gold:        #e8b400;
+  --lgw-text:        #1a1a1a;
+  --lgw-text-muted:  #666666;
+  --lgw-tab-bg:      #dde1ef;
+  --lgw-promote:     #2a7a2a;
+  --lgw-win:         #2a7a2a;
+  --lgw-loss:        #c0202a;
   background: #fff;
   color: #1a1a1a;
   color-scheme: light;

@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.23]
+### Fixed
+- **Cup scorecard modal had unreadable text in OS dark mode.** The modal is appended to `document.body`, so in dark mode it inherited `:root`'s dark `--lgw-*` palette (`lgw-widget.css`). Its box is hard-coded white, but the injected scorecard content resolves `color: var(--lgw-text)` / `var(--lgw-navy)`, which then evaluated to light values — light-grey text on a white box, no contrast. `.lgw-cup-sc-modal-box` now re-asserts the light palette locally, so the scorecard always renders dark-on-white regardless of the visitor's colour-scheme preference.
+
 ## [2026.27.22]
 ### Fixed
 - **Cup scorecards submitted by an admin were mis-tagged as `league`.** The submission payload's `context` (league/cup) was only read on the non-admin first-submission path. The admin "both teams" and "confirm on behalf of the other club" handlers read `$sc['context']`, which was never populated on the `$sc` array — so they silently defaulted to `league`, leaving cup scorecards without the 🏆 Cup badge and re-flagging the "Unresolved" warning fixed in 2026.27.21. `context` is now carried on `$sc`, so all three save paths tag it consistently. Added a data-based fallback (`lgw_scorecard_is_cup_by_data()`) on every path: a scorecard whose division is a configured cup title is forced to `cup` context even if the payload omits it. Resaving a mis-tagged card in the admin already self-healed it; new submissions are now tagged correctly at source.

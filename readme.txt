@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.22
+Stable tag: 2026.27.23
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.23 =
+* Fix: Cup scorecard modal text is now readable for visitors whose device is in dark mode. The modal box is white, but it was inheriting the dark colour palette, so the scorecard text rendered light-grey on white with almost no contrast. The modal now pins the light palette locally so the scorecard always shows as dark text on a white background.
 
 = 2026.27.22 =
 * Fix: Cup scorecards submitted by an admin (via "submit for both teams" or "confirm on behalf of the other club") are no longer mis-tagged as league games. The submission's league/cup context was only read on the club-submitted path; the admin paths defaulted to league, so those cup scorecards lost the Cup badge and re-triggered the false "Unresolved" warning. Context is now applied consistently on every save path, with a data-based fallback that recognises a cup scorecard from its division (a configured cup title) even if the context is missing from the request.
