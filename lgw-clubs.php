@@ -157,6 +157,165 @@ function lgw_ajax_delete_club() {
     wp_send_json_success();
 }
 
+// ── CSV import: bulk-load club directory ──────────────────────────────────────
+//
+// Accepts a CSV with header:
+//   club_name,address,website,contact_role,contact_name,contact_phone,contact_email
+// One row per contact; club_name repeats across a club's rows. address/website
+// are read from whichever row supplies them. Clubs are matched to existing
+// records by slug (sanitize_title of the name), so re-importing enriches rather
+// than duplicates. On an existing club we update name display is preserved and
+// only address / website / contacts are refreshed — passphrase, badge, chart
+// colours, facilities and the can-submit flag are left untouched.
+
+add_action( 'admin_post_lgw_import_clubs', 'lgw_clubs_handle_import' );
+function lgw_clubs_handle_import() {
+    if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+    check_admin_referer( 'lgw_clubs_import' );
+
+    $redirect = admin_url( 'admin.php?page=lgw-clubs' );
+
+    if ( empty( $_FILES['lgw_clubs_csv']['tmp_name'] ) || ! is_uploaded_file( $_FILES['lgw_clubs_csv']['tmp_name'] ) ) {
+        wp_safe_redirect( add_query_arg( 'lgw_import', 'nofile', $redirect ) );
+        exit;
+    }
+
+    $handle = fopen( $_FILES['lgw_clubs_csv']['tmp_name'], 'r' );
+    if ( ! $handle ) {
+        wp_safe_redirect( add_query_arg( 'lgw_import', 'nofile', $redirect ) );
+        exit;
+    }
+
+    // Header → column index map
+    $header = fgetcsv( $handle );
+    if ( ! $header ) {
+        fclose( $handle );
+        wp_safe_redirect( add_query_arg( 'lgw_import', 'empty', $redirect ) );
+        exit;
+    }
+    $col = array();
+    foreach ( $header as $i => $h ) {
+        $col[ strtolower( trim( $h ) ) ] = $i;
+    }
+    $get = function( $row, $key ) use ( $col ) {
+        return isset( $col[ $key ], $row[ $col[ $key ] ] ) ? trim( $row[ $col[ $key ] ] ) : '';
+    };
+
+    // Group rows into clubs keyed by slug
+    $rows = array();
+    while ( ( $row = fgetcsv( $handle ) ) !== false ) {
+        $rows[] = array(
+            'club_name'     => $get( $row, 'club_name' ),
+            'address'       => $get( $row, 'address' ),
+            'website'       => $get( $row, 'website' ),
+            'contact_role'  => $get( $row, 'contact_role' ),
+            'contact_name'  => $get( $row, 'contact_name' ),
+            'contact_phone' => $get( $row, 'contact_phone' ),
+            'contact_email' => $get( $row, 'contact_email' ),
+        );
+    }
+    fclose( $handle );
+
+    $result = lgw_clubs_import_rows( $rows );
+
+    if ( $result === false ) {
+        wp_safe_redirect( add_query_arg( 'lgw_import', 'empty', $redirect ) );
+        exit;
+    }
+
+    wp_safe_redirect( add_query_arg( array(
+        'lgw_import'  => 'ok',
+        'lgw_added'   => $result['added'],
+        'lgw_updated' => $result['updated'],
+    ), $redirect ) );
+    exit;
+}
+
+// ── Pure upsert: take normalised rows, write lgw_clubs, return counts ─────────
+// Split out from the HTTP handler so it can be unit-tested / driven headlessly.
+// Each $row is an assoc array with keys club_name, address, website,
+// contact_role, contact_name, contact_phone, contact_email. Returns
+// array( 'added' => int, 'updated' => int ), or false if no club rows.
+function lgw_clubs_import_rows( array $rows ) {
+    // Match on a punctuation-insensitive key so "N.I.C.S." and "NICS", or
+    // "P.S.N.I." and "PSNI", resolve to the same existing club rather than
+    // creating a duplicate. All non-alphanumerics are stripped and lowercased.
+    $norm = function( $name ) {
+        return strtolower( preg_replace( '/[^a-z0-9]/i', '', (string) $name ) );
+    };
+
+    $parsed = array();
+    foreach ( $rows as $row ) {
+        $name = trim( $row['club_name'] ?? '' );
+        if ( $name === '' ) continue;
+        $slug = $norm( $name );
+        if ( ! isset( $parsed[ $slug ] ) ) {
+            $parsed[ $slug ] = array( 'name' => $name, 'address' => '', 'website' => '', 'contacts' => array() );
+        }
+        $addr = trim( $row['address'] ?? '' );
+        $web  = trim( $row['website'] ?? '' );
+        if ( $addr !== '' ) $parsed[ $slug ]['address'] = $addr;
+        if ( $web  !== '' ) $parsed[ $slug ]['website'] = $web;
+
+        $role  = trim( $row['contact_role']  ?? '' );
+        $cname = trim( $row['contact_name']  ?? '' );
+        $phone = trim( $row['contact_phone'] ?? '' );
+        $email = trim( $row['contact_email'] ?? '' );
+        if ( $role !== '' || $cname !== '' || $phone !== '' || $email !== '' ) {
+            $parsed[ $slug ]['contacts'][] = array(
+                'role'  => sanitize_text_field( $role ),
+                'name'  => sanitize_text_field( $cname ),
+                'phone' => sanitize_text_field( $phone ),
+                'email' => sanitize_email( $email ),
+            );
+        }
+    }
+
+    if ( empty( $parsed ) ) return false;
+
+    $clubs = get_option( 'lgw_clubs', array() );
+    // Index existing by normalized name
+    $index = array();
+    foreach ( $clubs as $i => $c ) {
+        $index[ $norm( $c['name'] ) ] = $i;
+    }
+
+    $added = 0; $updated = 0;
+    foreach ( $parsed as $slug => $p ) {
+        $address  = sanitize_textarea_field( $p['address'] );
+        $website  = esc_url_raw( $p['website'] );
+        $contacts = $p['contacts'];
+
+        if ( isset( $index[ $slug ] ) ) {
+            $i = $index[ $slug ];
+            // Preserve name, pin, badge, colours, facilities, can_submit
+            $clubs[ $i ]['address']  = $address;
+            $clubs[ $i ]['website']  = $website;
+            $clubs[ $i ]['contacts'] = $contacts;
+            $updated++;
+        } else {
+            $clubs[] = array(
+                'name'       => sanitize_text_field( $p['name'] ),
+                'pin'        => '',
+                'address'    => $address,
+                'website'    => $website,
+                'colors'     => array( '#1a2e5a' ),
+                'can_submit' => false,
+                'contacts'   => $contacts,
+                'facilities' => array(
+                    'greens' => 0, 'rinks' => 0, 'floodlights' => false,
+                    'parking' => 'none', 'bar' => false, 'changing' => false,
+                ),
+            );
+            $index[ $slug ] = count( $clubs ) - 1;
+            $added++;
+        }
+    }
+
+    update_option( 'lgw_clubs', $clubs );
+    return array( 'added' => $added, 'updated' => $updated );
+}
+
 // ── Helper: update badge options ──────────────────────────────────────────────
 
 function lgw_clubs_update_badge( $name, $badge_url, $badge_type ) {
@@ -205,7 +364,42 @@ function lgw_clubs_admin_page() {
         <?php lgw_page_header( 'Club Directory' ); ?>
 
         <p>Click a club card to edit its contact details, passphrase, and badge. Changes are saved per-club without affecting others.</p>
-        <p><button type="button" class="button button-primary" id="lgw-clubs-add-new">+ Add New Club</button></p>
+
+        <?php
+        // Import result notice
+        $imp = isset( $_GET['lgw_import'] ) ? sanitize_key( $_GET['lgw_import'] ) : '';
+        if ( $imp === 'ok' ) {
+            $a = isset( $_GET['lgw_added'] )   ? intval( $_GET['lgw_added'] )   : 0;
+            $u = isset( $_GET['lgw_updated'] ) ? intval( $_GET['lgw_updated'] ) : 0;
+            echo '<div class="notice notice-success is-dismissible"><p><strong>Import complete:</strong> '
+                . intval( $a ) . ' club(s) added, ' . intval( $u ) . ' updated.</p></div>';
+        } elseif ( $imp === 'nofile' ) {
+            echo '<div class="notice notice-error is-dismissible"><p>No CSV file was uploaded.</p></div>';
+        } elseif ( $imp === 'empty' ) {
+            echo '<div class="notice notice-error is-dismissible"><p>The uploaded CSV had no readable club rows.</p></div>';
+        }
+        ?>
+
+        <p style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button type="button" class="button button-primary" id="lgw-clubs-add-new">+ Add New Club</button>
+            <button type="button" class="button" id="lgw-clubs-import-toggle">⬆ Import CSV</button>
+        </p>
+
+        <div id="lgw-clubs-import-box" style="display:none;background:#fff;border:1px solid #ccd0d4;border-radius:6px;padding:14px 16px;margin:0 0 18px;max-width:800px">
+            <h3 style="margin-top:0">Import clubs from CSV</h3>
+            <p class="description" style="margin-bottom:10px">
+                Header row required: <code>club_name,address,website,contact_role,contact_name,contact_phone,contact_email</code>.
+                One row per contact; repeat <code>club_name</code> across a club's rows. Clubs are matched by name — existing clubs are
+                <strong>updated</strong> (address, website and contacts refreshed; passphrase, badge, colours, facilities and submit
+                flag kept), new names are <strong>added</strong>.
+            </p>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="lgw_import_clubs">
+                <?php wp_nonce_field( 'lgw_clubs_import' ); ?>
+                <input type="file" name="lgw_clubs_csv" accept=".csv,text/csv" required>
+                <button type="submit" class="button button-primary">Import</button>
+            </form>
+        </div>
 
         <!-- Index grid -->
         <div class="lgw-clubs-grid" id="lgw-clubs-grid">
@@ -861,6 +1055,15 @@ function lgw_clubs_inline_script() { ?>
     document.getElementById('lgw-club-new-close').addEventListener('click', function() {
         newPanel.style.display = 'none';
     });
+
+    // ── Import CSV box toggle ─────────────────────────────────────────────────
+    var importToggle = document.getElementById('lgw-clubs-import-toggle');
+    var importBox    = document.getElementById('lgw-clubs-import-box');
+    if (importToggle && importBox) {
+        importToggle.addEventListener('click', function() {
+            importBox.style.display = importBox.style.display === 'none' ? 'block' : 'none';
+        });
+    }
 
     // ── Bind events on a form container ──────────────────────────────────────
 

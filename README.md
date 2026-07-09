@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.18]
+### Added
+- **Club Directory CSV import.** New "⬆ Import CSV" tool on the Clubs admin screen (`admin_post_lgw_import_clubs` in `lgw-clubs.php`). Upload a CSV with header `club_name,address,website,contact_role,contact_name,contact_phone,contact_email` (one row per contact, `club_name` repeated). Clubs are matched by slug: existing clubs have address/website/contacts refreshed while passphrase, badge, chart colours, facilities and the can-submit flag are preserved; unseen names are added. Ships `lgw-club-contacts.csv` pre-populated from the NIPGL PG club-contacts directory (33 clubs). Clubhouse phone numbers are folded into the address field.
+
 ## [2026.27.17]
 ### Fixed
 - **Setup Wizard loaded optionally.** `lgw-setup-wizard.php` moved to an optional-modules list in the loader — if the (in-flight) file is missing or throws on load it is silently skipped rather than raising a "modules could not be loaded" admin notice. Core modules still surface load failures.

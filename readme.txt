@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.17
+Stable tag: 2026.27.18
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -76,6 +76,9 @@ Parameters:
 
 = 2026.27.13 =
 * Fix: The Setup Wizard no longer touches the live league until you hit "Finish". Team rosters, divisions, data source, and Google Sheet settings are now staged and applied only on the final confirm — going Back from the Review step (or abandoning the wizard there) leaves your existing league fully intact. Previously step 2 wrote and overwrote before confirmation.
+
+= 2026.27.18 =
+* Feature: Club Directory now has a "Import CSV" tool. Upload a CSV (club_name, address, website, contact_role, contact_name, contact_phone, contact_email — one row per contact) to bulk-load or refresh club contact details. Clubs are matched by name: existing clubs have their address, website and contacts updated while passphrase, badge, colours, facilities and submit flag are preserved; new names are added. Ships with lgw-club-contacts.csv pre-populated from the NIPGL club-contacts directory (33 clubs).
 
 = 2026.27.17 =
 * Fix: The experimental Setup Wizard module is now loaded optionally — if the file is missing or fails to load it is silently skipped instead of showing a "modules could not be loaded" admin notice. Core plugin behaviour is unchanged.
