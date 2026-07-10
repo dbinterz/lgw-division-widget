@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.23
+Stable tag: 2026.27.24
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.24 =
+* Change: Season Progress chart is taller (340px → 480px) so the lines have more vertical breathing room and are easier to read when several teams are close together.
+* Add: "Select None" button on the Season Progress chart hides every team at once, clearing the graph. Use "Clear Filter" to bring them all back (or tap individual teams in the legend as before).
 
 = 2026.27.23 =
 * Fix: Cup scorecard modal text is now readable for visitors whose device is in dark mode. The modal box is white, but it was inheriting the dark colour palette, so the scorecard text rendered light-grey on white with almost no contrast. The modal now pins the light palette locally so the scorecard always shows as dark text on a white background.

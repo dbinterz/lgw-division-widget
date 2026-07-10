@@ -108,6 +108,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.24]
+### Changed
+- **Season Progress chart given more vertical room.** Chart wrap height raised 340px → 480px (`lgw-widget.css`) so the plotted lines spread out and stay legible when several teams sit close together.
+### Added
+- **"Select None" control on the Season Progress chart.** New `.lgw-progress-none` button sets every team hidden in one click (clears the graph); "Clear Filter" restores all. Reuses the existing `progressHiddenTeams` map, so per-team legend toggling is unchanged.
+
 ## [2026.27.23]
 ### Fixed
 - **Cup scorecard modal had unreadable text in OS dark mode.** The modal is appended to `document.body`, so in dark mode it inherited `:root`'s dark `--lgw-*` palette (`lgw-widget.css`). Its box is hard-coded white, but the injected scorecard content resolves `color: var(--lgw-text)` / `var(--lgw-navy)`, which then evaluated to light values — light-grey text on a white box, no contrast. `.lgw-cup-sc-modal-box` now re-asserts the light palette locally, so the scorecard always renders dark-on-white regardless of the visitor's colour-scheme preference.

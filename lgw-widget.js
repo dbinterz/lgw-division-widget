@@ -1362,6 +1362,7 @@ function getTeamShape(team){
               '<div class="lgw-progress-controls">'
               +'<button class="lgw-progress-toggle active" data-mode="pts">Points</button>'
               +'<button class="lgw-progress-toggle" data-mode="pos">Position</button>'
+              +'<button class="lgw-progress-none">Select None</button>'
               +'<button class="lgw-progress-clear" style="display:none">Clear Filter</button>'
               +'<button class="lgw-progress-play">Play</button>'
               +'</div>'
@@ -1397,6 +1398,14 @@ function getTeamShape(team){
             pp.querySelector('.lgw-progress-clear').addEventListener('click',function(){
               progressHiddenTeams={};
               this.style.display='none';
+              updateProgressChart();
+            });
+            pp.querySelector('.lgw-progress-none').addEventListener('click',function(){
+              if(!progressSeriesData) return;
+              progressHiddenTeams={};
+              Object.keys(progressSeriesData.series).forEach(function(t){progressHiddenTeams[t]=true;});
+              var cb=pp.querySelector('.lgw-progress-clear');
+              if(cb)cb.style.display='';
               updateProgressChart();
             });
             var teams=Object.keys(resp.data.series);
