@@ -108,6 +108,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.27]
+### Added
+- **Identity-based submission in the fixture modal (Slice C).** `lgw-scorecard.js` gate now reads new `lgwSubmit` fields (`authMode`, `isLoggedIn`, `loginUrl`, `userClubs`). An approved signed-in user with exactly one fixture-matching club drops straight to the form; more than one shows a "Submit as which club?" picker; login-only mode with no approved club shows a "Log in to submit" button (or a "not approved" notice); both-mode adds a "Log in instead" link beside the passphrase box.
+- New `lgwSubmit` client fields localized in all three enqueue sites (league, cup, widget); `userClubs` is omitted for administrators (they use the admin path).
+### Changed
+- **Multi-club submissions authorised server-side.** `lgw_get_auth_club()` now honours an explicit `submit_club` POST value, but only when the signed-in user is approved for it; the JS `post()` helper attaches the chosen club to every request (`submit_club`), covering save, photo/Excel parse, and confirm.
+
 ## [2026.27.26]
 ### Added
 - **Club-admin registration + approval (Slice B).** Front-end `[lgw_club_access_request]` shortcode: logged-in users pick club(s) + note → AJAX `lgw_request_access` sets status `pending`, stores requested clubs, emails admins. Idempotent-safe (already-approved users are told to contact an admin; 30s per-user rate-limit transient).

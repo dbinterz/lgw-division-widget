@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.27.26
+ * Version: 2026.27.27
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.27.26');
+define('LGW_VERSION', '2026.27.27');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -1080,6 +1080,10 @@ function lgw_enqueue() {
         'clubs'          => array_map(function($c){ return $c['name']; }, get_option('lgw_clubs', array())),
         'pointsPerRink'  => floatval(get_option('lgw_points_per_rink',  1)),
         'pointsOverall'  => floatval(get_option('lgw_points_overall',   3)),
+        'authMode'       => function_exists('lgw_auth_mode') ? lgw_auth_mode() : 'both',
+        'isLoggedIn'     => is_user_logged_in() ? '1' : '0',
+        'loginUrl'       => wp_login_url(),
+        'userClubs'      => ( function_exists('lgw_user_submit_clubs') && is_user_logged_in() && ! current_user_can('manage_options') ) ? array_values( lgw_user_submit_clubs() ) : array(),
     ));
 
     wp_enqueue_script('lgw-widget', plugin_dir_url(__FILE__) . 'lgw-widget.js', array('lgw-scorecard'), LGW_VERSION, true);

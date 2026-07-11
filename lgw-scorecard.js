@@ -5,6 +5,7 @@
   var ajaxUrl  = (typeof lgwSubmit !== 'undefined') ? lgwSubmit.ajaxUrl  : '/wp-admin/admin-ajax.php';
   var nonce    = (typeof lgwSubmit !== 'undefined') ? lgwSubmit.nonce    : '';
   var authClub = (typeof lgwSubmit !== 'undefined') ? lgwSubmit.authClub : '';
+  var chosenIdentityClub = '';  // set when a logged-in approved user resolves/picks a club
 
   // ── Utility ───────────────────────────────────────────────────────────────────
   function qs(sel, ctx)  { return (ctx||document).querySelector(sel); }
@@ -27,6 +28,7 @@
     fd.append('action', action);
     fd.append('nonce',  nonce);
     for (var k in data) fd.append(k, data[k]);
+    if (chosenIdentityClub && !('submit_club' in data)) fd.append('submit_club', chosenIdentityClub);
     var xhr = new XMLHttpRequest();
     xhr.open('POST', ajaxUrl);
     xhr.onload  = function(){ var r; try { r=JSON.parse(xhr.responseText||'{}'); } catch(e){ r={success:false,data:'Bad server response — please try again.'}; } cb(r); };
@@ -1924,69 +1926,107 @@
 
     // ── Show login gate or form ───────────────────────────────────────────────
     if(mode !== 'disabled' && mode !== 'admin_only' && !currentClub && !isAdm){
-      var allClubs = (typeof lgwSubmit !== 'undefined' && lgwSubmit.clubs) ? lgwSubmit.clubs : [];
+      var authMode2   = (typeof lgwSubmit !== 'undefined' && lgwSubmit.authMode) ? lgwSubmit.authMode : 'both';
+      var isLoggedIn2 = (typeof lgwSubmit !== 'undefined') && (lgwSubmit.isLoggedIn === '1' || lgwSubmit.isLoggedIn === 1 || lgwSubmit.isLoggedIn === true);
+      var loginUrl2   = (typeof lgwSubmit !== 'undefined' && lgwSubmit.loginUrl) ? lgwSubmit.loginUrl : '/wp-login.php';
+      var userClubs2  = (typeof lgwSubmit !== 'undefined' && lgwSubmit.userClubs) ? lgwSubmit.userClubs : [];
 
-      // Filter to only clubs involved in this fixture
-      var fixtureClubs = allClubs.filter(function(c){ return lgwClubMatchesTeam(c, home) || lgwClubMatchesTeam(c, away); });
-      // Fall back to all clubs if no match (e.g. club list not configured)
-      var clubs = fixtureClubs.length ? fixtureClubs : allClubs;
+      // Identity path: approved clubs the signed-in user administers in THIS fixture
+      var myFixtureClubs = userClubs2.filter(function(c){ return lgwClubMatchesTeam(c, home) || lgwClubMatchesTeam(c, away); });
 
-      var clubOpts = '';
-      if(clubs.length){
-        clubs.forEach(function(c){
-          clubOpts += '<option value="'+esc(c)+'">'+esc(c)+'</option>';
+      if(myFixtureClubs.length > 1){
+        // Multi-club admin — ask which club they are submitting as
+        var pickOpts = myFixtureClubs.map(function(c){ return '<option value="'+esc(c)+'">'+esc(c)+'</option>'; }).join('');
+        containerEl.innerHTML =
+          '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0">'
+          +'<h3 style="margin:0 0 10px;color:#1a2e5a">Submit as which club?</h3>'
+          +'<p style="font-size:13px;margin-bottom:12px;color:#555">You administer more than one club in this fixture. Choose which one you are submitting for.</p>'
+          +'<div class="lgw-form-row" style="margin-bottom:10px"><select id="lgw-modal-identity-club" style="width:100%;padding:9px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px"><option value="">— Select club —</option>'+pickOpts+'</select></div>'
+          +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-identity-go">Continue</button>'
+          +'<p id="lgw-modal-identity-err" class="lgw-notice lgw-notice-error" style="display:none"></p>'
+          +'</div>';
+        var goBtn = containerEl.querySelector('#lgw-modal-identity-go');
+        if(goBtn) goBtn.addEventListener('click', function(){
+          var sel = containerEl.querySelector('#lgw-modal-identity-club');
+          var val = sel ? sel.value : '';
+          if(!val){ showStatus(containerEl.querySelector('#lgw-modal-identity-err'), 'Please select your club', 'error'); return; }
+          currentClub = val; authClub = val; chosenIdentityClub = val;
+          containerEl.innerHTML = renderModalForm(currentClub);
+          bindModalForm(containerEl);
+          lgwBindPlayerDropdown(containerEl);
+          lgwFetchTeamPlayers(home, 'lgw-dl-home');
+          lgwFetchTeamPlayers(away, 'lgw-dl-away');
         });
+        return;
       }
 
-      containerEl.innerHTML =
-        '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0">'
-        +'<h3 style="margin:0 0 10px;color:#1a2e5a">Log in to submit scorecard</h3>'
-        +'<p style="font-size:13px;margin-bottom:12px;color:#555">Select your club and enter your passphrase.</p>'
-        +(clubs.length
-          ? '<div class="lgw-form-row" style="margin-bottom:10px">'
-            +'<select id="lgw-modal-club-select" style="width:100%;padding:9px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px">'
-            +'<option value="">— Select your club —</option>'+clubOpts+'</select></div>'
-          : '<div class="lgw-form-row" style="margin-bottom:10px">'
-            +'<input type="text" id="lgw-modal-club-text" placeholder="Your club name" style="width:100%;padding:9px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px"></div>'
-        )
-        +'<div class="lgw-pin-row" style="margin-bottom:8px">'
-        +'<input type="text" id="lgw-modal-pin-input" placeholder="Passphrase" maxlength="60" autocomplete="off" autocapitalize="none" spellcheck="false">'
-        +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-pin-submit">Login</button>'
-        +'</div>'
-        +'<p id="lgw-modal-pin-error" class="lgw-notice lgw-notice-error" style="display:none"></p>'
-        +'</div>';
+      if(myFixtureClubs.length === 1){
+        // Single approved club — resolve identity and drop through to the form
+        currentClub = myFixtureClubs[0]; authClub = currentClub; chosenIdentityClub = currentClub;
+      } else if(authMode2 === 'login'){
+        // Login-only mode and no approved club for this fixture
+        containerEl.innerHTML = isLoggedIn2
+          ? '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0"><p style="font-size:13px;color:#555">You are signed in, but your account is not approved to submit for a club in this fixture. Please contact a league administrator.</p></div>'
+          : '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0"><h3 style="margin:0 0 10px;color:#1a2e5a">Log in to submit</h3><p style="font-size:13px;margin-bottom:12px;color:#555">Sign in with your approved account to submit this scorecard.</p><a class="lgw-btn lgw-btn-primary" href="'+esc(loginUrl2)+'">Log in</a></div>';
+        return;
+      } else {
+        // Passphrase gate (passphrase or both mode)
+        var allClubs = (typeof lgwSubmit !== 'undefined' && lgwSubmit.clubs) ? lgwSubmit.clubs : [];
+        var fixtureClubs = allClubs.filter(function(c){ return lgwClubMatchesTeam(c, home) || lgwClubMatchesTeam(c, away); });
+        var clubs = fixtureClubs.length ? fixtureClubs : allClubs;
+        var clubOpts = '';
+        if(clubs.length){ clubs.forEach(function(c){ clubOpts += '<option value="'+esc(c)+'">'+esc(c)+'</option>'; }); }
 
-      function doModalLogin(){
-        var clubEl = containerEl.querySelector('#lgw-modal-club-select') || containerEl.querySelector('#lgw-modal-club-text');
-        var pinEl  = containerEl.querySelector('#lgw-modal-pin-input');
-        var errEl  = containerEl.querySelector('#lgw-modal-pin-error');
-        var clubVal = clubEl ? clubEl.value.trim() : '';
-        var pin    = pinEl  ? pinEl.value.trim()  : '';
-        if(!clubVal){ showStatus(errEl,'Please select your club','error'); return; }
-        if(!pin) { showStatus(errEl,'Please enter your passphrase','error'); return; }
-        var btn = containerEl.querySelector('#lgw-modal-pin-submit');
-        if(btn){ btn.disabled=true; btn.textContent='Logging in…'; }
-        post('lgw_check_pin', {club: clubVal, pin: pin}, function(res){
-          if(btn){ btn.disabled=false; btn.textContent='Login'; }
-          if(res.success){
-            currentClub = res.data.club;
-            authClub = currentClub;
-            containerEl.innerHTML = renderModalForm(currentClub);
-            bindModalForm(containerEl);
-            lgwBindPlayerDropdown(containerEl);
-            lgwFetchTeamPlayers(home, 'lgw-dl-home');
-            lgwFetchTeamPlayers(away, 'lgw-dl-away');
-          } else {
-            showStatus(errEl, res.data || 'Incorrect club or passphrase', 'error');
-          }
-        });
+        containerEl.innerHTML =
+          '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0">'
+          +'<h3 style="margin:0 0 10px;color:#1a2e5a">Log in to submit scorecard</h3>'
+          +'<p style="font-size:13px;margin-bottom:12px;color:#555">Select your club and enter your passphrase.</p>'
+          +(clubs.length
+            ? '<div class="lgw-form-row" style="margin-bottom:10px"><select id="lgw-modal-club-select" style="width:100%;padding:9px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px"><option value="">— Select your club —</option>'+clubOpts+'</select></div>'
+            : '<div class="lgw-form-row" style="margin-bottom:10px"><input type="text" id="lgw-modal-club-text" placeholder="Your club name" style="width:100%;padding:9px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px"></div>'
+          )
+          +'<div class="lgw-pin-row" style="margin-bottom:8px">'
+          +'<input type="text" id="lgw-modal-pin-input" placeholder="Passphrase" maxlength="60" autocomplete="off" autocapitalize="none" spellcheck="false">'
+          +'<button class="lgw-btn lgw-btn-primary" id="lgw-modal-pin-submit">Login</button>'
+          +'</div>'
+          +'<p id="lgw-modal-pin-error" class="lgw-notice lgw-notice-error" style="display:none"></p>'
+          +((authMode2 === 'both' && !isLoggedIn2)
+            ? '<p style="font-size:12px;margin-top:10px;color:#666">Registered a club account? <a href="'+esc(loginUrl2)+'">Log in instead</a>.</p>'
+            : '')
+          +'</div>';
+
+        function doModalLogin(){
+          var clubEl = containerEl.querySelector('#lgw-modal-club-select') || containerEl.querySelector('#lgw-modal-club-text');
+          var pinEl  = containerEl.querySelector('#lgw-modal-pin-input');
+          var errEl  = containerEl.querySelector('#lgw-modal-pin-error');
+          var clubVal = clubEl ? clubEl.value.trim() : '';
+          var pin    = pinEl  ? pinEl.value.trim()  : '';
+          if(!clubVal){ showStatus(errEl,'Please select your club','error'); return; }
+          if(!pin) { showStatus(errEl,'Please enter your passphrase','error'); return; }
+          var btn = containerEl.querySelector('#lgw-modal-pin-submit');
+          if(btn){ btn.disabled=true; btn.textContent='Logging in…'; }
+          post('lgw_check_pin', {club: clubVal, pin: pin}, function(res){
+            if(btn){ btn.disabled=false; btn.textContent='Login'; }
+            if(res.success){
+              currentClub = res.data.club;
+              authClub = currentClub;
+              containerEl.innerHTML = renderModalForm(currentClub);
+              bindModalForm(containerEl);
+              lgwBindPlayerDropdown(containerEl);
+              lgwFetchTeamPlayers(home, 'lgw-dl-home');
+              lgwFetchTeamPlayers(away, 'lgw-dl-away');
+            } else {
+              showStatus(errEl, res.data || 'Incorrect club or passphrase', 'error');
+            }
+          });
+        }
+
+        var loginBtn = containerEl.querySelector('#lgw-modal-pin-submit');
+        var pinEl2   = containerEl.querySelector('#lgw-modal-pin-input');
+        if(loginBtn) loginBtn.addEventListener('click', doModalLogin);
+        if(pinEl2)   pinEl2.addEventListener('keydown', function(e){ if(e.key==='Enter') doModalLogin(); });
+        return;
       }
-
-      var loginBtn = containerEl.querySelector('#lgw-modal-pin-submit');
-      var pinEl2   = containerEl.querySelector('#lgw-modal-pin-input');
-      if(loginBtn) loginBtn.addEventListener('click', doModalLogin);
-      if(pinEl2)   pinEl2.addEventListener('keydown', function(e){ if(e.key==='Enter') doModalLogin(); });
-      return;
     }
 
     // Already logged in or admin — but first check club is involved in THIS fixture

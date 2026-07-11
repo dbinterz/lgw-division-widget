@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.26
+Stable tag: 2026.27.27
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.27 =
+* Add: Scorecard submission now works with a logged-in club account (Slice C). When a submission mode allowing login is active, the fixture submission box recognises an approved, signed-in club admin and takes them straight to the scorecard form — no passphrase needed. Admins of more than one club in a fixture are asked which club they are submitting for. In "Login only" mode the passphrase box is replaced by a "Log in to submit" button; in "Both" mode a "Log in instead" link sits alongside the passphrase box.
+* Fix: Multi-club submissions are authorised server-side against the signed-in user's approved clubs (an explicit club choice is only honoured if the account is approved for it).
 
 = 2026.27.26 =
 * Add: Club-admin registration and approval (Slice B). Club officials can now request submission access from a page carrying the new **[lgw_club_access_request]** shortcode — they log in, pick their club(s), and add a note. A league administrator reviews requests under **LGW → Club Access → Requests**, then approves (granting specific clubs), rejects, or revokes access under **Members**. Email notifications go to admins on each new request and to the user on every decision.

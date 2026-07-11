@@ -30,6 +30,9 @@ function lgw_get_auth_club() {
     // administrators return all clubs here so count() !== 1 and they are unaffected.
     if ( function_exists( 'lgw_user_submit_clubs' ) && is_user_logged_in() && lgw_login_submit_enabled() ) {
         $clubs = lgw_user_submit_clubs();
+        // Explicit multi-club choice — only honoured if the user is approved for it.
+        $choice = isset( $_POST['submit_club'] ) ? sanitize_text_field( wp_unslash( $_POST['submit_club'] ) ) : '';
+        if ( $choice !== '' && in_array( $choice, $clubs, true ) ) return $choice;
         if ( count( $clubs ) === 1 ) return $clubs[0];
     }
     return '';
@@ -1381,6 +1384,10 @@ function lgw_enqueue_scorecard() {
         'authClub'        => lgw_get_auth_club(),
         'clubCanSubmit'   => lgw_club_can_submit() ? '1' : '0',
         'knownDivisions'  => $known_divisions,
+        'authMode'        => function_exists('lgw_auth_mode') ? lgw_auth_mode() : 'both',
+        'isLoggedIn'      => is_user_logged_in() ? '1' : '0',
+        'loginUrl'        => wp_login_url(),
+        'userClubs'       => ( function_exists('lgw_user_submit_clubs') && is_user_logged_in() && ! current_user_can('manage_options') ) ? array_values( lgw_user_submit_clubs() ) : array(),
     ));
 }
 
