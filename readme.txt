@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.25
+Stable tag: 2026.27.26
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -71,9 +71,12 @@ Parameters:
 
 == Changelog ==
 
+= 2026.27.26 =
+* Add: Club-admin registration and approval (Slice B). Club officials can now request submission access from a page carrying the new **[lgw_club_access_request]** shortcode — they log in, pick their club(s), and add a note. A league administrator reviews requests under **LGW → Club Access → Requests**, then approves (granting specific clubs), rejects, or revokes access under **Members**. Email notifications go to admins on each new request and to the user on every decision.
+* Note: Registration currently uses standard WordPress login; Google sign-in is added in the next update by installing a social-login plugin (no further plugin changes needed).
+
 = 2026.27.25 =
 * Add: Foundation for identity-based scorecard submission (Slice A). Clubs will be able to log in and submit under an approved account instead of a shared passphrase. This release adds the behind-the-scenes plumbing only — a new "Club Admin" role, a per-user approved-clubs model, and a new **LGW → Club Access** settings page with a submission-mode switch (Passphrase only / Both / Login only). The passphrase still works exactly as before; nothing changes for clubs yet.
-* Note: Registration and approval screens, and Google login, arrive in the following updates.
 
 = 2026.27.24 =
 * Change: Season Progress chart is taller (340px → 480px) so the lines have more vertical breathing room and are easier to read when several teams are close together.

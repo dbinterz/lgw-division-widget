@@ -108,6 +108,14 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.26]
+### Added
+- **Club-admin registration + approval (Slice B).** Front-end `[lgw_club_access_request]` shortcode: logged-in users pick club(s) + note → AJAX `lgw_request_access` sets status `pending`, stores requested clubs, emails admins. Idempotent-safe (already-approved users are told to contact an admin; 30s per-user rate-limit transient).
+- **Access Requests admin UI** on **LGW → Club Access**, now tabbed (Requests · Members · Settings). Requests tab: per-request card with a club-grant checklist (pre-ticked from the request) → Approve / Reject. Members tab: approved users + clubs + Revoke. All actions nonce + `manage_options` guarded; club grants are intersected against configured clubs server-side.
+- **Email notifications.** Admins notified on each new request (recipients from `lgw_admin_notify_emails`, falling back to `admin_email`); users emailed on approve / reject / revoke.
+### Changed
+- Decision handlers `lgw_ca_approve/reject/revoke` manage the `lgw_club_admin` role via `add_role`/`remove_role` (never stripping a user's other roles) and keep `lgw_clubs` / status / audit meta in sync.
+
 ## [2026.27.25]
 ### Added
 - **Club-admin access foundation (Slice A of OAuth-backed submission).** New module `lgw-club-access.php`: registers the `lgw_club_admin` role + `lgw_submit_scorecard` capability (idempotent, version-guarded on `init`); adds a user-meta model (`lgw_approval_status`, `lgw_clubs`, `lgw_requested_clubs`, note/audit fields) keyed by **club name** (clubs have no stable ID); and exposes authorization primitives `lgw_user_submit_clubs()`, `lgw_user_can_submit_for()`, `lgw_is_club_admin_submitter()`.
