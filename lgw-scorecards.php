@@ -24,7 +24,15 @@ function lgw_session_start() {
 }
 function lgw_get_auth_club() {
     lgw_session_start();
-    return $_SESSION['lgw_club'] ?? '';
+    if ( ! empty( $_SESSION['lgw_club'] ) ) return $_SESSION['lgw_club'];
+    // Logged-in approved club admin who administers exactly ONE club → auto-resolve.
+    // Multi-club admins must pick explicitly (handled in the modal — Slice C); WP
+    // administrators return all clubs here so count() !== 1 and they are unaffected.
+    if ( function_exists( 'lgw_user_submit_clubs' ) && is_user_logged_in() && lgw_login_submit_enabled() ) {
+        $clubs = lgw_user_submit_clubs();
+        if ( count( $clubs ) === 1 ) return $clubs[0];
+    }
+    return '';
 }
 function lgw_passphrase_verified() {
     return (bool) lgw_get_auth_club();
@@ -186,6 +194,9 @@ add_action('wp_ajax_nopriv_lgw_check_pin', 'lgw_ajax_check_pin');
 add_action('wp_ajax_lgw_check_pin',        'lgw_ajax_check_pin');
 function lgw_ajax_check_pin() {
     check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if ( function_exists('lgw_passphrase_enabled') && ! lgw_passphrase_enabled() ) {
+        wp_send_json_error('Passphrase submission is disabled — please log in to submit.');
+    }
     $club_name = sanitize_text_field($_POST['club'] ?? '');
     // Accept both 'pin' (legacy) and 'passphrase' field names
     $entered   = sanitize_text_field($_POST['passphrase'] ?? $_POST['pin'] ?? '');

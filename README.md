@@ -108,6 +108,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.25]
+### Added
+- **Club-admin access foundation (Slice A of OAuth-backed submission).** New module `lgw-club-access.php`: registers the `lgw_club_admin` role + `lgw_submit_scorecard` capability (idempotent, version-guarded on `init`); adds a user-meta model (`lgw_approval_status`, `lgw_clubs`, `lgw_requested_clubs`, note/audit fields) keyed by **club name** (clubs have no stable ID); and exposes authorization primitives `lgw_user_submit_clubs()`, `lgw_user_can_submit_for()`, `lgw_is_club_admin_submitter()`.
+- **`lgw_auth_mode` control** (`passphrase` | `both` | `login`) with a self-contained **LGW → Club Access** settings page (submission mode radio + approval-notification emails). Passphrase issuers (`lgw_ajax_check_pin`, `lgw_ajax_cup_score_auth`) are disabled when mode is `login`.
+### Changed
+- **Submission gate now accepts verified identity.** `lgw_get_auth_club()` auto-resolves the club for a logged-in approved single-club admin (multi-club admins pick explicitly in a later slice; WP admins unaffected). Cup score saving (`lgw_ajax_cup_save_score`) accepts logged-in approved club admins and enforces that the user is approved for the match's home or away club; audit log records the submitting user. No OAuth code yet — Google login is added later via a social-login plugin.
+
 ## [2026.27.24]
 ### Changed
 - **Season Progress chart given more vertical room.** Chart wrap height raised 340px → 480px (`lgw-widget.css`) so the plotted lines spread out and stay legible when several teams sit close together.

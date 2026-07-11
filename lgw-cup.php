@@ -93,6 +93,9 @@ function lgw_ajax_cup_score_auth() {
     if (!wp_verify_nonce($nonce, 'lgw_cup_nonce')) {
         wp_send_json_error('Session expired — please refresh the page and try again.');
     }
+    if ( function_exists('lgw_passphrase_enabled') && ! lgw_passphrase_enabled() ) {
+        wp_send_json_error('Passphrase submission is disabled — please log in to submit.');
+    }
     $raw    = strtolower(trim(sanitize_text_field($_POST['passphrase'] ?? '')));
     $stored = get_option('lgw_draw_passphrase', '');
     if ($stored === '') wp_send_json_error('No passphrase configured.');
@@ -108,10 +111,14 @@ add_action('wp_ajax_nopriv_lgw_cup_save_score', 'lgw_ajax_cup_save_score');
 function lgw_ajax_cup_save_score() {
     check_ajax_referer('lgw_cup_score', 'nonce');
 
-    // Allow WP admins or passphrase-authenticated users (via score token)
-    $score_token = sanitize_text_field($_POST['score_token'] ?? '');
-    $token_valid = $score_token && get_transient('lgw_score_auth_' . $score_token);
-    if (!current_user_can('manage_options') && !$token_valid) {
+    // Allow WP admins, passphrase-authenticated users (score token), or logged-in
+    // approved club admins. Club-admin submissions are club-checked below once the
+    // match teams are known.
+    $score_token   = sanitize_text_field($_POST['score_token'] ?? '');
+    $token_valid   = $score_token && get_transient('lgw_score_auth_' . $score_token);
+    $is_admin      = current_user_can('manage_options');
+    $is_club_admin = function_exists('lgw_is_club_admin_submitter') && lgw_is_club_admin_submitter();
+    if (!$is_admin && !$token_valid && !$is_club_admin) {
         wp_send_json_error('Unauthorised — please log in to enter scores.');
     }
 
@@ -130,6 +137,15 @@ function lgw_ajax_cup_save_score() {
     if (!isset($bracket['matches'][$round_idx][$match_idx])) wp_send_json_error('Match not found');
 
     $match = &$bracket['matches'][$round_idx][$match_idx];
+
+    // Club admins may only score matches involving a club they are approved for.
+    if ($is_club_admin && !$is_admin && !$token_valid) {
+        if (!lgw_user_can_submit_for($match['home'] ?? '') &&
+            !lgw_user_can_submit_for($match['away'] ?? '')) {
+            wp_send_json_error('You are not approved to submit for either club in this match.');
+        }
+    }
+
     $match['home_score'] = $home_score;
     $match['away_score'] = $away_score;
 
@@ -143,9 +159,11 @@ function lgw_ajax_cup_save_score() {
         'away'       => $match['away'] ?? '',
         'home_score' => $home_score,
         'away_score' => $away_score,
-        'by'         => current_user_can('manage_options')
+        'by'         => $is_admin
                         ? (wp_get_current_user()->user_login ?: 'admin')
-                        : 'passphrase',
+                        : ( $is_club_admin && !$token_valid
+                            ? (wp_get_current_user()->user_login ?: 'club-admin')
+                            : 'passphrase' ),
         'ip'         => sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? ''),
     );
     $log = get_option('lgw_cup_score_log', array());

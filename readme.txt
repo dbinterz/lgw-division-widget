@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.24
+Stable tag: 2026.27.25
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.25 =
+* Add: Foundation for identity-based scorecard submission (Slice A). Clubs will be able to log in and submit under an approved account instead of a shared passphrase. This release adds the behind-the-scenes plumbing only — a new "Club Admin" role, a per-user approved-clubs model, and a new **LGW → Club Access** settings page with a submission-mode switch (Passphrase only / Both / Login only). The passphrase still works exactly as before; nothing changes for clubs yet.
+* Note: Registration and approval screens, and Google login, arrive in the following updates.
 
 = 2026.27.24 =
 * Change: Season Progress chart is taller (340px → 480px) so the lines have more vertical breathing room and are easier to read when several teams are close together.
