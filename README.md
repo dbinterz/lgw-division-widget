@@ -108,6 +108,16 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.28]
+### Added
+- **Self-serve "Request access" from the fixture modal.** In login-only mode, a signed-in but unapproved user previously hit a dead-end "contact an administrator" message. The modal now shows a **Request access** button linking to the page carrying `[lgw_club_access_request]`. New `lgwSubmit.requestAccessUrl` field localized in all three enqueue sites (`lgw-cup.php`, `lgw-division-widget.php`, `lgw-scorecards.php`).
+- **`lgw_request_access_url()` helper** (`lgw-club-access.php`): returns the `lgw_request_access_url` option if set, else auto-discovers (and caches for 12h) the first published page containing the shortcode.
+- **"Request-access page" setting** under LGW → Club Access → Settings to pin the URL; blank = auto-detect.
+- **Return-to-fixture after request.** The modal button appends `?lgw_return=<fixture-url>`; the request page validates it same-site (`wp_validate_redirect`, no open redirect) and, on success, shows a "Return to fixture" button and auto-redirects.
+
+### Changed
+- **`[lgw_club_access_request]` restyled** to the scorecard palette (`.lgw-submit-card`, `.lgw-btn`, `.lgw-form-row`, `.lgw-notice`) so it matches the fixture modal. The shortcode self-registers `lgw-scorecard.css` (the main enqueue only registers it on `[lgw_division]`/`[lgw_submit]` pages).
+
 ## [2026.27.27]
 ### Added
 - **Identity-based submission in the fixture modal (Slice C).** `lgw-scorecard.js` gate now reads new `lgwSubmit` fields (`authMode`, `isLoggedIn`, `loginUrl`, `userClubs`). An approved signed-in user with exactly one fixture-matching club drops straight to the form; more than one shows a "Submit as which club?" picker; login-only mode with no approved club shows a "Log in to submit" button (or a "not approved" notice); both-mode adds a "Log in instead" link beside the passphrase box.

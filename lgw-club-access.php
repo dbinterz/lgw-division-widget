@@ -75,6 +75,36 @@ function lgw_passphrase_enabled() {
 function lgw_login_submit_enabled() {
 	return lgw_auth_mode() !== 'passphrase';
 }
+/**
+ * URL of the front-end page carrying [lgw_club_access_request].
+ *
+ * Admins may pin it via the `lgw_request_access_url` option; otherwise the
+ * first published page/post containing the shortcode is auto-discovered and
+ * cached. Empty string when no such page exists yet (button then hidden).
+ */
+function lgw_request_access_url() {
+	$override = get_option( 'lgw_request_access_url', '' );
+	if ( $override ) return esc_url_raw( $override );
+
+	$cached = get_transient( 'lgw_ca_request_url' );
+	if ( false !== $cached ) return $cached;
+
+	$url   = '';
+	$posts = get_posts( array(
+		'post_type'      => array( 'page', 'post' ),
+		'post_status'    => 'publish',
+		'posts_per_page' => 10,
+		's'              => 'lgw_club_access_request',
+	) );
+	foreach ( $posts as $p ) {
+		if ( has_shortcode( $p->post_content, 'lgw_club_access_request' ) ) {
+			$url = get_permalink( $p->ID );
+			break;
+		}
+	}
+	set_transient( 'lgw_ca_request_url', $url, 12 * HOUR_IN_SECONDS );
+	return $url;
+}
 
 // ── Authorization primitives ──────────────────────────────────────────────────
 /**
@@ -152,6 +182,8 @@ function lgw_club_access_page() {
 		if ( ! in_array( $mode, array( 'passphrase', 'both', 'login' ), true ) ) $mode = 'both';
 		update_option( 'lgw_auth_mode', $mode );
 		update_option( 'lgw_admin_notify_emails', sanitize_text_field( wp_unslash( $_POST['lgw_admin_notify_emails'] ?? '' ) ) );
+		update_option( 'lgw_request_access_url', esc_url_raw( wp_unslash( $_POST['lgw_request_access_url'] ?? '' ) ) );
+		delete_transient( 'lgw_ca_request_url' );
 		echo '<div class="notice notice-success is-dismissible"><p>Settings saved.</p></div>';
 	}
 
@@ -267,8 +299,10 @@ function lgw_ca_render_members( $approved ) {
 
 // ── Tab: settings ─────────────────────────────────────────────────────────────
 function lgw_ca_render_settings() {
-	$mode   = lgw_auth_mode();
-	$emails = get_option( 'lgw_admin_notify_emails', get_option( 'admin_email' ) );
+	$mode    = lgw_auth_mode();
+	$emails  = get_option( 'lgw_admin_notify_emails', get_option( 'admin_email' ) );
+	$req_url = get_option( 'lgw_request_access_url', '' );
+	$auto    = lgw_request_access_url();
 	?>
 	<form method="post">
 		<?php wp_nonce_field( 'lgw_club_access' ); ?>
@@ -290,6 +324,23 @@ function lgw_ca_render_settings() {
 					<input name="lgw_admin_notify_emails" id="lgw_admin_notify_emails" type="text"
 						class="regular-text" value="<?php echo esc_attr( $emails ); ?>">
 					<p class="description">Comma-separated. Notified when a club requests access.</p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="lgw_request_access_url">Request-access page</label></th>
+				<td>
+					<input name="lgw_request_access_url" id="lgw_request_access_url" type="url"
+						class="regular-text" value="<?php echo esc_attr( $req_url ); ?>"
+						placeholder="<?php echo esc_attr( $auto ?: 'https://…/request-access/' ); ?>">
+					<p class="description">
+						Page containing the <code>[lgw_club_access_request]</code> shortcode. The
+						fixture modal links unapproved signed-in users here.
+						<?php if ( ! $req_url && $auto ) : ?>
+							Leave blank to auto-detect (currently: <a href="<?php echo esc_url( $auto ); ?>" target="_blank"><?php echo esc_html( $auto ); ?></a>).
+						<?php elseif ( ! $req_url ) : ?>
+							<strong>No page with the shortcode found yet</strong> — create one, or set the URL here.
+						<?php endif; ?>
+					</p>
 				</td>
 			</tr>
 		</table>
@@ -363,8 +414,18 @@ function lgw_ca_notify_user( $uid, $decision, $reason = '', $clubs = array() ) {
 // ── Front-end registration: [lgw_club_access_request] ─────────────────────────
 add_shortcode( 'lgw_club_access_request', 'lgw_ca_request_shortcode' );
 function lgw_ca_request_shortcode() {
+	// Reuse the scorecard palette so this matches the fixture modal. The main
+	// enqueue only registers this handle on pages carrying [lgw_division]/[lgw_submit],
+	// so register it here too — this page may carry only [lgw_club_access_request].
+	if ( ! wp_style_is( 'lgw-scorecard', 'registered' ) ) {
+		wp_register_style( 'lgw-scorecard', plugin_dir_url( LGW_PLUGIN_FILE ) . 'lgw-scorecard.css', array(), LGW_VERSION );
+	}
+	wp_enqueue_style( 'lgw-scorecard' );
+	$open  = '<div class="lgw-submit-card lgw-ca-box" style="max-width:460px">';
+
 	if ( ! is_user_logged_in() ) {
-		return '<div class="lgw-ca-box"><p>Please log in to request scorecard-submission access.</p><p><a class="button" href="'
+		return $open . '<p>Please log in to request scorecard-submission access.</p>'
+			. '<p><a class="lgw-btn lgw-btn-primary" href="'
 			. esc_url( wp_login_url( get_permalink() ) ) . '">Log in</a></p></div>';
 	}
 
@@ -373,14 +434,14 @@ function lgw_ca_request_shortcode() {
 
 	if ( 'approved' === $status ) {
 		$clubs = (array) get_user_meta( $uid, LGW_META_CLUBS, true );
-		return '<div class="lgw-ca-box"><p>✅ You are approved to submit scorecards for: <strong>'
-			. esc_html( implode( ', ', $clubs ) ) . '</strong>.</p>'
+		return $open . '<div class="lgw-notice lgw-notice-ok">✅ You are approved to submit scorecards for: <strong>'
+			. esc_html( implode( ', ', $clubs ) ) . '</strong>.</div>'
 			. '<p>To change the clubs you administer, please contact a league administrator.</p></div>';
 	}
 	if ( 'pending' === $status ) {
 		$req = (array) get_user_meta( $uid, LGW_META_REQUESTED, true );
-		return '<div class="lgw-ca-box"><p>⏳ Your access request is pending review'
-			. ( $req ? ' for: <strong>' . esc_html( implode( ', ', $req ) ) . '</strong>' : '' ) . '.</p>'
+		return $open . '<div class="lgw-notice lgw-notice-info">⏳ Your access request is pending review'
+			. ( $req ? ' for: <strong>' . esc_html( implode( ', ', $req ) ) . '</strong>' : '' ) . '.</div>'
 			. '<p>Please contact a league administrator to confirm your details.</p></div>';
 	}
 
@@ -388,23 +449,35 @@ function lgw_ca_request_shortcode() {
 	$clubs = wp_list_pluck( lgw_get_clubs(), 'name' );
 	$nonce = wp_create_nonce( 'lgw_request_access' );
 	$prev_reason = get_user_meta( $uid, LGW_META_REASON, true );
+	// Where to send the user after submitting — validated same-site only (no open redirect).
+	$return = ! empty( $_GET['lgw_return'] )
+		? wp_validate_redirect( esc_url_raw( wp_unslash( $_GET['lgw_return'] ) ), '' ) : '';
 	ob_start(); ?>
-	<div class="lgw-ca-box">
+	<style>
+	.lgw-ca-box select,.lgw-ca-box textarea{width:100%;padding:9px 12px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px;font-family:inherit;background:#fff;color:#1a2e5a;box-sizing:border-box}
+	.lgw-ca-box select:focus,.lgw-ca-box textarea:focus{outline:none;border-color:#1a2e5a}
+	.lgw-ca-box .lgw-hint{font-size:12px;color:#667;margin-top:4px}
+	</style>
+	<div class="lgw-submit-card lgw-ca-box" style="max-width:460px">
+		<h3>Request submission access</h3>
 		<?php if ( in_array( $status, array( 'rejected', 'revoked' ), true ) ) : ?>
-			<p><em>Your previous request was <?php echo esc_html( $status ); ?><?php echo $prev_reason ? ' — ' . esc_html( $prev_reason ) : ''; ?>. You may request again below.</em></p>
+			<div class="lgw-notice lgw-notice-warn">Your previous request was <?php echo esc_html( $status ); ?><?php echo $prev_reason ? ' — ' . esc_html( $prev_reason ) : ''; ?>. You may request again below.</div>
 		<?php endif; ?>
-		<p>Request permission to submit scorecards on behalf of your club(s). A league
-		administrator will confirm your details before approving.</p>
+		<p style="font-size:13px;color:#555;margin:0 0 14px">Request permission to submit scorecards on behalf of your club(s). A league administrator will confirm your details before approving.</p>
 		<form id="lgw-ca-form">
-			<p><label for="lgw-ca-clubs"><strong>Club(s) you administer</strong></label><br>
-			<select id="lgw-ca-clubs" name="clubs[]" multiple size="6" style="min-width:240px;">
-				<?php foreach ( $clubs as $c ) printf( '<option value="%s">%s</option>', esc_attr( $c ), esc_html( $c ) ); ?>
-			</select>
-			<br><small>Hold Ctrl/⌘ to select more than one.</small></p>
-			<p><label for="lgw-ca-note"><strong>Note</strong> (your role / contact)</label><br>
-			<textarea id="lgw-ca-note" name="note" rows="3" style="width:100%;max-width:420px;"></textarea></p>
-			<p><button type="submit" class="button button-primary">Submit request</button></p>
-			<p id="lgw-ca-msg" role="status" aria-live="polite"></p>
+			<div class="lgw-form-row">
+				<label for="lgw-ca-clubs">Club(s) you administer</label>
+				<select id="lgw-ca-clubs" name="clubs[]" multiple size="6">
+					<?php foreach ( $clubs as $c ) printf( '<option value="%s">%s</option>', esc_attr( $c ), esc_html( $c ) ); ?>
+				</select>
+				<div class="lgw-hint">Hold Ctrl/⌘ to select more than one.</div>
+			</div>
+			<div class="lgw-form-row">
+				<label for="lgw-ca-note">Note (your role / contact)</label>
+				<textarea id="lgw-ca-note" name="note" rows="3"></textarea>
+			</div>
+			<p style="margin:0"><button type="submit" class="lgw-btn lgw-btn-primary">Submit request</button></p>
+			<p id="lgw-ca-msg" role="status" aria-live="polite" style="margin:12px 0 0"></p>
 		</form>
 	</div>
 	<script>
@@ -412,7 +485,7 @@ function lgw_ca_request_shortcode() {
 		var f=document.getElementById('lgw-ca-form'); if(!f) return;
 		f.addEventListener('submit',function(e){
 			e.preventDefault();
-			var msg=document.getElementById('lgw-ca-msg'); msg.textContent='Submitting…';
+			var msg=document.getElementById('lgw-ca-msg'); msg.className='lgw-notice lgw-notice-info'; msg.textContent='Submitting…';
 			var sel=f.querySelector('#lgw-ca-clubs'), clubs=[];
 			for(var i=0;i<sel.options.length;i++){ if(sel.options[i].selected) clubs.push(sel.options[i].value); }
 			var data=new FormData();
@@ -423,9 +496,20 @@ function lgw_ca_request_shortcode() {
 			fetch(<?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>,{method:'POST',credentials:'same-origin',body:data})
 			.then(function(r){return r.json();})
 			.then(function(j){
-				if(j.success){ f.style.display='none'; msg.textContent='✅ '+j.data; }
-				else { msg.textContent='⚠️ '+(j.data||'Could not submit your request.'); }
-			}).catch(function(){ msg.textContent='⚠️ Network error — please try again.'; });
+				if(j.success){
+					f.style.display='none';
+					msg.className='lgw-notice lgw-notice-ok'; msg.textContent='✅ '+j.data;
+					var ret=<?php echo wp_json_encode( $return ); ?>;
+					if(ret){
+						var back=document.createElement('p');
+						back.style.marginTop='12px';
+						back.innerHTML='<a class="lgw-btn lgw-btn-primary" href="'+ret+'">Return to fixture</a> <span style="font-size:12px;color:#667"> — taking you back…</span>';
+						msg.parentNode.insertBefore(back,msg.nextSibling);
+						setTimeout(function(){ window.location.href=ret; },2500);
+					}
+				}
+				else { msg.className='lgw-notice lgw-notice-error'; msg.textContent='⚠️ '+(j.data||'Could not submit your request.'); }
+			}).catch(function(){ msg.className='lgw-notice lgw-notice-error'; msg.textContent='⚠️ Network error — please try again.'; });
 		});
 	})();
 	</script>

@@ -1929,6 +1929,7 @@
       var authMode2   = (typeof lgwSubmit !== 'undefined' && lgwSubmit.authMode) ? lgwSubmit.authMode : 'both';
       var isLoggedIn2 = (typeof lgwSubmit !== 'undefined') && (lgwSubmit.isLoggedIn === '1' || lgwSubmit.isLoggedIn === 1 || lgwSubmit.isLoggedIn === true);
       var loginUrl2   = (typeof lgwSubmit !== 'undefined' && lgwSubmit.loginUrl) ? lgwSubmit.loginUrl : '/wp-login.php';
+      var reqUrl2     = (typeof lgwSubmit !== 'undefined' && lgwSubmit.requestAccessUrl) ? lgwSubmit.requestAccessUrl : '';
       var userClubs2  = (typeof lgwSubmit !== 'undefined' && lgwSubmit.userClubs) ? lgwSubmit.userClubs : [];
 
       // Identity path: approved clubs the signed-in user administers in THIS fixture
@@ -1966,7 +1967,11 @@
       } else if(authMode2 === 'login'){
         // Login-only mode and no approved club for this fixture
         containerEl.innerHTML = isLoggedIn2
-          ? '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0"><p style="font-size:13px;color:#555">You are signed in, but your account is not approved to submit for a club in this fixture. Please contact a league administrator.</p></div>'
+          ? '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0"><p style="font-size:13px;margin-bottom:12px;color:#555">You are signed in, but your account is not yet approved to submit for a club in this fixture.</p>'
+            +(reqUrl2
+              ? '<a class="lgw-btn lgw-btn-primary" href="'+esc(reqUrl2+(reqUrl2.indexOf('?')>-1?'&':'?')+'lgw_return='+encodeURIComponent(window.location.href))+'">Request access</a><p style="font-size:12px;margin-top:10px;color:#666">A league administrator will confirm your details before approving.</p>'
+              : '<p style="font-size:13px;color:#555">Please contact a league administrator.</p>')
+            +'</div>'
           : '<div class="lgw-submit-card" style="margin:0;box-shadow:none;border:none;padding:0"><h3 style="margin:0 0 10px;color:#1a2e5a">Log in to submit</h3><p style="font-size:13px;margin-bottom:12px;color:#555">Sign in with your approved account to submit this scorecard.</p><a class="lgw-btn lgw-btn-primary" href="'+esc(loginUrl2)+'">Log in</a></div>';
         return;
       } else {

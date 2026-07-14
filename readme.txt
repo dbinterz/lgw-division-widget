@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.27
+Stable tag: 2026.27.28
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.28 =
+* Add: Unapproved signed-in users now get a "Request access" button in the fixture submission box (login-only mode) instead of a dead-end "contact an administrator" message. It links to the page carrying the [lgw_club_access_request] shortcode.
+* Add: LGW → Club Access → Settings gains a "Request-access page" field to pin that page; left blank it auto-detects the first published page containing the shortcode.
+* Add: After submitting a request from the fixture link, the user is returned to the fixture they came from (validated same-site redirect; a "Return to fixture" button is also shown).
+* Change: The [lgw_club_access_request] page now uses the scorecard card/button/notice styling so it matches the fixture modal and the rest of the plugin.
 
 = 2026.27.27 =
 * Add: Scorecard submission now works with a logged-in club account (Slice C). When a submission mode allowing login is active, the fixture submission box recognises an approved, signed-in club admin and takes them straight to the scorecard form — no passphrase needed. Admins of more than one club in a fixture are asked which club they are submitting for. In "Login only" mode the passphrase box is replaced by a "Log in to submit" button; in "Both" mode a "Log in instead" link sits alongside the passphrase box.

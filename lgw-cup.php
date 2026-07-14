@@ -30,6 +30,7 @@ function lgw_cup_enqueue() {
         'authMode'   => function_exists('lgw_auth_mode') ? lgw_auth_mode() : 'both',
         'isLoggedIn' => is_user_logged_in() ? '1' : '0',
         'loginUrl'   => wp_login_url(),
+        'requestAccessUrl' => function_exists('lgw_request_access_url') ? lgw_request_access_url() : '',
         'userClubs'  => ( function_exists('lgw_user_submit_clubs') && is_user_logged_in() && ! current_user_can('manage_options') ) ? array_values( lgw_user_submit_clubs() ) : array(),
     ));
     // Reuse lgwData (badges, clubBadges, ajaxUrl) if not already localised by main widget
