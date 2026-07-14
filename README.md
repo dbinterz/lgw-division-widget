@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.29]
+### Fixed
+- **Release zip now bundles `lgw-club-access.php`.** It was absent from the `release.yml` build `cp` list (and the manifest-verify `EXPECTED` list didn't check for it), so sites installed from the zip hit "modules could not be loaded — `lgw-club-access.php`" and the entire club-access feature was inactive. Added to both the build and the verification manifest.
+
 ## [2026.27.28]
 ### Added
 - **Self-serve "Request access" from the fixture modal.** In login-only mode, a signed-in but unapproved user previously hit a dead-end "contact an administrator" message. The modal now shows a **Request access** button linking to the page carrying `[lgw_club_access_request]`. New `lgwSubmit.requestAccessUrl` field localized in all three enqueue sites (`lgw-cup.php`, `lgw-division-widget.php`, `lgw-scorecards.php`).
