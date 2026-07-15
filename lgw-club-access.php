@@ -453,11 +453,6 @@ function lgw_ca_request_shortcode() {
 	$return = ! empty( $_GET['lgw_return'] )
 		? wp_validate_redirect( esc_url_raw( wp_unslash( $_GET['lgw_return'] ) ), '' ) : '';
 	ob_start(); ?>
-	<style>
-	.lgw-ca-box select,.lgw-ca-box textarea{width:100%;padding:9px 12px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px;font-family:inherit;background:#fff;color:#1a2e5a;box-sizing:border-box}
-	.lgw-ca-box select:focus,.lgw-ca-box textarea:focus{outline:none;border-color:#1a2e5a}
-	.lgw-ca-box .lgw-hint{font-size:12px;color:#667;margin-top:4px}
-	</style>
 	<div class="lgw-submit-card lgw-ca-box" style="max-width:460px">
 		<h3>Request submission access</h3>
 		<?php if ( in_array( $status, array( 'rejected', 'revoked' ), true ) ) : ?>

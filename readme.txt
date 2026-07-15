@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.29
+Stable tag: 2026.27.30
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.30 =
+* Fix: The request-access page ([lgw_club_access_request]) is now readable in dark mode. On dark-themed sites the card background was inverting while the text stayed dark, giving dark-on-dark. The page now pins the light palette (as the fixture modal does) across all states — logged-out, pending, approved and the request form.
 
 = 2026.27.29 =
 * Fix: The release zip now bundles lgw-club-access.php. It was missing from the build manifest, so sites installed/updated from the zip showed "modules could not be loaded — lgw-club-access.php" and the whole club-access feature (login-based submission, request/approve, settings) was unavailable. The manifest verification step now also checks for it so the omission can't recur.

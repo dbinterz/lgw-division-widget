@@ -116,6 +116,18 @@
 :root[data-lgw-theme="dark"] .lgw-form-row input,
 :root[data-lgw-theme="dark"] .lgw-totals-row input{background:#2a2a3e;border-color:#3a3a55;color:#e8e8f0}
 
+/* ── Request-access shortcode ([lgw_club_access_request]) ─────────────────────── */
+/* Standalone content page — pin the light palette so dark-mode doesn't invert only
+   the card background and leave the dark text unreadable (dark-on-dark). Applies to
+   every branch of the shortcode (logged-out / pending / approved / form). */
+.lgw-ca-box.lgw-submit-card{background:#fff !important;color:#1a2e5a !important}
+.lgw-ca-box h3{color:#1a2e5a !important}
+.lgw-ca-box p,.lgw-ca-box small{color:#555 !important}
+.lgw-ca-box .lgw-form-row label{color:#1a2e5a !important}
+.lgw-ca-box select,.lgw-ca-box textarea{width:100%;padding:9px 12px;border:1px solid #d0d5e8;border-radius:6px;font-size:14px;font-family:inherit;background:#fff !important;color:#1a2e5a !important;box-sizing:border-box}
+.lgw-ca-box select:focus,.lgw-ca-box textarea:focus{outline:none;border-color:#1a2e5a}
+.lgw-ca-box .lgw-hint{font-size:12px;color:#667 !important;margin-top:4px}
+
 /* ── Mobile ──────────────────────────────────────────────────────────────────── */
 @media(max-width:480px){
   .lgw-submit-card{padding:16px}

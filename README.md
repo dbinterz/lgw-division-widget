@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.30]
+### Fixed
+- **Request-access page readable in dark mode.** `.lgw-submit-card`'s dark-mode CSS inverted only the card background while the shortcode's dark text stayed put (dark-on-dark). Added `.lgw-ca-box` overrides in `lgw-scorecard.css` that pin the light palette (card, headings, text, select/textarea, hint) for all shortcode states. Rules live in the stylesheet (not inline) so they also cover the logged-out/pending/approved branches, which return before any inline block.
+
 ## [2026.27.29]
 ### Fixed
 - **Release zip now bundles `lgw-club-access.php`.** It was absent from the `release.yml` build `cp` list (and the manifest-verify `EXPECTED` list didn't check for it), so sites installed from the zip hit "modules could not be loaded — `lgw-club-access.php`" and the entire club-access feature was inactive. Added to both the build and the verification manifest.
