@@ -130,6 +130,99 @@ function lgw_cache_invalidate_all() {
     );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FIXTURE EDITING — baseline snapshot, locator, audit log
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Option key for a division's pristine baseline fixtures snapshot.
+ */
+function lgw_fixture_baseline_key( $season_id, $division ) {
+    return 'lgw_div_baseline_' . sanitize_key( $season_id ) . '_' . sanitize_key( $division );
+}
+
+/**
+ * Capture the pristine fixtures for a division the FIRST time only. A hard reset
+ * needs a known-good state to return to; the CSV can drift, so we snapshot the
+ * fixtures as they were before any human edit. No-op if a baseline already exists.
+ *
+ * @return bool true if a baseline was written, false if one already existed.
+ */
+function lgw_fixture_snapshot_baseline( $season_id, $division, $fixtures ) {
+    if ( ! $season_id || ! $division ) return false;
+    $key = lgw_fixture_baseline_key( $season_id, $division );
+    if ( get_option( $key, null ) !== null ) return false;
+    update_option( $key, array(
+        'fixtures'    => $fixtures,
+        'captured_at' => time(),
+    ), false );
+    return true;
+}
+
+/**
+ * Read a division's baseline fixtures, or null if none captured yet.
+ */
+function lgw_fixture_get_baseline( $season_id, $division ) {
+    $b = get_option( lgw_fixture_baseline_key( $season_id, $division ), null );
+    return is_array( $b ) ? ( $b['fixtures'] ?? null ) : null;
+}
+
+/**
+ * Locate a fixture in a fixtures array by its identity (home/away/date). Matching
+ * is case-insensitive on team names; date must also match when provided.
+ *
+ * @return int  Zero-based index, or -1 if not found.
+ */
+function lgw_find_fixture_index( $fixtures, $home, $away, $date ) {
+    if ( ! is_array( $fixtures ) ) return -1;
+    foreach ( $fixtures as $i => $fx ) {
+        if ( strcasecmp( trim( $fx['homeTeam'] ?? '' ), trim( $home ) ) !== 0 ) continue;
+        if ( strcasecmp( trim( $fx['awayTeam'] ?? '' ), trim( $away ) ) !== 0 ) continue;
+        if ( $date !== '' && strcasecmp( trim( $fx['date'] ?? '' ), trim( $date ) ) !== 0 ) continue;
+        return $i;
+    }
+    return -1;
+}
+
+/**
+ * Append a fixture-edit entry to the audit log (ring buffer, newest first).
+ * Mirrors the cup score-log pattern.
+ *
+ * @param string $action  'edit' | 'swap' | 'revert' | 'reset'
+ * @param array  $before  Fixture row before the change (relevant fields).
+ * @param array  $after   Fixture row after the change.
+ */
+function lgw_fixture_log( $action, $season_id, $division, $before, $after ) {
+    $user = function_exists( 'wp_get_current_user' ) ? wp_get_current_user() : null;
+    $pick = function( $fx ) {
+        return array(
+            'home'      => $fx['homeTeam']  ?? '',
+            'away'      => $fx['awayTeam']  ?? '',
+            'date'      => $fx['date']      ?? '',
+            'time'      => $fx['timeNote']  ?? '',
+            'shotsHome' => $fx['shotsHome'] ?? '',
+            'shotsAway' => $fx['shotsAway'] ?? '',
+            'ptsHome'   => $fx['ptsHome']   ?? '',
+            'ptsAway'   => $fx['ptsAway']   ?? '',
+        );
+    };
+    $entry = array(
+        'ts'       => current_time( 'mysql' ),
+        'user'     => $user && $user->exists() ? ( $user->user_login ?: 'admin' ) : 'system',
+        'ip'       => sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? '' ),
+        'season'   => $season_id,
+        'division' => $division,
+        'action'   => $action,
+        'before'   => $pick( $before ),
+        'after'    => $pick( $after ),
+    );
+    $log = get_option( 'lgw_fixture_edit_log', array() );
+    if ( ! is_array( $log ) ) $log = array();
+    array_unshift( $log, $entry );
+    $log = array_slice( $log, 0, 500 ); // keep last 500
+    update_option( 'lgw_fixture_edit_log', $log, false );
+}
+
 /**
  * Fetch the CSV for a division, parse it, overlay scorecard statuses, and
  * write to cache.
@@ -210,6 +303,8 @@ function lgw_cache_sync_from_csv( $csv_url, $season_id, $division ) {
     ];
 
     lgw_cache_set_division( $season_id, $division, $data );
+    // Capture the pristine baseline (first-time only) for later hard reset / audit.
+    lgw_fixture_snapshot_baseline( $season_id, $division, $fixtures );
     lgw_cache_clear_sync_error( $division );
     lgw_cache_log( 'info', "Synced {$division} — " . count( $teams ) . " teams, " . count( $fixtures ) . " fixtures" );
 
@@ -1454,6 +1549,7 @@ function lgw_cache_render_division( $csv_url, $division, $promote = 0, $relegate
         'fixtures_html' => $fixtures_html,
         'cached_json'   => wp_json_encode( $groups ),
         'teams_json'    => wp_json_encode( $teams ),
+        'season_id'     => $season_id,
         'hit'           => true,
     ];
 }

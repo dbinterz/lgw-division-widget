@@ -92,38 +92,45 @@ function lgw_get_scorecard($home, $away, $date = '', $context = '', $division = 
     // so a scorecard from one competition never surfaces on the other's fixture.
     $div_norm = lgw_normalise_division($division);
 
+    // Gather candidate posts in precedence order (division-scoped key, legacy
+    // key, then fuzzy name scan), de-duplicated. We then pick among them —
+    // date-aware when a date is supplied, so two meetings of the same pairing
+    // (e.g. home and away legs) are treated as distinct scorecards.
+    $candidates = array();
+    $seen       = array();
+    $add_cand = function($p) use (&$candidates, &$seen) {
+        if ($p && !isset($seen[$p->ID])) { $seen[$p->ID] = true; $candidates[] = $p; }
+    };
+
     // Primary: division-scoped key (new format) when a division is supplied
     if ($div_norm !== '') {
-        $div_key = lgw_scorecard_match_key($home, $away, $division);
-        $args    = array(
+        $args = array(
             'post_type'      => 'lgw_scorecard',
-            'posts_per_page' => 1,
+            'posts_per_page' => 10,
             'post_status'    => 'publish',
             'meta_key'       => 'lgw_match_key',
-            'meta_value'     => $div_key,
+            'meta_value'     => lgw_scorecard_match_key($home, $away, $division),
         );
         if (!empty($meta_query)) $args['meta_query'] = $meta_query;
-        $posts = get_posts($args);
-        if (!empty($posts)) return $posts[0];
+        foreach (get_posts($args) as $p) $add_cand($p);
     }
 
-    // Secondary: legacy key (home+away slug only). Older scorecards were keyed
-    // without a division; accept them only when their stored division agrees,
-    // so a same-named fixture in another competition cannot cross-match.
-    $key   = sanitize_title($home . '-' . $away);
-    $args  = array(
+    // Secondary: legacy key (home+away slug only). Accept only when the stored
+    // division agrees, so a same-named fixture in another competition can't match.
+    $args = array(
         'post_type'      => 'lgw_scorecard',
         'posts_per_page' => 10,
         'post_status'    => 'publish',
         'meta_key'       => 'lgw_match_key',
-        'meta_value'     => $key,
+        'meta_value'     => sanitize_title($home . '-' . $away),
     );
     if (!empty($meta_query)) $args['meta_query'] = $meta_query;
-    $posts = get_posts($args);
-    foreach ($posts as $p) {
-        if ($div_norm === '') return $p;
-        $sc = get_post_meta($p->ID, 'lgw_scorecard_data', true);
-        if (lgw_normalise_division($sc['division'] ?? '') === $div_norm) return $p;
+    foreach (get_posts($args) as $p) {
+        if ($div_norm !== '') {
+            $sc = get_post_meta($p->ID, 'lgw_scorecard_data', true);
+            if (lgw_normalise_division($sc['division'] ?? '') !== $div_norm) continue;
+        }
+        $add_cand($p);
     }
 
     // Fallback: scan recent scorecards and match on normalised team names
@@ -135,19 +142,56 @@ function lgw_get_scorecard($home, $away, $date = '', $context = '', $division = 
         'order'          => 'DESC',
     );
     if (!empty($meta_query)) $all_args['meta_query'] = $meta_query;
-    $all = get_posts($all_args);
     $home_norm = lgw_normalise_team($home);
     $away_norm = lgw_normalise_team($away);
-    foreach ($all as $p) {
+    foreach (get_posts($all_args) as $p) {
         $sc = get_post_meta($p->ID, 'lgw_scorecard_data', true);
         if (!$sc) continue;
         if (lgw_normalise_team($sc['home_team'] ?? '') === $home_norm &&
             lgw_normalise_team($sc['away_team'] ?? '') === $away_norm) {
             if ($div_norm !== '' && lgw_normalise_division($sc['division'] ?? '') !== $div_norm) continue;
-            return $p;
+            $add_cand($p);
         }
     }
-    return null;
+
+    if (empty($candidates)) return null;
+
+    // No date to disambiguate on → preserve prior behaviour (first in precedence).
+    if ($date === '') return $candidates[0];
+
+    // Date-aware selection: prefer a candidate whose stored fixture date matches
+    // the requested date; fall back to a date-less (legacy) candidate; otherwise
+    // treat it as a different meeting and return nothing.
+    $dateless = null;
+    foreach ($candidates as $p) {
+        $m = lgw_scorecard_fixture_date_matches($p->ID, $date);
+        if ($m === true)              return $p;
+        if ($m === null && !$dateless) $dateless = $p;
+    }
+    return $dateless; // null if every candidate has a different, non-matching date
+}
+
+/**
+ * Compare a scorecard's stored fixture date against a requested date.
+ * @return true  dates match (exact or parsed within a day)
+ *         false stored date is present but different
+ *         null  scorecard has no stored date (legacy — caller may fall back)
+ */
+function lgw_scorecard_fixture_date_matches($post_id, $date) {
+    if ($date === '') return true;
+    $fd = get_post_meta($post_id, 'lgw_fixture_date', true);
+    if (!$fd) {
+        $sc = get_post_meta($post_id, 'lgw_scorecard_data', true);
+        $fd = is_array($sc) ? ($sc['date'] ?? '') : '';
+    }
+    if ($fd === '' || $fd === null) return null;
+    if (strcasecmp(trim($fd), trim($date)) === 0) return true;
+    if (function_exists('lgw_parse_any_date')) {
+        $a = lgw_parse_any_date($fd);
+        $b = lgw_parse_any_date($date);
+        if ($a && $b && abs($a - $b) <= DAY_IN_SECONDS) return true;
+    }
+    return false;
 }
 
 /**

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.27.31
+ * Version: 2026.30.0
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.27.31');
+define('LGW_VERSION', '2026.30.0');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -896,6 +896,232 @@ function lgw_ajax_save_null_void() {
     wp_send_json_success(array('key' => $key, 'action' => 'set', 'scorecard_id' => $post_id));
 }
 
+// ── Fixture editing (WordPress-authoritative mode only) ──────────────────────
+/**
+ * Does a fixture have any result or admin overlay tied to its identity key?
+ * If so, changing its teams/date would orphan that record, so identity edits
+ * are blocked until the result is cleared.
+ */
+/**
+ * Fuzzy date equality for fixture identity: empty on either side is treated as a
+ * match (legacy/date-less records), otherwise exact (case-insensitive) or parsed
+ * within a day.
+ */
+function lgw_fixture_dates_match($a, $b) {
+    $a = trim((string) $a); $b = trim((string) $b);
+    if ($a === '' || $b === '') return true;
+    if (strcasecmp($a, $b) === 0) return true;
+    if (function_exists('lgw_parse_any_date')) {
+        $ta = lgw_parse_any_date($a); $tb = lgw_parse_any_date($b);
+        if ($ta && $tb && abs($ta - $tb) <= DAY_IN_SECONDS) return true;
+    }
+    return false;
+}
+
+function lgw_fixture_has_result($home, $away, $date, $division) {
+    $key = strtolower($home) . '||' . strtolower($away) . '||' . strtolower($date);
+
+    $concessions = lgw_get_concessions();
+    if (isset($concessions[$key])) return true;
+
+    $postponements = lgw_get_option_array('lgw_postponements');
+    if (isset($postponements[$key])) return true;
+
+    $null_voids = lgw_get_null_voids();
+    if (isset($null_voids[$key])) return true;
+
+    $overrides = lgw_get_option_array('lgw_score_overrides');
+    foreach ($overrides as $ov) {
+        if (strcasecmp($ov['home'] ?? '', $home) === 0
+         && strcasecmp($ov['away'] ?? '', $away) === 0
+         && lgw_fixture_dates_match($ov['date'] ?? '', $date)) return true;
+    }
+
+    // Confirmed/pending scorecard for THIS fixture (date-scoped so the reverse
+    // leg of the same pairing on another date doesn't false-trigger the guard).
+    if (function_exists('lgw_get_scorecard')) {
+        $sc = lgw_get_scorecard($home, $away, $date, 'league', $division);
+        if ($sc) return true;
+    }
+    return false;
+}
+
+add_action('wp_ajax_lgw_edit_fixture', 'lgw_ajax_edit_fixture');
+function lgw_ajax_edit_fixture() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Not authorised');
+    if (!function_exists('lgw_source_is_wordpress') || !lgw_source_is_wordpress()) {
+        wp_send_json_error('Fixture editing is only available in WordPress data-source mode.');
+    }
+
+    $season_id = sanitize_text_field(wp_unslash($_POST['season_id'] ?? ''));
+    $division  = sanitize_text_field(wp_unslash($_POST['division']  ?? ''));
+    if (!$season_id && function_exists('lgw_get_active_season_id')) $season_id = lgw_get_active_season_id();
+    $old_home  = trim(sanitize_text_field(wp_unslash($_POST['old_home'] ?? '')));
+    $old_away  = trim(sanitize_text_field(wp_unslash($_POST['old_away'] ?? '')));
+    $old_date  = trim(sanitize_text_field(wp_unslash($_POST['old_date'] ?? '')));
+    $new_home  = trim(sanitize_text_field(wp_unslash($_POST['home'] ?? '')));
+    $new_away  = trim(sanitize_text_field(wp_unslash($_POST['away'] ?? '')));
+    $new_date  = trim(sanitize_text_field(wp_unslash($_POST['date'] ?? '')));
+    $new_time  = trim(sanitize_text_field(wp_unslash($_POST['time'] ?? '')));
+
+    if (!$season_id || !$division) wp_send_json_error('Missing season/division');
+    if (!$old_home || !$old_away)  wp_send_json_error('Missing fixture identity');
+    if (!$new_home || !$new_away)  wp_send_json_error('Home and away teams are required');
+
+    $data = lgw_cache_get_division($season_id, $division);
+    if (!$data || empty($data['fixtures'])) wp_send_json_error('Division fixtures not found in WordPress cache');
+
+    $idx = lgw_find_fixture_index($data['fixtures'], $old_home, $old_away, $old_date);
+    if ($idx === -1) wp_send_json_error('Fixture not found — it may have already changed. Reload and try again.');
+
+    // Block identity changes when a result/overlay is attached to the old key.
+    $identity_changed = (strcasecmp($new_home, $old_home) !== 0
+                      || strcasecmp($new_away, $old_away) !== 0
+                      || ($new_date !== '' && strcasecmp($new_date, $old_date) !== 0));
+    if ($identity_changed && lgw_fixture_has_result($old_home, $old_away, $old_date, $division)) {
+        wp_send_json_error('This fixture has a confirmed result or an admin overlay (concession/postponement/null-void/override). Clear it first, then change the teams or date.');
+    }
+
+    // Lazy baseline capture — snapshot the pristine fixtures before this first edit.
+    lgw_fixture_snapshot_baseline($season_id, $division, $data['fixtures']);
+
+    $before = $data['fixtures'][$idx];
+    $fx     = $before;
+
+    // A pure swap (teams transposed) also transposes the scores/points.
+    $is_swap = (strcasecmp($new_home, $old_away) === 0 && strcasecmp($new_away, $old_home) === 0);
+    if ($is_swap) {
+        $fx['homeTeam'] = $new_home;
+        $fx['awayTeam'] = $new_away;
+        $t = $fx['shotsHome']; $fx['shotsHome'] = $fx['shotsAway']; $fx['shotsAway'] = $t;
+        $t = $fx['ptsHome'];   $fx['ptsHome']   = $fx['ptsAway'];   $fx['ptsAway']   = $t;
+    } else {
+        $fx['homeTeam'] = $new_home;
+        $fx['awayTeam'] = $new_away;
+    }
+    if ($new_date !== '') $fx['date'] = $new_date;
+    $fx['timeNote'] = $new_time;
+
+    $data['fixtures'][$idx] = $fx;
+    lgw_cache_set_division($season_id, $division, $data);
+    lgw_fixture_log($is_swap ? 'swap' : 'edit', $season_id, $division, $before, $fx);
+
+    wp_send_json_success(array('fixture' => $fx, 'index' => $idx));
+}
+
+add_action('wp_ajax_lgw_revert_fixture', 'lgw_ajax_revert_fixture');
+function lgw_ajax_revert_fixture() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Not authorised');
+    if (!function_exists('lgw_source_is_wordpress') || !lgw_source_is_wordpress()) {
+        wp_send_json_error('Fixture editing is only available in WordPress data-source mode.');
+    }
+
+    $season_id = sanitize_text_field(wp_unslash($_POST['season_id'] ?? ''));
+    $division  = sanitize_text_field(wp_unslash($_POST['division']  ?? ''));
+    if (!$season_id && function_exists('lgw_get_active_season_id')) $season_id = lgw_get_active_season_id();
+    $home      = trim(sanitize_text_field(wp_unslash($_POST['home'] ?? '')));
+    $away      = trim(sanitize_text_field(wp_unslash($_POST['away'] ?? '')));
+    $date      = trim(sanitize_text_field(wp_unslash($_POST['date'] ?? '')));
+
+    if (!$season_id || !$division || !$home || !$away) wp_send_json_error('Missing fixture identity');
+
+    $data = lgw_cache_get_division($season_id, $division);
+    if (!$data || empty($data['fixtures'])) wp_send_json_error('Division fixtures not found');
+
+    $idx = lgw_find_fixture_index($data['fixtures'], $home, $away, $date);
+    if ($idx === -1) wp_send_json_error('Fixture not found');
+
+    // Newest log entry whose "after" identity matches the current fixture.
+    $log = get_option('lgw_fixture_edit_log', array());
+    $found = null;
+    if (is_array($log)) {
+        foreach ($log as $entry) {
+            if (($entry['season'] ?? '') !== $season_id || ($entry['division'] ?? '') !== $division) continue;
+            $a = $entry['after'] ?? array();
+            if (strcasecmp($a['home'] ?? '', $home) === 0
+             && strcasecmp($a['away'] ?? '', $away) === 0
+             && strcasecmp($a['date'] ?? '', $date) === 0) { $found = $entry; break; }
+        }
+    }
+    if (!$found) wp_send_json_error('No edit history for this fixture to undo.');
+
+    $b = $found['before'];
+    // Reverting to a different identity is subject to the same result guard.
+    $identity_changed = (strcasecmp($b['home'], $home) !== 0
+                      || strcasecmp($b['away'], $away) !== 0
+                      || strcasecmp($b['date'], $date) !== 0);
+    if ($identity_changed && lgw_fixture_has_result($home, $away, $date, $division)) {
+        wp_send_json_error('This fixture now has a result/overlay — clear it before undoing an identity change.');
+    }
+
+    $current = $data['fixtures'][$idx];
+    $fx = $current;
+    $fx['homeTeam']  = $b['home'];
+    $fx['awayTeam']  = $b['away'];
+    $fx['date']      = $b['date'];
+    $fx['timeNote']  = $b['time'];
+    $fx['shotsHome'] = $b['shotsHome'];
+    $fx['shotsAway'] = $b['shotsAway'];
+    $fx['ptsHome']   = $b['ptsHome'];
+    $fx['ptsAway']   = $b['ptsAway'];
+
+    $data['fixtures'][$idx] = $fx;
+    lgw_cache_set_division($season_id, $division, $data);
+    lgw_fixture_log('revert', $season_id, $division, $current, $fx);
+
+    wp_send_json_success(array('fixture' => $fx, 'index' => $idx));
+}
+
+// ── Clear a scorecard attached to a fixture (admin) ──────────────────────────
+// Trashes the scorecard post for a specific fixture, removes any score override
+// for the pairing, and wipes the cached result back to unplayed — so an admin
+// can then re-edit the fixture (the edit guard blocks while a result exists).
+add_action('wp_ajax_lgw_delete_scorecard', 'lgw_ajax_delete_scorecard');
+function lgw_ajax_delete_scorecard() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Not authorised');
+
+    $home     = trim(sanitize_text_field(wp_unslash($_POST['home'] ?? '')));
+    $away     = trim(sanitize_text_field(wp_unslash($_POST['away'] ?? '')));
+    $date     = trim(sanitize_text_field(wp_unslash($_POST['date'] ?? '')));
+    $division = sanitize_text_field(wp_unslash($_POST['division'] ?? ''));
+    $context  = sanitize_key($_POST['context'] ?? 'league');
+    if (!$home || !$away) wp_send_json_error('Missing fixture identity');
+
+    if (!function_exists('lgw_get_scorecard')) wp_send_json_error('Scorecard system unavailable');
+    $sc_post = lgw_get_scorecard($home, $away, $date, $context, $division);
+    if (!$sc_post) wp_send_json_error('No scorecard found for this fixture');
+
+    // Trash (recoverable) rather than hard-delete
+    wp_update_post(array('ID' => $sc_post->ID, 'post_status' => 'trash'));
+
+    // Remove score overrides for THIS fixture only (match pairing + date so the
+    // reverse leg on another date keeps its override).
+    $overrides = lgw_get_option_array('lgw_score_overrides');
+    $changed   = false;
+    foreach ($overrides as $ok => $ov) {
+        if (strcasecmp($ov['home'] ?? '', $home) === 0
+         && strcasecmp($ov['away'] ?? '', $away) === 0
+         && lgw_fixture_dates_match($ov['date'] ?? '', $date)) {
+            unset($overrides[$ok]);
+            $changed = true;
+        }
+    }
+    if ($changed) update_option('lgw_score_overrides', $overrides);
+
+    // Wipe the cached fixture result back to unplayed
+    if (function_exists('lgw_cache_wipe_fixture_result')) {
+        $season_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+        if ($season_id && $division) {
+            lgw_cache_wipe_fixture_result($home, $away, $season_id, $division);
+        }
+    }
+
+    wp_send_json_success(array('scorecard_id' => $sc_post->ID));
+}
+
 // ── Scorecard submission status map ──────────────────────────────────────────
 /**
  * Returns a map of fixture keys → submission status ('pending'|'confirmed'|'disputed')
@@ -1112,6 +1338,7 @@ function lgw_enqueue() {
         'seasons'        => function_exists('lgw_seasons_for_js') ? lgw_seasons_for_js() : array(),
         'activeSeasonId' => function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '',
         'submissionMode' => get_option('lgw_submission_mode', 'open'),
+        'dataSource'     => get_option('lgw_data_source', 'google_sheets'),
         'isAdmin'        => current_user_can('manage_options') ? '1' : '0',
         'authClub'       => lgw_get_auth_club(),
         'clubCanSubmit'  => function_exists('lgw_club_can_submit') && lgw_club_can_submit() ? '1' : '0',
@@ -1284,7 +1511,9 @@ function lgw_division_shortcode($atts) {
     if ($ssr['hit']) {
         $table_panel    = $ssr['table_html'];
         $fixtures_panel = $ssr['fixtures_html'];
-        $prerendered_attr = ' data-prerendered="1"';
+        // data-season carries the exact season the WP cache was read from, so the
+        // admin fixture editor targets the right cache key without guessing.
+        $prerendered_attr = ' data-prerendered="1" data-season="' . esc_attr($ssr['season_id'] ?? '') . '"';
         $cached_attr      = ' data-cached="' . esc_attr($ssr['cached_json']) . '"'
                           . ' data-teams="'  . esc_attr($ssr['teams_json'])  . '"';
     } else {
@@ -1390,6 +1619,15 @@ function lgw_admin_menu() {
         'lgw-table-compare',
         'lgw_table_compare_page'
     );
+    // Fixture Audit Log — read-only trail of admin fixture edits
+    add_submenu_page(
+        'lgw-scorecards',
+        'Fixture Audit Log',
+        '📝 Fixture Audit',
+        'manage_options',
+        'lgw-fixture-audit',
+        'lgw_fixture_audit_page'
+    );
     // Settings — theme, sponsors, club badges, clubs/passphrases
     add_submenu_page(
         'lgw-scorecards',
@@ -1399,6 +1637,55 @@ function lgw_admin_menu() {
         'lgw-settings',
         'lgw_settings_page'
     );
+}
+
+// ── Fixture Audit Log page (read-only) ───────────────────────────────────────
+function lgw_fixture_audit_page() {
+    if (!current_user_can('manage_options')) return;
+    $log = get_option('lgw_fixture_edit_log', array());
+    if (!is_array($log)) $log = array();
+    $wp_mode = function_exists('lgw_source_is_wordpress') && lgw_source_is_wordpress();
+    echo '<div class="wrap">';
+    if (function_exists('lgw_admin_logo_header')) lgw_admin_logo_header('Fixture Audit Log');
+    else echo '<h1>Fixture Audit Log</h1>';
+
+    if (!$wp_mode) {
+        echo '<div class="notice notice-info"><p>The data source is currently <strong>Google Sheets</strong>. Fixture editing (and this log) only applies in <strong>WordPress</strong> data-source mode.</p></div>';
+    }
+    echo '<p>Read-only trail of admin fixture edits, swaps and undos (newest first, last 500). Each row shows the change to a fixture\'s identity, time and scores.</p>';
+
+    if (empty($log)) {
+        echo '<p><em>No fixture edits recorded yet.</em></p></div>';
+        return;
+    }
+
+    $fmt = function($side) {
+        $s = esc_html(($side['home'] ?? '') . ' v ' . ($side['away'] ?? ''));
+        $meta = array();
+        if (($side['date'] ?? '') !== '') $meta[] = esc_html($side['date']);
+        if (($side['time'] ?? '') !== '') $meta[] = esc_html($side['time']);
+        $sh = $side['shotsHome'] ?? ''; $sa = $side['shotsAway'] ?? '';
+        if ($sh !== '' || $sa !== '') $meta[] = esc_html($sh . '–' . $sa);
+        return $s . ($meta ? '<br><span style="color:#888;font-size:12px">' . implode(' · ', $meta) . '</span>' : '');
+    };
+    $badge = array('edit' => '#2271b1', 'swap' => '#7a5', 'revert' => '#c0202a', 'reset' => '#a06');
+
+    echo '<table class="widefat striped" style="max-width:1100px"><thead><tr>'
+       . '<th>When</th><th>Who</th><th>Division</th><th>Action</th><th>Before</th><th>After</th>'
+       . '</tr></thead><tbody>';
+    foreach ($log as $e) {
+        $act = $e['action'] ?? 'edit';
+        $col = $badge[$act] ?? '#555';
+        echo '<tr>'
+           . '<td>' . esc_html($e['ts'] ?? '') . '</td>'
+           . '<td>' . esc_html($e['user'] ?? '') . '</td>'
+           . '<td>' . esc_html($e['division'] ?? '') . '<br><span style="color:#888;font-size:12px">' . esc_html($e['season'] ?? '') . '</span></td>'
+           . '<td><span style="display:inline-block;padding:2px 8px;border-radius:4px;color:#fff;font-size:12px;background:' . esc_attr($col) . '">' . esc_html(strtoupper($act)) . '</span></td>'
+           . '<td>' . $fmt($e['before'] ?? array()) . '</td>'
+           . '<td>' . $fmt($e['after'] ?? array()) . '</td>'
+           . '</tr>';
+    }
+    echo '</tbody></table></div>';
 }
 
 function lgw_scorecards_admin_page() {

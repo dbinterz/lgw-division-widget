@@ -1,4 +1,4 @@
-/* LGW Division Widget JS - v5.3 */
+/* LGW Division Widget JS - v5.4 */
 (function(){
   'use strict';
 
@@ -1528,6 +1528,159 @@ function getTeamShape(team){
       return { html: html, key: pdKey2, entry: postEntry2 };
     }
 
+    // ── Edit fixture panel (admin + WordPress data-source only) ───────────────
+    // Lets an admin correct or swap the teams / date / time of a fixture that
+    // lives in the WP cache (in CSV mode you'd edit the sheet instead). Identity
+    // edits are blocked client- and server-side when a result/overlay is attached.
+    function lgwEscAttr(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
+
+    function findFixtureTimeNote(home, away, date){
+      if(!allRows) return '';
+      try{
+        var groups = parseFxGroups(allRows);
+        for(var i=0;i<groups.length;i++){
+          var g=groups[i];
+          if(date && g.date && g.date.toLowerCase()!==date.toLowerCase()) continue;
+          for(var j=0;j<g.matches.length;j++){
+            var m=g.matches[j];
+            if(m.homeTeam.toUpperCase()===home.toUpperCase() && m.awayTeam.toUpperCase()===away.toUpperCase())
+              return m.timeNote||'';
+          }
+        }
+      }catch(e){}
+      return '';
+    }
+
+    function fixtureDatesMatchLocal(a, b){
+      a=String(a==null?'':a).trim().toLowerCase(); b=String(b==null?'':b).trim().toLowerCase();
+      if(a===''||b==='') return true; // legacy/date-less → treat as match
+      return a===b;
+    }
+    function fixtureHasResultLocal(home, away, date){
+      var key=(home+'||'+away+'||'+date).toLowerCase();
+      if(concessions[key]||postponements[key]||nullVoids[key]||scorecardStatus[key]) return true;
+      for(var ok in scoreOverrides){
+        var ov=scoreOverrides[ok];
+        if(ov && (ov.home||'').toUpperCase()===home.toUpperCase()
+              && (ov.away||'').toUpperCase()===away.toUpperCase()
+              && fixtureDatesMatchLocal(ov.date, date)) return true;
+      }
+      return false;
+    }
+
+    // The season the WP cache was rendered from (empty if this widget fell back
+    // to the CSV path — in which case there is no WP cache to edit).
+    function editFxSeason(){
+      var s = widget.getAttribute('data-season') || '';
+      if(!s) s = selectedSeasonId || (typeof lgwData!=='undefined' ? (lgwData.activeSeasonId||'') : '');
+      return s;
+    }
+    function editFxAvailable(){
+      var isWp = (typeof lgwData!=='undefined' && lgwData.dataSource==='wordpress');
+      // Only when this widget was server-rendered from the WP cache (data-prerendered)
+      // — otherwise it's the CSV fallback and there's nothing in WP to edit.
+      return isWp && widget.getAttribute('data-prerendered')==='1' && !!editFxSeason();
+    }
+
+    function buildEditFixturePanel(home, away, date, effectiveAdmin){
+      if(!effectiveAdmin || !editFxAvailable()) return '';
+      var hasResult = fixtureHasResultLocal(home, away, date);
+      var hasScorecard = !!scorecardStatus[(home+'||'+away+'||'+date).toLowerCase()];
+      var timeNote  = findFixtureTimeNote(home, away, date);
+      var dis = hasResult ? ' disabled' : '';
+      var warn = hasResult
+        ? '<div class="lgw-editfx-warn">&#9888;&#65039; This fixture has a result or overlay. Clear it first to change the teams or date; you can still edit the time.'
+          + (hasScorecard ? '<div style="margin-top:6px"><button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-editfx-clearsc">&#x274C; Clear scorecard</button></div>' : '')
+          + '</div>'
+        : '';
+      return ''
+        +'<div class="lgw-editfx-panel" id="lgw-editfx-panel">'
+        +'<div class="lgw-editfx-toggle">'
+        +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px">'
+        +'<input type="checkbox" id="lgw-editfx-chk" style="width:16px;height:16px;cursor:pointer">'
+        +'<span>&#x270F;&#xFE0F; Edit fixture</span>'
+        +'</label></div>'
+        +'<div class="lgw-editfx-body" id="lgw-editfx-body" style="display:none;margin-top:8px">'
+        + warn
+        +'<div class="lgw-editfx-row"><label>Home</label>'
+          +'<input type="text" id="lgw-editfx-home" value="'+lgwEscAttr(home)+'"'+dis+'></div>'
+        +'<div class="lgw-editfx-row"><label>Away</label>'
+          +'<input type="text" id="lgw-editfx-away" value="'+lgwEscAttr(away)+'"'+dis+'>'
+          +'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-editfx-swap" title="Swap home and away"'+dis+'>&#x21C4; Swap</button></div>'
+        +'<div class="lgw-editfx-row"><label>Date</label>'
+          +'<input type="text" id="lgw-editfx-date" placeholder="dd/mm/yyyy" value="'+lgwEscAttr(date)+'"'+dis+'></div>'
+        +'<div class="lgw-editfx-row"><label>Time</label>'
+          +'<input type="text" id="lgw-editfx-time" placeholder="HH:MM" value="'+lgwEscAttr(timeNote)+'"></div>'
+        +'<div style="display:flex;gap:8px;margin-top:8px">'
+          +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-editfx-save">Save</button>'
+          +'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-editfx-undo">Undo last edit</button>'
+        +'</div>'
+        +'<p id="lgw-editfx-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+        +'</div></div>';
+    }
+
+    function bindEditFixturePanel(home, away, date){
+      var chk=document.getElementById('lgw-editfx-chk');
+      var body=document.getElementById('lgw-editfx-body');
+      if(!chk||!body) return;
+      chk.addEventListener('change',function(){ body.style.display=chk.checked?'block':'none'; });
+
+      var hIn=document.getElementById('lgw-editfx-home');
+      var aIn=document.getElementById('lgw-editfx-away');
+      var dIn=document.getElementById('lgw-editfx-date');
+      var tIn=document.getElementById('lgw-editfx-time');
+      var swap=document.getElementById('lgw-editfx-swap');
+      var saveBtn=document.getElementById('lgw-editfx-save');
+      var undoBtn=document.getElementById('lgw-editfx-undo');
+      var statusEl=document.getElementById('lgw-editfx-status');
+
+      if(swap && hIn && aIn) swap.addEventListener('click',function(){ var t=hIn.value; hIn.value=aIn.value; aIn.value=t; });
+
+      function showStatus(msg, ok){
+        if(!statusEl) return;
+        statusEl.style.display='block'; statusEl.textContent=msg;
+        statusEl.style.color = ok ? '#1a7f37' : '#c0202a';
+      }
+      function send(action, extra, btn){
+        var fd=new FormData();
+        fd.append('action', action);
+        fd.append('nonce', (typeof lgwData!=='undefined'?lgwData.scNonce:''));
+        fd.append('season_id', editFxSeason());
+        fd.append('division', divisionTitle||'');
+        for(var k in extra) fd.append(k, extra[k]);
+        if(btn) btn.disabled=true;
+        var xhr=new XMLHttpRequest();
+        xhr.open('POST', (typeof lgwData!=='undefined'?lgwData.ajaxUrl:'/wp-admin/admin-ajax.php'));
+        xhr.onload=function(){
+          if(btn) btn.disabled=false;
+          var res={}; try{ res=JSON.parse(xhr.responseText||'{}'); }catch(e){}
+          if(res.success){ showStatus('Saved — reloading…', true); setTimeout(function(){ location.reload(); }, 700); }
+          else { showStatus(res.data||'Error saving fixture', false); }
+        };
+        xhr.onerror=function(){ if(btn) btn.disabled=false; showStatus('Network error', false); };
+        xhr.send(fd);
+      }
+
+      if(saveBtn) saveBtn.addEventListener('click',function(){
+        var nh=(hIn?hIn.value:'').trim(), na=(aIn?aIn.value:'').trim();
+        if(!nh||!na){ showStatus('Home and away teams are required', false); return; }
+        send('lgw_edit_fixture', {
+          old_home:home, old_away:away, old_date:date,
+          home:nh, away:na,
+          date:(dIn?dIn.value:'').trim(), time:(tIn?tIn.value:'').trim()
+        }, saveBtn);
+      });
+      if(undoBtn) undoBtn.addEventListener('click',function(){
+        if(!confirm('Undo the last recorded edit to this fixture?')) return;
+        send('lgw_revert_fixture', { home:home, away:away, date:date }, undoBtn);
+      });
+      var clearScBtn=document.getElementById('lgw-editfx-clearsc');
+      if(clearScBtn) clearScBtn.addEventListener('click',function(){
+        if(!confirm('Clear (trash) the scorecard attached to this fixture? It returns to unplayed and you can then edit the teams/date. The scorecard is recoverable from Trash.')) return;
+        send('lgw_delete_scorecard', { home:home, away:away, date:date }, clearScBtn);
+      });
+    }
+
     function showFixtureModal(home, away, date){
       var effectiveAdmin = isAdmin && viewAsAdmin; // respects view toggle
       var pp = buildPostponePanel(home, away, date, effectiveAdmin);
@@ -1609,8 +1762,9 @@ function getTeamShape(team){
           +'</div>';
       }
 
+      var editFxPanel = buildEditFixturePanel(home, away, date, effectiveAdmin);
       var fxAdminPanels = effectiveAdmin
-        ? '<div class="lgw-admin-panels">'+pp.html+concessionFxPanel+nullVoidFxPanel+'</div>'
+        ? '<div class="lgw-admin-panels">'+pp.html+concessionFxPanel+nullVoidFxPanel+editFxPanel+'</div>'
         : pp.html + concessionFxPanel + nullVoidFxPanel;
       var bodyHtml=fxStatsHtml
         +'<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 12px">'+date+'</p>'
@@ -1622,6 +1776,7 @@ function getTeamShape(team){
       bindPostponePanel(home, away, date, pp.key, pp.entry);
       bindConcedePanel(home, away, date, pdKeyFx, ceFx, divisionTitle);
       bindNullVoidPanel(home, away, date, pdKeyFx, nvFx, divisionTitle);
+      bindEditFixturePanel(home, away, date);
       var container=document.getElementById('lgw-sc-container');
       if(!container) return;
 
@@ -1750,8 +1905,9 @@ function getTeamShape(team){
           +'</div>';
       }
 
+      var editFxPanel2 = buildEditFixturePanel(home, away, date, effectiveAdmin);
       var adminPanelsHtml = effectiveAdmin
-        ? '<div class="lgw-admin-panels">'+concessionPanel+postponePanel+nullVoidPanel+'</div>'
+        ? '<div class="lgw-admin-panels">'+concessionPanel+postponePanel+nullVoidPanel+editFxPanel2+'</div>'
         : concessionPanel + postponePanel + nullVoidPanel;
       var bodyHtml = '<p class="lgw-sc-date" style="font-size:12px;color:#999;margin:0 0 8px">'+date+'</p>'
         + (division ? '<p style="font-size:12px;color:#999;margin:0 0 12px">'+division+'</p>' : '')
@@ -1763,6 +1919,7 @@ function getTeamShape(team){
       bindConcedePanel(home, away, date, pdKey2, concessionEntry2, divisionTitle);
       bindPostponePanel(home, away, date, pdKey2, postEntry2);
       bindNullVoidPanel(home, away, date, pdKey2, nvEntry2, divisionTitle);
+      bindEditFixturePanel(home, away, date);
 
       var container = document.getElementById('lgw-sc-modal-submit');
       if(!container) return;

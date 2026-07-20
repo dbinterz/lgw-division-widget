@@ -227,9 +227,16 @@ table.lg{width:100%;border-collapse:collapse;font-size:13px}
 .lgw-postpone-panel{background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:12px}
 .lgw-concede-panel{background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:12px}
 .lgw-null-void-panel{background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:12px}
-.lgw-admin-panels{display:flex;gap:12px;margin-bottom:12px;align-items:flex-start}
-.lgw-admin-panels>.lgw-postpone-panel,.lgw-admin-panels>.lgw-concede-panel,.lgw-admin-panels>.lgw-null-void-panel{flex:1;margin-bottom:0}
+.lgw-editfx-panel{background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.lgw-admin-panels{display:flex;gap:12px;margin-bottom:12px;align-items:flex-start;flex-wrap:wrap}
+.lgw-admin-panels>.lgw-postpone-panel,.lgw-admin-panels>.lgw-concede-panel,.lgw-admin-panels>.lgw-null-void-panel,.lgw-admin-panels>.lgw-editfx-panel{flex:1;margin-bottom:0}
+.lgw-admin-panels>.lgw-editfx-panel{flex-basis:100%}
 @media(max-width:520px){.lgw-admin-panels{flex-direction:column}}
+.lgw-editfx-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.lgw-editfx-row label{font-size:12px;color:#666;width:44px;flex:0 0 44px;font-weight:600}
+.lgw-editfx-row input{flex:1;padding:5px 8px;border:1px solid #d0d5e8;border-radius:5px;font-size:13px;color:#1a1a1a;background:#fff}
+.lgw-editfx-row input:disabled{background:#f0f0f0;color:#999;cursor:not-allowed}
+.lgw-editfx-warn{font-size:12px;color:#8a5a00;background:#fff7e6;border:1px solid #ffe0a3;border-radius:5px;padding:6px 8px;margin:0 0 8px}
 .fx-null-void-pill{display:inline-flex;align-items:center;gap:5px;background:#424242;color:#fff;font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;white-space:nowrap;letter-spacing:.02em}
 .lgw-postponed-notice{margin-bottom:12px;text-align:center}
 .fx-row.played .fx-sb{background:var(--lgw-navy);color:#fff;border-color:var(--lgw-navy-mid)}

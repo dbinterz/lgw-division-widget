@@ -7,6 +7,33 @@ on:
     branches: [main]
 
 jobs:
+  version-consistency:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version is consistent and not in the future
+        run: |
+          HEADER=$(grep -oP '^\s*\*\s*Version:\s*\K[0-9.]+' lgw-division-widget.php | head -1)
+          CONST=$(grep -oP "define\('LGW_VERSION', '\K[^']+" lgw-division-widget.php | head -1)
+          STABLE=$(grep -oP '^Stable tag:\s*\K[0-9.]+' readme.txt | head -1)
+          echo "header=$HEADER const=$CONST stable=$STABLE"
+          if [ "$HEADER" != "$CONST" ] || [ "$CONST" != "$STABLE" ]; then
+            echo "::error::Version mismatch — header ($HEADER), LGW_VERSION ($CONST) and readme Stable tag ($STABLE) must match."
+            exit 1
+          fi
+          if ! echo "$CONST" | grep -qE '^[0-9]{4}\.[0-9]{1,2}\.[0-9]+$'; then
+            echo "::error::Version '$CONST' is not yyyy.ww.n"; exit 1
+          fi
+          # yyyy.ww must not be in the future (catches a stale/typo'd week)
+          vy=$(echo "$CONST" | cut -d. -f1); vw=$(echo "$CONST" | cut -d. -f2)
+          ny=$(date +%G); nw=$(date +%V)
+          if [ $((10#$vy*100+10#$vw)) -gt $((10#$ny*100+10#$nw)) ]; then
+            echo "::error::Version week $vy.$vw is in the future (today is $ny.$nw). Use bin/bump-version.sh."
+            exit 1
+          fi
+          echo "Version $CONST OK."
+
   phpunit:
     name: PHP Unit Tests
     runs-on: ubuntu-latest

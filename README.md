@@ -108,6 +108,19 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.0]
+### Added
+- **Fixture editing in WordPress-authoritative mode.** CSV mode edits fixtures by changing the sheet; WP mode had no equivalent. New admin-only "Edit fixture" panel in the fixture modal (both played + unplayed), gated on `lgwData.dataSource === 'wordpress'`. Corrects home/away, one-click **Swap** (transposes teams + scores + points), date and time. `lgw_ajax_edit_fixture` locates the fixture in `lgw_div_cache_{season}_{division}['fixtures']` by its old `home||away||date` key, applies, and re-saves; standings recompute from fixtures. Identity edits are blocked (client + server via `lgw_fixture_has_result()`) when a confirmed scorecard or concession/postponement/null-void/override exists.
+- **Fixture-edit auditing + baseline.** `lgw_fixture_log()` appends every edit/swap/revert to `lgw_fixture_edit_log` (ring buffer, 500). `lgw_fixture_snapshot_baseline()` captures a division's pristine fixtures once — at seed time and lazily before the first edit — into `lgw_div_baseline_{season}_{division}`, giving a future hard reset a known-good state. Read-only **LGW → Fixture Audit** screen renders the log newest-first.
+- **Per-fixture Undo.** `lgw_ajax_revert_fixture` restores a fixture from its most recent log entry; "Undo last edit" button in the panel.
+
+- **Date-aware scorecard matching.** `lgw_get_scorecard()` now honours the `$date` it's passed (it was previously accepted but ignored): among same home+away+division candidates it returns the one whose `lgw_fixture_date` matches (exact or parsed within a day) via new `lgw_scorecard_fixture_date_matches()`; date-less legacy scorecards still match, and date-less lookups keep prior behaviour. Fixes a swapped fixture surfacing/overwriting the reverse leg's scorecard. The fixture-edit guard now passes date + division.
+- **Clear scorecard.** `lgw_ajax_delete_scorecard` trashes the scorecard for a specific fixture, drops its score override, and wipes the cached result to unplayed. Surfaced as a "Clear scorecard" button in the Edit fixture panel when a scorecard is attached.
+- **WP-cache gating.** The editor only renders on widgets server-rendered from the WP cache (`data-prerendered="1"`), sending the exact season via new `data-season` attribute (from `lgw_cache_render_division`).
+
+### Deferred (phase 2)
+- Division-wide hard reset from baseline (with confirmed-scorecard re-overlay).
+
 ## [2026.27.31]
 ### Added
 - **Cup walkover / concession.** The admin score-entry popover on a cup fixture now has a "Walkover — team conceded" control naming which team conceded; the opponent advances to the next round with no score stored (cup ties carry no points). `lgw_ajax_cup_save_score()` accepts a `conceded` param (`home`/`away`/`''`), sets `match.conceded`, and advances the non-conceding team; entering a real score clears any prior walkover. The bracket shows the advancing team with `W` and the conceding side `w/o`. "Clear walkover" reverts it and cascades the downstream slot clear (`lgw_cup_cascade_reset()` now also nulls a downstream `conceded`). Mirrors the league-fixture concession control in `lgw-widget.js`.

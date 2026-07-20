@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.31
+Stable tag: 2026.30.0
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,13 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.0 =
+* Feature: Admins can now edit fixtures directly in WordPress data-source mode. In CSV mode you'd fix a fixture by editing the Google Sheet, but WP-authoritative mode had no equivalent — this adds an "Edit fixture" panel to the fixture modal (admins only, WordPress mode only). You can correct the home/away teams, one-click Swap them (scores and points swap with them), and change the date/time. Edits to the teams or date are blocked when the fixture has a confirmed result or an admin overlay (concession/postponement/null-void/override) — clear that first. Standings recompute automatically. The panel only appears on widgets actually backed by the WordPress cache, and targets the exact season the cache was rendered from.
+* Fix: Scorecards AND score overrides are now matched to fixtures by date as well as teams. Previously a scorecard was identified by home + away + division only and an override by home + away only, so two meetings of the same pairing in the same orientation (e.g. after swapping a fixture's home/away) could surface — or at submit time overwrite — the wrong occurrence, and the "has a result" guard false-flagged the other leg. Lookups, the guard and the clear action now disambiguate by date (legacy date-less records still match; date-less lookups are unchanged).
+* Feature: Clear scorecard. When a fixture has a scorecard attached, the Edit fixture panel shows a "Clear scorecard" button that trashes it (recoverable), removes any score override, and returns the fixture to unplayed — so the teams/date can then be edited.
+* Feature: Fixture-edit auditing. Every edit, swap and undo is written to an append-only log (last 500), viewable read-only under LGW → Fixture Audit. The first time a division is edited, its pristine fixtures are snapshotted as a baseline (also captured at seed time) so a future hard reset has a known-good state to return to.
+* Feature: Per-fixture Undo. The edit panel has an "Undo last edit" button that restores the fixture from its most recent logged state.
 
 = 2026.27.31 =
 * Feature: Cup matches can now be recorded as a walkover / concession. In the admin score-entry popover on a cup fixture, a "Walkover — team conceded" control names which team conceded; the opponent advances to the next round with no score stored (cup ties carry no points). The bracket shows the advancing team with a "W" and the conceding side "w/o". A "Clear walkover" button reverts it, cascading the downstream slot clear as a normal score reset does. Mirrors the existing league-fixture concession control.
