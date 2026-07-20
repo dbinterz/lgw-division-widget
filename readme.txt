@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.27.30
+Stable tag: 2026.27.31
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.27.31 =
+* Feature: Cup matches can now be recorded as a walkover / concession. In the admin score-entry popover on a cup fixture, a "Walkover — team conceded" control names which team conceded; the opponent advances to the next round with no score stored (cup ties carry no points). The bracket shows the advancing team with a "W" and the conceding side "w/o". A "Clear walkover" button reverts it, cascading the downstream slot clear as a normal score reset does. Mirrors the existing league-fixture concession control.
 
 = 2026.27.30 =
 * Fix: The request-access page ([lgw_club_access_request]) is now readable in dark mode. On dark-themed sites the card background was inverting while the text stayed dark, giving dark-on-dark. The page now pins the light palette (as the fixture modal does) across all states — logged-out, pending, approved and the request form.

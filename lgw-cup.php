@@ -132,6 +132,9 @@ function lgw_ajax_cup_save_score() {
     $match_idx = intval($_POST['match_idx']       ?? -1);
     $home_score = $_POST['home_score'] !== '' ? intval($_POST['home_score']) : null;
     $away_score = $_POST['away_score'] !== '' ? intval($_POST['away_score']) : null;
+    // Walkover / concession: 'home' or 'away' names the conceding team; '' clears it.
+    $conceded   = sanitize_text_field($_POST['conceded'] ?? '');
+    if ($conceded !== 'home' && $conceded !== 'away') $conceded = '';
 
     if (!$cup_id || $round_idx < 0 || $match_idx < 0) wp_send_json_error('Invalid parameters');
 
@@ -151,8 +154,11 @@ function lgw_ajax_cup_save_score() {
         }
     }
 
+    // A walkover carries no score; entering a score clears any prior walkover.
+    if ($conceded) { $home_score = null; $away_score = null; }
     $match['home_score'] = $home_score;
     $match['away_score'] = $away_score;
+    $match['conceded']   = $conceded ?: null;
 
     // Audit log entry
     $audit_entry = array(
@@ -164,6 +170,7 @@ function lgw_ajax_cup_save_score() {
         'away'       => $match['away'] ?? '',
         'home_score' => $home_score,
         'away_score' => $away_score,
+        'conceded'   => $conceded ?: '',
         'by'         => $is_admin
                         ? (wp_get_current_user()->user_login ?: 'admin')
                         : ( $is_club_admin && !$token_valid
@@ -176,18 +183,26 @@ function lgw_ajax_cup_save_score() {
     $log = array_slice($log, 0, 200); // keep last 200 entries
     update_option('lgw_cup_score_log', $log);
 
-    // Advance winner to next round if both scores set
-    if ($home_score !== null && $away_score !== null && $home_score !== $away_score) {
+    // Determine winner — a concession advances the non-conceding team; otherwise
+    // the higher score wins.
+    $winner = null;
+    if ($conceded === 'home')      $winner = $match['away'];
+    elseif ($conceded === 'away')  $winner = $match['home'];
+    elseif ($home_score !== null && $away_score !== null && $home_score !== $away_score) {
         $winner = $home_score > $away_score ? $match['home'] : $match['away'];
-        $next   = lgw_cup_next_slot($bracket, $round_idx, $match_idx);
+    }
+
+    // Advance winner to next round
+    if ($winner !== null) {
+        $next = lgw_cup_next_slot($bracket, $round_idx, $match_idx);
         if ($next && isset($bracket['matches'][$next['round']][$next['match']])) {
             $bracket['matches'][$next['round']][$next['match']][$next['slot']]           = $winner;
             $bracket['matches'][$next['round']][$next['match']][$next['slot'] . '_score'] = null;
         }
     }
 
-    // Reset: if both scores cleared, cascade through all downstream rounds
-    if ($home_score === null && $away_score === null) {
+    // Reset: no result at all (scores cleared and no concession) → cascade downstream
+    if ($winner === null && $home_score === null && $away_score === null) {
         lgw_cup_cascade_reset($bracket, $round_idx, $match_idx);
     }
 
@@ -607,6 +622,8 @@ function lgw_cup_cascade_reset(&$bracket, $round_idx, $match_idx) {
     $all_matches[$next_round][$next_match][$next_slot . '_score'] = null;
     $other_score = $next_slot === 'home' ? 'away_score' : 'home_score';
     $all_matches[$next_round][$next_match][$other_score] = null;
+    // A cleared team slot invalidates any walkover recorded downstream.
+    $all_matches[$next_round][$next_match]['conceded'] = null;
 
     lgw_cup_cascade_reset($bracket, $next_round, $next_match);
 }

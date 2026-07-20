@@ -712,6 +712,78 @@
   min-height: 14px;
 }
 
+/* ── Walkover / concession control ──────────────────────────────────────────── */
+.lgw-cup-score-pop-wo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--lgw-border, #d0d5e8);
+}
+.lgw-cup-score-pop-wo-label,
+.lgw-cup-score-pop-wo-note {
+  flex: 0 0 100%;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lgw-text-muted, #666);
+}
+.lgw-cup-score-pop-wo-note { font-weight: 500; }
+.lgw-cup-score-pop-wo-btn {
+  flex: 1;
+  padding: 6px 8px;
+  background: none;
+  border: 1px solid var(--lgw-border, #d0d5e8);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--lgw-text, #1a1a1a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lgw-cup-score-pop-wo-btn:hover {
+  border-color: var(--lgw-navy, #1a2e5a);
+  background: var(--lgw-tab-bg, #eef1f8);
+}
+.lgw-cup-score-pop-wo-clear {
+  padding: 6px 10px;
+  background: none;
+  border: 1px solid var(--lgw-red, #c0202a);
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--lgw-red, #c0202a);
+}
+.lgw-cup-score-pop-wo-clear:hover { background: var(--lgw-red, #c0202a); color: #fff; }
+.lgw-cup-score-pop-wo-clear:disabled { opacity: .6; cursor: default; }
+
+/* Walkover panel inside the scorecard modal (light palette, matches modal box) */
+.lgw-cup-sc-modal-wo {
+  padding: 12px 20px 4px;
+  background: #fff;
+  color: #1a1a1a;
+}
+.lgw-cup-sc-modal-wo .lgw-cup-score-pop-wo {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.lgw-cup-sc-modal-wo .lgw-cup-score-pop-wo-label,
+.lgw-cup-sc-modal-wo .lgw-cup-score-pop-wo-note { color: #555; }
+.lgw-cup-sc-modal-wo .lgw-cup-score-pop-wo-btn { color: #1a1a1a; border-color: #d0d5e8; }
+.lgw-cup-sc-modal-wo .lgw-cup-score-pop-wo-btn:hover { background: #eef1f8; border-color: #1a2e5a; }
+.lgw-cup-sc-modal-wo-msg {
+  font-size: 11px;
+  color: #c0202a;
+  min-height: 0;
+}
+.lgw-cup-sc-modal-wo-msg:not(:empty) { min-height: 14px; margin-top: 4px; }
+
 /* ── Match scorecard viewer ──────────────────────────────────────────────────── */
 .lgw-cup-has-scorecard {
   cursor: pointer;

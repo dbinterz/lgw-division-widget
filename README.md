@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.27.31]
+### Added
+- **Cup walkover / concession.** The admin score-entry popover on a cup fixture now has a "Walkover — team conceded" control naming which team conceded; the opponent advances to the next round with no score stored (cup ties carry no points). `lgw_ajax_cup_save_score()` accepts a `conceded` param (`home`/`away`/`''`), sets `match.conceded`, and advances the non-conceding team; entering a real score clears any prior walkover. The bracket shows the advancing team with `W` and the conceding side `w/o`. "Clear walkover" reverts it and cascades the downstream slot clear (`lgw_cup_cascade_reset()` now also nulls a downstream `conceded`). Mirrors the league-fixture concession control in `lgw-widget.js`.
+
 ## [2026.27.30]
 ### Fixed
 - **Request-access page readable in dark mode.** `.lgw-submit-card`'s dark-mode CSS inverted only the card background while the shortcode's dark text stayed put (dark-on-dark). Added `.lgw-ca-box` overrides in `lgw-scorecard.css` that pin the light palette (card, headings, text, select/textarea, hint) for all shortcode states. Rules live in the stylesheet (not inline) so they also cover the logged-out/pending/approved branches, which return before any inline block.

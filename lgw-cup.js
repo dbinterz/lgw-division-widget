@@ -1,4 +1,4 @@
-/* LGW Cup Bracket JS - v6.1.6 */
+/* LGW Cup Bracket JS - v6.1.7 */
 (function () {
   'use strict';
 
@@ -127,10 +127,15 @@
     var away       = match.away  || '';
     var hs         = match.home_score;
     var as         = match.away_score;
+    var conceded   = match.conceded || '';           // 'home' | 'away' | ''
+    var isWO       = (conceded === 'home' || conceded === 'away');
     var hasResult  = (hs !== null && hs !== undefined && hs !== '' &&
                       as !== null && as !== undefined && as !== '');
-    var homeWin    = hasResult && parseFloat(hs) > parseFloat(as);
-    var awayWin    = hasResult && parseFloat(as) > parseFloat(hs);
+    var homeWin    = (hasResult && parseFloat(hs) > parseFloat(as)) || conceded === 'away';
+    var awayWin    = (hasResult && parseFloat(as) > parseFloat(hs)) || conceded === 'home';
+    // Walkover: winner shows 'W', conceding side shows 'w/o'.
+    var homeDisp   = isWO ? (conceded === 'home' ? 'w/o' : 'W') : (hasResult ? hs : null);
+    var awayDisp   = isWO ? (conceded === 'away' ? 'w/o' : 'W') : (hasResult ? as : null);
 
     var cls = 'lgw-cup-match';
     if (match.bye)     cls += ' lgw-cup-bye';
@@ -151,8 +156,8 @@
     }
 
     return '<div class="' + cls + '">'
-      + renderTeamRow(home, hasResult ? hs : null, homeWin, awayWin && home, match.draw_num_home, home ? null : homePlaceholder, homeIcon)
-      + renderTeamRow(away, hasResult ? as : null, awayWin, homeWin && away, match.draw_num_away, away ? null : awayPlaceholder, awayIcon)
+      + renderTeamRow(home, homeDisp, homeWin, awayWin && home, match.draw_num_home, home ? null : homePlaceholder, homeIcon)
+      + renderTeamRow(away, awayDisp, awayWin, homeWin && away, match.draw_num_away, away ? null : awayPlaceholder, awayIcon)
       + matchIcon
       + '</div>';
   }
@@ -558,6 +563,69 @@
     advance();
   }
 
+  // ── Walkover / concession control (shared by score popover + scorecard modal) ──
+  // Builds the markup for the admin walkover control. Only meaningful when both
+  // teams are known; returns '' otherwise.
+  function cupWalkoverHtml(match, homeName, awayName) {
+    if (!(match.home && match.away)) return '';
+    var conceded = match.conceded || '';   // 'home' | 'away' | ''
+    if (conceded === 'home' || conceded === 'away') {
+      var woLoser  = conceded === 'home' ? homeName : awayName;
+      var woWinner = conceded === 'home' ? awayName : homeName;
+      return '<div class="lgw-cup-score-pop-wo">' +
+          '<div class="lgw-cup-score-pop-wo-note">&#x1F3F3;&#xFE0F; Walkover &mdash; ' +
+            escHtml(woLoser) + ' conceded; ' + escHtml(woWinner) + ' advances.</div>' +
+          '<button class="lgw-cup-score-pop-wo-clear">Clear walkover</button>' +
+        '</div>';
+    }
+    return '<div class="lgw-cup-score-pop-wo">' +
+        '<div class="lgw-cup-score-pop-wo-label">&#x1F3F3;&#xFE0F; Walkover &mdash; team conceded:</div>' +
+        '<button class="lgw-cup-score-pop-wo-btn" data-side="home">' + escHtml(homeName) + '</button>' +
+        '<button class="lgw-cup-score-pop-wo-btn" data-side="away">' + escHtml(awayName) + '</button>' +
+      '</div>';
+  }
+
+  // Wires the walkover buttons inside `scope`. ctx: { wrap, cupId, nonce, roundIdx,
+  // matchIdx, homeName, awayName, msgEl, onDone }. Posts to lgw_cup_save_score and
+  // calls onDone(bracket) on success.
+  function bindCupWalkover(scope, ctx) {
+    function send(conceded, btn, busyText) {
+      var restore = btn.textContent;
+      btn.disabled = true;
+      if (busyText) btn.textContent = busyText;
+      post('lgw_cup_save_score', {
+        cup_id: ctx.cupId, nonce: ctx.nonce,
+        round_idx: ctx.roundIdx, match_idx: ctx.matchIdx,
+        home_score: '', away_score: '',
+        conceded: conceded,
+        score_token: scoreToken || '',
+      }, function (res) {
+        if (!res.success) {
+          if (ctx.msgEl) ctx.msgEl.textContent = 'Error: ' + (res.data || 'Unknown');
+          btn.disabled = false;
+          btn.textContent = restore;
+          return;
+        }
+        ctx.onDone(res.data.bracket);
+      });
+    }
+    qsa('.lgw-cup-score-pop-wo-btn', scope).forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var side       = btn.dataset.side;
+        var winnerName = side === 'home' ? ctx.awayName : ctx.homeName;
+        if (!confirm('Record a walkover? ' + winnerName + ' will advance; no score is stored.')) return;
+        send(side, btn);
+      });
+    });
+    var clearBtn = qs('.lgw-cup-score-pop-wo-clear', scope);
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        if (!confirm('Clear the walkover? The next round slot will also be cleared.')) return;
+        send('', clearBtn, 'Clearing…');
+      });
+    }
+  }
+
   // ── Cup match scorecard viewer ────────────────────────────────────────────────
   // Uses lgwFetchScorecardOrSubmit (full modal with submission/login gate) when
   // lgw-scorecard.js is loaded; falls back to the cup-specific quick-view.
@@ -574,8 +642,16 @@
     var nonce          = (typeof lgwCupData !== 'undefined') ? lgwCupData.cupNonce : '';
 
     // Admin gets an "Enter Score" button in the modal header for quick access to the score popover
-    var adminScoreBtn = (isAdmin && ri !== undefined && mi !== undefined)
+    var canScore      = (isAdmin && ri !== undefined && mi !== undefined);
+    var adminScoreBtn = canScore
       ? '<button class="lgw-cup-sc-modal-score-btn" title="Enter quick score">✏️ Score</button>'
+      : '';
+
+    // Admin walkover panel — sits below the header, above the scorecard body (which
+    // gets replaced when the scorecard loads, so it lives outside that container).
+    var woPanel = (canScore && match.home && match.away)
+      ? '<div class="lgw-cup-sc-modal-wo">' + cupWalkoverHtml(match, match.home, match.away) +
+        '<div class="lgw-cup-sc-modal-wo-msg"></div></div>'
       : '';
 
     var modal = document.createElement('div');
@@ -587,9 +663,28 @@
           adminScoreBtn +
           '<button class="lgw-cup-sc-modal-close" aria-label="Close">&times;</button>' +
         '</div>' +
+        woPanel +
         '<div class="lgw-cup-sc-modal-body"><p class="lgw-cup-sc-loading">Loading scorecard…</p></div>' +
       '</div>';
     document.body.appendChild(modal);
+
+    // Wire the walkover panel
+    if (woPanel) {
+      var woWrap = card.closest('[data-cup-id]');
+      var woMsg  = qs('.lgw-cup-sc-modal-wo-msg', modal);
+      bindCupWalkover(modal, {
+        wrap: woWrap,
+        cupId: woWrap ? woWrap.dataset.cupId : '',
+        nonce: (typeof lgwCupData !== 'undefined') ? lgwCupData.scoreNonce : '',
+        roundIdx: ri, matchIdx: mi,
+        homeName: match.home, awayName: match.away,
+        msgEl: woMsg,
+        onDone: function (bracket) {
+          if (modal.parentNode) modal.parentNode.removeChild(modal);
+          if (woWrap) renderBracket(woWrap, bracket);
+        },
+      });
+    }
 
     qs('.lgw-cup-sc-modal-close', modal).addEventListener('click', function () {
       modal.parentNode.removeChild(modal);
@@ -890,7 +985,9 @@
     var hs = (match.home_score !== null && match.home_score !== undefined) ? match.home_score : '';
     var as = (match.away_score !== null && match.away_score !== undefined) ? match.away_score : '';
 
-    var hasScore = (hs !== '' && as !== '');
+    var hasScore  = (hs !== '' && as !== '');
+    // Walkover / concession control (only when both teams are known)
+    var woHtml = cupWalkoverHtml(match, homeName, awayName);
 
     var pop = document.createElement('div');
     pop.className = 'lgw-cup-score-popover';
@@ -904,6 +1001,7 @@
         '<span class="lgw-cup-score-pop-name">' + escHtml(awayName) + '</span>' +
         '<input class="lgw-cup-score-pop-input" id="lgw-score-away" type="number" min="0" max="99" value="' + escHtml(String(as)) + '" placeholder="–">' +
       '</div>' +
+      woHtml +
       '<div class="lgw-cup-score-pop-actions">' +
         '<button class="lgw-cup-score-pop-save">Save</button>' +
         '<button class="lgw-cup-score-pop-cancel">Cancel</button>' +
@@ -955,6 +1053,18 @@
         });
       });
     }
+
+    // Walkover — record which team conceded; opponent advances, no score stored.
+    bindCupWalkover(pop, {
+      wrap: wrap, cupId: cupId, nonce: nonce,
+      roundIdx: roundIdx, matchIdx: matchIdx,
+      homeName: homeName, awayName: awayName,
+      msgEl: msgEl,
+      onDone: function (bracket) {
+        if (pop.parentNode) pop.parentNode.removeChild(pop);
+        renderBracket(wrap, bracket);
+      },
+    });
 
     qs('.lgw-cup-score-pop-save', pop).addEventListener('click', function () {
       var saveBtn = this;
