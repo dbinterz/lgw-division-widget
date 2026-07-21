@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.1]
+### Fixed
+- **Edit-fixture warning names the actual overlay.** New `fixtureResultReasons()` in `lgw-widget.js` replaces the vague "has a result or overlay" with the specific attachment(s) — "a postponement / reschedule", "a concession", "a null & void", "a scorecard (status)", "a score override" — so a postponed fixture is no longer misread as a recorded 0-0 result. No behaviour change; teams/date remain locked while an overlay/scorecard is attached.
+
 ## [2026.30.0]
 ### Added
 - **Fixture editing in WordPress-authoritative mode.** CSV mode edits fixtures by changing the sheet; WP mode had no equivalent. New admin-only "Edit fixture" panel in the fixture modal (both played + unplayed), gated on `lgwData.dataSource === 'wordpress'`. Corrects home/away, one-click **Swap** (transposes teams + scores + points), date and time. `lgw_ajax_edit_fixture` locates the fixture in `lgw_div_cache_{season}_{division}['fixtures']` by its old `home||away||date` key, applies, and re-saves; standings recompute from fixtures. Identity edits are blocked (client + server via `lgw_fixture_has_result()`) when a confirmed scorecard or concession/postponement/null-void/override exists.

@@ -1556,16 +1556,28 @@ function getTeamShape(team){
       if(a===''||b==='') return true; // legacy/date-less → treat as match
       return a===b;
     }
-    function fixtureHasResultLocal(home, away, date){
+    // Returns a list of what's attached to a fixture's identity, so the edit panel
+    // can name it (a postponement is not a "result" — don't lump them together).
+    function fixtureResultReasons(home, away, date){
       var key=(home+'||'+away+'||'+date).toLowerCase();
-      if(concessions[key]||postponements[key]||nullVoids[key]||scorecardStatus[key]) return true;
+      var reasons=[];
+      if(scorecardStatus[key]){
+        var st=String(scorecardStatus[key]).split(':')[0];
+        reasons.push({type:'scorecard', label:'a scorecard ('+st+')'});
+      }
+      if(concessions[key])   reasons.push({type:'concession',  label:'a concession'});
+      if(nullVoids[key])     reasons.push({type:'nullvoid',    label:'a null & void'});
+      if(postponements[key]) reasons.push({type:'postponement',label:'a postponement / reschedule'});
       for(var ok in scoreOverrides){
         var ov=scoreOverrides[ok];
         if(ov && (ov.home||'').toUpperCase()===home.toUpperCase()
               && (ov.away||'').toUpperCase()===away.toUpperCase()
-              && fixtureDatesMatchLocal(ov.date, date)) return true;
+              && fixtureDatesMatchLocal(ov.date, date)){ reasons.push({type:'override', label:'a score override'}); break; }
       }
-      return false;
+      return reasons;
+    }
+    function fixtureHasResultLocal(home, away, date){
+      return fixtureResultReasons(home, away, date).length > 0;
     }
 
     // The season the WP cache was rendered from (empty if this widget fell back
@@ -1584,12 +1596,18 @@ function getTeamShape(team){
 
     function buildEditFixturePanel(home, away, date, effectiveAdmin){
       if(!effectiveAdmin || !editFxAvailable()) return '';
-      var hasResult = fixtureHasResultLocal(home, away, date);
-      var hasScorecard = !!scorecardStatus[(home+'||'+away+'||'+date).toLowerCase()];
+      var reasons = fixtureResultReasons(home, away, date);
+      var hasResult = reasons.length > 0;
+      var hasScorecard = false;
+      var reasonLabels = [];
+      for(var ri=0; ri<reasons.length; ri++){ reasonLabels.push(reasons[ri].label); if(reasons[ri].type==='scorecard') hasScorecard=true; }
       var timeNote  = findFixtureTimeNote(home, away, date);
       var dis = hasResult ? ' disabled' : '';
       var warn = hasResult
-        ? '<div class="lgw-editfx-warn">&#9888;&#65039; This fixture has a result or overlay. Clear it first to change the teams or date; you can still edit the time.'
+        ? '<div class="lgw-editfx-warn">&#9888;&#65039; This fixture has ' + reasonLabels.join(' and ')
+          + ' attached. Teams/date are locked while it is set &mdash; clear it in the panel above (postponement, concession or null &amp; void)'
+          + (hasScorecard ? ', or use the button below' : '')
+          + ' first. You can still edit the time.'
           + (hasScorecard ? '<div style="margin-top:6px"><button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-editfx-clearsc">&#x274C; Clear scorecard</button></div>' : '')
           + '</div>'
         : '';

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.0
+Stable tag: 2026.30.1
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.1 =
+* Fix: The Edit fixture panel now names what is attached to a locked fixture instead of the vague "has a result or overlay". A postponed fixture reads "has a postponement / reschedule attached" (not a phantom score), a conceded one "a concession", and so on — so a postponement is no longer mistaken for a recorded 0-0 result. Behaviour is unchanged; teams/date stay locked while an overlay/scorecard is set (clear it in the relevant panel first).
 
 = 2026.30.0 =
 * Feature: Admins can now edit fixtures directly in WordPress data-source mode. In CSV mode you'd fix a fixture by editing the Google Sheet, but WP-authoritative mode had no equivalent — this adds an "Edit fixture" panel to the fixture modal (admins only, WordPress mode only). You can correct the home/away teams, one-click Swap them (scores and points swap with them), and change the date/time. Edits to the teams or date are blocked when the fixture has a confirmed result or an admin overlay (concession/postponement/null-void/override) — clear that first. Standings recompute automatically. The panel only appears on widgets actually backed by the WordPress cache, and targets the exact season the cache was rendered from.
