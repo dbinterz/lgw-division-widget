@@ -1,4 +1,4 @@
-/* LGW Division Widget JS - v5.4 */
+/* LGW Division Widget JS - v5.6 */
 (function(){
   'use strict';
 
@@ -269,7 +269,13 @@
           }
         }
         if(homeTeam && awayTeam){
-          var played=(shotsHome!=='0'||shotsAway!=='0'||ptsHome!=='0'||ptsAway!=='0');
+          // A kickoff time can leak into a pts column on unplayed rows; treat it as
+          // the time note, not a result.
+          if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(ptsHome)){ if(!timeNote) timeNote=ptsHome.replace(/:\d{2}$/,'').length>=4?ptsHome.replace(/:\d{2}$/,''):ptsHome; ptsHome=''; }
+          if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(ptsAway)){ if(!timeNote) timeNote=ptsAway.replace(/:\d{2}$/,'').length>=4?ptsAway.replace(/:\d{2}$/,''):ptsAway; ptsAway=''; }
+          // Result exists only when a shot/pts value is present AND non-zero; blank
+          // and '0' treated the same so blank-away-pts rows aren't flagged as draws.
+          var played=((shotsHome!==''&&shotsHome!=='0')||(shotsAway!==''&&shotsAway!=='0')||(ptsHome!==''&&ptsHome!=='0')||(ptsAway!==''&&ptsAway!=='0'));
           cur.matches.push({
             ptsHome:ptsHome,ptsAway:ptsAway,
             homeTeam:homeTeam,awayTeam:awayTeam,
@@ -1990,6 +1996,7 @@ function getTeamShape(team){
         fd.append('division',          division || '');
         fd.append('concession_action', action);
         fd.append('conceding_team',    concedingSide);
+        fd.append('max_points',        maxPts);
         if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = '⏳'; }
         var xhr = new XMLHttpRequest();
         xhr.open('POST', (typeof lgwData !== 'undefined' ? lgwData.ajaxUrl : '/wp-admin/admin-ajax.php'));

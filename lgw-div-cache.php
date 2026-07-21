@@ -774,8 +774,25 @@ function lgw_cache_parse_fixtures( $csv_body ) {
                 }
             }
         }
-        $played = ( $shotsHome !== '0' || $shotsAway !== '0' || $ptsHome !== '0' || $ptsAway !== '0' )
-                  && ( $shotsHome !== '' || $shotsAway !== '' );
+        // A kickoff time can leak into a points column on unplayed rows; treat it as
+        // the time note, not a result, so it doesn't false-flag the fixture as played.
+        if ( preg_match( '/^\d{1,2}:\d{2}(:\d{2})?$/', $ptsHome ) ) {
+            if ( $timeNote === '' ) $timeNote = substr_count( $ptsHome, ':' ) > 1 ? preg_replace( '/:\d{2}$/', '', $ptsHome ) : $ptsHome;
+            $ptsHome = '';
+        }
+        if ( preg_match( '/^\d{1,2}:\d{2}(:\d{2})?$/', $ptsAway ) ) {
+            if ( $timeNote === '' ) $timeNote = substr_count( $ptsAway, ':' ) > 1 ? preg_replace( '/:\d{2}$/', '', $ptsAway ) : $ptsAway;
+            $ptsAway = '';
+        }
+
+        // A result exists only when a shot or points value is present AND non-zero.
+        // Blank and '0' are treated identically — some divisions leave the away-pts
+        // column blank on unplayed rows, which previously false-flagged 0-0 fixtures
+        // as played draws.
+        $played = ( ( $shotsHome !== '' && $shotsHome !== '0' )
+                 || ( $shotsAway !== '' && $shotsAway !== '0' )
+                 || ( $ptsHome   !== '' && $ptsHome   !== '0' )
+                 || ( $ptsAway   !== '' && $ptsAway   !== '0' ) );
 
         $fixtures[] = [
             'date'      => $curDate,

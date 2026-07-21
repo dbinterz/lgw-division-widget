@@ -108,6 +108,14 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.3]
+### Fixed
+- **Concession penalty respects per-division max points.** `lgw_ajax_save_concession` built the concession scorecard's points from the global `lgw_max_points` option (7), so a division with a max of 6 (the 12-player division) docked the conceder 7 and awarded the winner 7 instead of ±6. The handler now reads `max_points` posted by the widget (clamped 6–7) and falls back to the global option only when absent; `lgw-widget.js` `doSave()` sends the in-scope `maxPts` (from `data-maxpts`). The SSR standings path already used `$atts['max_points']` — this aligns the stored scorecard with it.
+
+## [2026.30.2]
+### Fixed
+- **Unplayed fixtures no longer render as 0-0 draws.** The `played` heuristic flagged a fixture played if any shots/points cell was non-zero, but `''` (blank away-pts, as some divisions leave on unplayed rows) is not `'0'`, and a kickoff time can leak into a points column — so upcoming 0-0 fixtures were shown as played draws. Now a result is recognised only when a shots/points value is present **and** non-zero (blank and `'0'` treated identically), and a time-formatted value in a points column is captured as the time note, not a score. Fixed in both `lgw-div-cache.php` (`lgw_cache_parse_fixtures`) and the `lgw-widget.js` CSV parser.
+
 ## [2026.30.1]
 ### Fixed
 - **Edit-fixture warning names the actual overlay.** New `fixtureResultReasons()` in `lgw-widget.js` replaces the vague "has a result or overlay" with the specific attachment(s) — "a postponement / reschedule", "a concession", "a null & void", "a scorecard (status)", "a score override" — so a postponed fixture is no longer misread as a recorded 0-0 result. No behaviour change; teams/date remain locked while an overlay/scorecard is attached.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.30.1
+ * Version: 2026.30.3
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.30.1');
+define('LGW_VERSION', '2026.30.3');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -702,7 +702,12 @@ function lgw_ajax_save_concession() {
 
     // ── SET: create/update a confirmed scorecard reflecting the concession ────
     $home_concedes = ($conceding_team === 'home');
-    $max_pts       = max(6, min(7, intval(get_option('lgw_max_points', 7))));
+    // Max points is per-division (6 for the 12-player division, 7 otherwise). The
+    // client sends the division's value; fall back to the global option if absent.
+    $posted_max = isset($_POST['max_points']) ? intval($_POST['max_points']) : 0;
+    $max_pts    = $posted_max > 0
+        ? max(6, min(7, $posted_max))
+        : max(6, min(7, intval(get_option('lgw_max_points', 7))));
 
     $home_shots  = $home_concedes ? 0  : 50;
     $away_shots  = $home_concedes ? 50 : 0;

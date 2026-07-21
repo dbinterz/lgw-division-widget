@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.1
+Stable tag: 2026.30.3
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.3 =
+* Fix: Concession penalty now respects the division's max points. When a game is conceded, the concession scorecard was always built with the global max-points option (7), so in a division with a max of 6 (the 12-player division) the conceding team was docked 7 and the winner given 7 instead of ±6. The concession save now uses the division's max points sent from the widget (clamped 6–7), falling back to the global option only if absent. The standings render already used the per-division value; this aligns the stored scorecard with it.
+
+= 2026.30.2 =
+* Fix: Unplayed fixtures no longer show as 0-0 draws. Fixtures were flagged "played" whenever any shots/points cell was non-zero, but some divisions leave the away-points column blank on unplayed rows ('' is not '0'), and a kickoff time (e.g. 17:30) can land in a points column — both false-flagged upcoming 0-0 fixtures as played draws. A result is now recognised only when a shots or points value is present AND non-zero; blank and '0' are treated the same, and a time value in a points column is read as the kickoff time, not a score. Fixed in both the PHP cache parser and the JS CSV parser.
 
 = 2026.30.1 =
 * Fix: The Edit fixture panel now names what is attached to a locked fixture instead of the vague "has a result or overlay". A postponed fixture reads "has a postponement / reschedule attached" (not a phantom score), a conceded one "a concession", and so on — so a postponement is no longer mistaken for a recorded 0-0 result. Behaviour is unchanged; teams/date stay locked while an overlay/scorecard is set (clear it in the relevant panel first).
