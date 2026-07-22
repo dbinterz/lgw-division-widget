@@ -1996,7 +1996,15 @@ function lgw_ajax_gchamp_ko_set_slot() {
         $pool = array();
         foreach ( (array) ( $champ['days'][$day_id]['qualifier_slots'] ?? array() ) as $q ) { if ( $q !== null && $q !== '' ) $pool[] = $q; }
         foreach ( (array) ( $champ['days'][$day_id]['qualifiers']      ?? array() ) as $q ) { if ( $q !== null && $q !== '' ) $pool[] = $q; }
-        if ( ! in_array( $value, $pool, true ) ) wp_send_json_error( 'That entry is not a qualifier for this day.' );
+        // Entry names can contain runs of whitespace (e.g. "Name,    Club"),
+        // but sanitize_text_field() collapses those to a single space — so a
+        // strict compare against the stored pool would always miss. Match
+        // whitespace-insensitively, then assign the exact stored form.
+        $norm      = static function ( $s ) { return preg_replace( '/\s+/', ' ', trim( (string) $s ) ); };
+        $canonical = null;
+        foreach ( $pool as $q ) { if ( $norm( $q ) === $norm( $value ) ) { $canonical = $q; break; } }
+        if ( $canonical === null ) wp_send_json_error( 'That entry is not a qualifier for this day.' );
+        $value = $canonical;
 
         // Prevent placing the same entry in two first-round slots — clear it
         // from wherever it currently sits before assigning it here.

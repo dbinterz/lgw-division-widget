@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.5]
+### Fixed
+- **Manual knockout seeding rejected valid qualifiers** with "That entry is not a qualifier for this day", despite the dropdown only offering that day's qualifiers. `lgw_gchamp_ko_set_slot` ran the posted value through `sanitize_text_field()`, which collapses the runs of whitespace in entry names (`"Name,    Club"` → `"Name, Club"`), so the strict `in_array()` check against the stored qualifier pool never matched. Validation now compares whitespace-insensitively and assigns the exact canonical stored string. Regression: `tests/manual/gchamp-knockout-regression.php`.
+
 ## [2026.30.4]
 ### Fixed
 - **Group-championship knockout seeding no longer 500s with "Unexpected token '<' … is not valid JSON".** When the qualifier total is not a power of two (e.g. 12 qualifiers → a 16-slot bracket with 4 byes), bye slots have a `null` name. `lgw_draw_build_bracket()` runs every slot name through the `get_club` callback (`lgw_gchamp_entry_club()`), whose strict `string` type hint raised a fatal `TypeError` on the null byes, so the AJAX handler died and returned WordPress's HTML critical-error page instead of JSON. `lgw_gchamp_entry_club()` and the shared `lgw_champ_entry_club()` now accept `null`/empty and return an empty club (mirroring `lgw_draw_cup_club`). This also restores the per-day knockout score inputs, which the seed fatal had knocked out.

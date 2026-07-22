@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.4
+Stable tag: 2026.30.5
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.5 =
+* Fix: Manual knockout seeding rejected valid qualifiers with "That entry is not a qualifier for this day", even though the dropdown only offered that day's qualifiers. Entry names contain runs of whitespace (e.g. "Name,    Club"), but sanitize_text_field() collapses those to a single space before the value reaches the validation check — so a strict comparison against the stored qualifier list never matched. The handler now compares whitespace-insensitively and stores the exact canonical entry string.
 
 = 2026.30.4 =
 * Fix: Seeding a group-championship knockout bracket no longer fails with "Unexpected token '<' … is not valid JSON". When the total qualifier count is not a power of two (e.g. 12 qualifiers across three days → a 16-slot bracket with 4 byes), each bye slot carries a null name. The bracket builder passes every slot name through the club-extraction callback lgw_gchamp_entry_club(), whose strict string type hint threw a fatal TypeError on the null byes — aborting the AJAX response before JSON could be sent, so the browser received WordPress's HTML critical-error page. lgw_gchamp_entry_club() (and the shared lgw_champ_entry_club()) now accept null/empty and return an empty club, matching the cup builder. This also unblocks the per-day knockout score inputs, which the seed failure had disabled.

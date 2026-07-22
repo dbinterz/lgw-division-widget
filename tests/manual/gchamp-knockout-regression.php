@@ -231,10 +231,15 @@ function d0_r0( $slot_match, $slot ) {
 list( $ok, $msg ) = call_set_slot( array( 'ko_match' => '0', 'slot' => 'home', 'value' => 'Nobody, Nowhere' ) );
 check( "rejects a non-qualifier value", $ok === false );
 
-// Move an existing qualifier into another slot → it must leave its old slot
-list( $ok, ) = call_set_slot( array( 'ko_match' => '0', 'slot' => 'away', 'value' => $q0[1] ) ); // B McComb into SF1 away
-check( "manual seed succeeded", $ok === true );
-eq( "SF1 away now holds the moved entry", $q0[1], d0_r0( 0, 'away' ) );
+// Move an existing qualifier into another slot → it must leave its old slot.
+// Submit the WHITESPACE-COLLAPSED form the browser + sanitize_text_field()
+// produce (entry names hold runs of spaces); the handler must still match it
+// and store the exact canonical form.
+$collapsed = preg_replace( '/\s+/', ' ', $q0[1] ); // e.g. "B McComb/B Worthington, Balmoral"
+check( "collapsed value really differs from stored", $collapsed !== $q0[1] );
+list( $ok, ) = call_set_slot( array( 'ko_match' => '0', 'slot' => 'away', 'value' => $collapsed ) );
+check( "manual seed succeeded with collapsed whitespace", $ok === true );
+eq( "SF1 away stored as canonical multi-space form", $q0[1], d0_r0( 0, 'away' ) );
 eq( "duplicate cleared from SF2 home (was the same entry)", null, d0_r0( 1, 'home' ) );
 
 // Vacate a slot with an empty value
