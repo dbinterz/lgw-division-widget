@@ -7,7 +7,25 @@ The test suite has two layers:
 | Layer | Tool | What it tests | Needs WP? |
 |---|---|---|---|
 | **Unit tests** | PHPUnit | PHP cache/CSV logic in isolation | No |
+| **Manual harnesses** | plain `php` | Self-contained regressions for specific fixes | No |
 | **E2E tests** | Playwright | Full widget in browser against real WP | Yes |
+
+### Manual harnesses (`tests/manual/`)
+
+Self-contained scripts that stub WordPress and require the plugin files directly, so they run with nothing but a PHP CLI (no Composer, no PHPUnit, no WP):
+
+```bash
+php tests/manual/gchamp-knockout-regression.php   # exit 0 = pass
+```
+
+- **`gchamp-knockout-regression.php`** — group-championship knockout (2026.30.4).
+  Covers: seeding a bracket with byes (non-power-of-two qualifier counts →
+  null-name slots) must not fatal in the club-extraction callback;
+  `lgw_gchamp_set_ko_advance()` keeping the next round in sync when a KO score
+  is cleared or edited; and the manual-seeding handler `lgw_gchamp_ko_set_slot`
+  (validation, duplicate-slot removal, vacate-to-TBD). Uses
+  `fixtures/gchamp-over55-pairs.ser`, the real "Over 55 Pairs 2026"
+  championship that surfaced the seed crash on live.
 
 ---
 

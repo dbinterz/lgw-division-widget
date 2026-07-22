@@ -373,6 +373,53 @@
         }).catch(function(err){ btn.disabled=false; btn.textContent='🗑 Clear KO scores'; alert('Failed: '+err.message); });
     });
 
+    // ── Manual seeding: reassign a first-round KO slot (admin) ─────────────────
+    document.addEventListener('click', function(e) {
+        var seedBtn    = e.target.closest('.lgw-gchamp-ko-seed-btn');
+        var seedCancel = e.target.closest('.lgw-gchamp-ko-seed-cancel');
+        var seedSave   = e.target.closest('.lgw-gchamp-ko-seed-save');
+
+        if (seedBtn) {
+            var team = seedBtn.closest('.lgw-gchamp-ko-team');
+            var form = team ? team.querySelector('.lgw-gchamp-ko-seed-form') : null;
+            if (form) { form.style.display = 'inline-flex'; seedBtn.style.display = 'none'; }
+            return;
+        }
+        if (seedCancel) {
+            var form = seedCancel.closest('.lgw-gchamp-ko-seed-form');
+            var team = seedCancel.closest('.lgw-gchamp-ko-team');
+            if (form) form.style.display = 'none';
+            var b = team ? team.querySelector('.lgw-gchamp-ko-seed-btn') : null;
+            if (b) b.style.display = '';
+            return;
+        }
+        if (seedSave) {
+            var team   = seedSave.closest('.lgw-gchamp-ko-team');
+            var match  = seedSave.closest('.lgw-gchamp-ko-match');
+            var koWrap = seedSave.closest('.lgw-gchamp-ko-wrap');
+            var wrap   = seedSave.closest('.lgw-gchamp-wrap');
+            var select = team ? team.querySelector('.lgw-gchamp-ko-seed-select') : null;
+            if (!team || !match || !select) return;
+            var champId = wrap   ? wrap.getAttribute('data-gchamp-id') : '';
+            var dayId   = koWrap ? koWrap.getAttribute('data-day-id')  : match.getAttribute('data-day-id');
+            var slot    = team.getAttribute('data-slot');
+            var koMatch = match.getAttribute('data-match');
+            seedSave.disabled = true;
+
+            var fd = new FormData();
+            fd.append('action','lgw_gchamp_ko_set_slot'); fd.append('nonce',nonce);
+            fd.append('champ_id',champId); fd.append('day_id',dayId);
+            fd.append('ko_match',koMatch); fd.append('slot',slot);
+            fd.append('value',select.value);
+
+            fetch(ajaxUrl,{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(data){
+                if (data.success) { location.reload(); }
+                else { seedSave.disabled=false; alert('Error: '+(data.data||'Unknown')); }
+            }).catch(function(err){ seedSave.disabled=false; alert('Failed: '+err.message); });
+            return;
+        }
+    });
+
 
     if (window.lgwGchampData && lgwGchampData.isAdmin) {
         document.querySelectorAll('.lgw-gchamp-day-pane[data-seed-needed="1"]').forEach(function(pane) {

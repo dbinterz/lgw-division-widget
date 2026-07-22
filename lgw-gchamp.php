@@ -1736,11 +1736,15 @@ function lgw_ajax_gchamp_save_score() {
                 if ( $match['match'] !== $ko_match ) continue;
                 $match['home_score'] = $clear ? null : $hs;
                 $match['away_score'] = $clear ? null : $as;
-                // Advance winner to next round
-                if ( ! $clear && $hs !== $as ) {
-                    $winner = $hs > $as ? $match['home'] : $match['away'];
-                    lgw_gchamp_advance_ko_winner( $champ['days'][$day_id]['ko_bracket'], $ko_round, $ko_match, $winner );
-                }
+                // Sync the next round to the new result. Passing the winner —
+                // or null when cleared or drawn — advances, rolls back, or
+                // replaces the downstream slot and cascades any invalidated
+                // later-round results (fixes stale winners left after a clear
+                // or a result edited to a different winner).
+                $winner = ( ! $clear && $hs !== $as )
+                    ? ( $hs > $as ? $match['home'] : $match['away'] )
+                    : null;
+                lgw_gchamp_set_ko_advance( $champ['days'][$day_id]['ko_bracket'], $ko_round, $ko_match, $winner );
                 $found = true; break 2;
             }
             unset($match);
@@ -1949,6 +1953,81 @@ function lgw_ajax_gchamp_clear_ko_scores() {
 
     update_option( 'lgw_gchamp_' . $champ_id, $champ );
     wp_send_json_success( array( 'day_id' => $day_id ) );
+}
+
+// ── AJAX: manually set a first-round KO slot (manual seeding, admin) ──────────
+add_action( 'wp_ajax_lgw_gchamp_ko_set_slot', 'lgw_ajax_gchamp_ko_set_slot' );
+function lgw_ajax_gchamp_ko_set_slot() {
+    check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised.' );
+
+    $champ_id = sanitize_key( $_POST['champ_id'] ?? '' );
+    $day_id   = intval( $_POST['day_id'] ?? -1 );
+    $ko_match = intval( $_POST['ko_match'] ?? -1 );
+    $slot     = ( ( $_POST['slot'] ?? '' ) === 'away' ) ? 'away' : 'home';
+    // Full entry name as stored in the bracket, or '' to vacate the slot.
+    $value    = sanitize_text_field( wp_unslash( $_POST['value'] ?? '' ) );
+    if ( ! $champ_id || $day_id < 0 || $ko_match < 0 ) wp_send_json_error( 'Missing parameters.' );
+
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) )                                 wp_send_json_error( 'Championship not found.' );
+    if ( ! isset( $champ['days'][$day_id]['ko_bracket']['rounds'] ) ) wp_send_json_error( 'No knockout bracket for this day.' );
+
+    $bracket = &$champ['days'][$day_id]['ko_bracket'];
+
+    // Only the first round is manually seedable — later rounds are computed.
+    $r0 = null;
+    foreach ( $bracket['rounds'] as $ri => $round ) {
+        if ( $round['round'] === 0 ) { $r0 = $ri; break; }
+    }
+    if ( $r0 === null ) wp_send_json_error( 'First round not found.' );
+
+    // Locate the target match.
+    $mi = null;
+    foreach ( $bracket['rounds'][$r0]['matches'] as $k => $m ) {
+        if ( intval( $m['match'] ) === $ko_match ) { $mi = $k; break; }
+    }
+    if ( $mi === null )                                    wp_send_json_error( 'Knockout match not found.' );
+    if ( ! empty( $bracket['rounds'][$r0]['matches'][$mi]['bye'] ) ) wp_send_json_error( 'Cannot edit a bye match.' );
+
+    // Validate the value against this day's known qualifiers (confirmed slots or
+    // the day qualifier list). Empty is always allowed (vacate to TBD).
+    if ( $value !== '' ) {
+        $pool = array();
+        foreach ( (array) ( $champ['days'][$day_id]['qualifier_slots'] ?? array() ) as $q ) { if ( $q !== null && $q !== '' ) $pool[] = $q; }
+        foreach ( (array) ( $champ['days'][$day_id]['qualifiers']      ?? array() ) as $q ) { if ( $q !== null && $q !== '' ) $pool[] = $q; }
+        if ( ! in_array( $value, $pool, true ) ) wp_send_json_error( 'That entry is not a qualifier for this day.' );
+
+        // Prevent placing the same entry in two first-round slots — clear it
+        // from wherever it currently sits before assigning it here.
+        foreach ( $bracket['rounds'][$r0]['matches'] as $k => $m ) {
+            foreach ( array( 'home', 'away' ) as $s ) {
+                if ( ( $m[$s] ?? null ) === $value && ! ( $k === $mi && $s === $slot ) ) {
+                    $bracket['rounds'][$r0]['matches'][$k][$s] = null;
+                    // That match lost a participant — reset its result and
+                    // vacate whatever it had advanced downstream.
+                    $bracket['rounds'][$r0]['matches'][$k]['home_score'] = null;
+                    $bracket['rounds'][$r0]['matches'][$k]['away_score'] = null;
+                    lgw_gchamp_set_ko_advance( $bracket, 0, intval( $m['match'] ), null );
+                }
+            }
+        }
+    }
+
+    // Assign the slot. The participant changed, so the match's own result is no
+    // longer valid and anything it fed downstream must be vacated + cascaded.
+    $bracket['rounds'][$r0]['matches'][$mi][$slot]        = ( $value === '' ) ? null : $value;
+    $bracket['rounds'][$r0]['matches'][$mi]['home_score'] = null;
+    $bracket['rounds'][$r0]['matches'][$mi]['away_score'] = null;
+    lgw_gchamp_set_ko_advance( $bracket, 0, $ko_match, null );
+
+    // Bracket contents changed — qualifiers are no longer confirmed.
+    $champ['days'][$day_id]['ko_complete']   = false;
+    $champ['days'][$day_id]['ko_qualifiers'] = array();
+    unset( $bracket );
+
+    update_option( 'lgw_gchamp_' . $champ_id, $champ );
+    wp_send_json_success( array( 'day_id' => $day_id, 'match' => $ko_match, 'slot' => $slot, 'value' => $value ) );
 }
 
 
@@ -2517,6 +2596,45 @@ function lgw_gchamp_advance_ko_winner_rounds( array &$rounds, int $r, int $m, st
  */
 function lgw_gchamp_advance_ko_winner( array &$bracket, int $r, int $m, string $winner ): void {
     lgw_gchamp_advance_ko_winner_rounds( $bracket['rounds'], $r, $m, $winner );
+}
+
+/**
+ * Sync the downstream slot fed by round $r / match $m to $winner, where
+ * $winner is the entry that should occupy it (or null to vacate — a cleared
+ * or drawn result). Used on every KO score save so that editing or clearing a
+ * result never leaves a stale winner in the next round.
+ *
+ * If the occupant actually changes, the downstream match's own result is
+ * invalidated (its scores are cleared) and the vacancy cascades further down
+ * the bracket. When the occupant is unchanged (e.g. a score edit that keeps
+ * the same winner) nothing downstream is touched, so an already-played later
+ * round is preserved.
+ */
+function lgw_gchamp_set_ko_advance( array &$bracket, int $r, int $m, ?string $winner ): void {
+    $next_r  = $r + 1;
+    $next_m  = intdiv( $m, 2 );
+    $is_home = ( $m % 2 === 0 );
+    $slot    = $is_home ? 'home' : 'away';
+
+    foreach ( $bracket['rounds'] as $ri => $round ) {
+        if ( $round['round'] !== $next_r ) continue;
+        foreach ( $round['matches'] as $mi => $match ) {
+            if ( $match['match'] !== $next_m ) continue;
+            // Unchanged occupant → leave this match (and everything below) intact
+            if ( ( $match[$slot] ?? null ) === $winner ) return;
+            $had_result = $match['home_score'] !== null || $match['away_score'] !== null;
+            $bracket['rounds'][$ri]['matches'][$mi][$slot]         = $winner;
+            $bracket['rounds'][$ri]['matches'][$mi]['home_score']  = null;
+            $bracket['rounds'][$ri]['matches'][$mi]['away_score']  = null;
+            // If a result was recorded here it can no longer stand — cascade the
+            // vacancy into the round this match fed.
+            if ( $had_result ) {
+                lgw_gchamp_set_ko_advance( $bracket, $next_r, $next_m, null );
+            }
+            return;
+        }
+        return; // next round located but match not found — nothing to do
+    }
 }
 
 /**
@@ -3439,7 +3557,10 @@ function lgw_gchamp_count_club_in_group( string $club, array $group_entries ): i
     return $count;
 }
 
-function lgw_gchamp_entry_club( string $entry ): string {
+function lgw_gchamp_entry_club( ?string $entry ): string {
+    // Bye slots carry a null name — treat as clubless so bracket seeding
+    // (which passes every slot through this callback) does not fatal.
+    if ( $entry === null || $entry === '' ) return '';
     $parts = array_map( 'trim', explode( ',', $entry, 2 ) );
     return strtolower( $parts[1] ?? '' );
 }
@@ -4093,6 +4214,13 @@ function lgw_gchamp_shortcode( $atts ) {
                 $total_matches = 0;
                 $played_matches = 0;
                 foreach ($rounds as $round) { foreach ($round['matches'] as $m) { if (empty($m['bye'])) { $total_matches++; if ($m['home_score']!==null&&$m['away_score']!==null) $played_matches++; } } }
+                // Manual seeding (admin): first-round slots can be reassigned to
+                // any of this day's qualifiers. Build the option pool once.
+                $can_seed_ko = current_user_can( 'manage_options' );
+                $seed_pool   = array();
+                foreach ( (array) ( $day['qualifier_slots'] ?? array() ) as $q ) { if ( $q !== null && $q !== '' ) $seed_pool[ $q ] = true; }
+                foreach ( (array) ( $day['qualifiers']      ?? array() ) as $q ) { if ( $q !== null && $q !== '' ) $seed_pool[ $q ] = true; }
+                $seed_pool = array_keys( $seed_pool );
             ?>
                 <div class="lgw-gchamp-ko-wrap" data-day-id="<?php echo $day_idx; ?>">
                     <div class="lgw-gchamp-ko-header">
@@ -4131,19 +4259,43 @@ function lgw_gchamp_shortcode( $atts ) {
                             $is_bye = ! empty( $match['bye'] );
                             $hw     = $scored && intval($match['home_score']) > intval($match['away_score']);
                             $aw     = $scored && intval($match['away_score']) > intval($match['home_score']);
+                            // First-round, non-bye slots are manually seedable by admins.
+                            $slot_editable = $can_seed_ko && $round['round'] === 0 && ! $is_bye && ! empty( $seed_pool );
                         ?>
                         <div class="lgw-gchamp-ko-match<?php echo $is_bye ? ' lgw-gchamp-ko-match-bye' : ''; echo ($is_final&&$scored) ? ' lgw-gchamp-ko-match-final' : ''; ?>"
                              data-round="<?php echo intval($round['round']); ?>"
                              data-match="<?php echo intval($match['match']); ?>"
                              data-day-id="<?php echo $day_idx; ?>"
                              data-context="ko">
-                            <div class="lgw-gchamp-ko-team<?php echo $hw ? ' lgw-gchamp-ko-team-win' : ($aw ? ' lgw-gchamp-ko-team-loss' : ''); ?>">
+                            <div class="lgw-gchamp-ko-team<?php echo $hw ? ' lgw-gchamp-ko-team-win' : ($aw ? ' lgw-gchamp-ko-team-loss' : ''); ?>" data-slot="home">
                                 <span class="lgw-gchamp-ko-team-name"><?php echo $match['home'] ? esc_html(lgw_gchamp_short_name($match['home'])) : '<span class="lgw-gchamp-ko-tbd">TBD</span>'; ?></span>
                                 <?php if ( $scored ): ?><span class="lgw-gchamp-ko-score<?php echo $hw?' lgw-gchamp-ko-score-win':''; ?>"><?php echo intval($match['home_score']); ?></span><?php endif; ?>
+                                <?php if ( $slot_editable ): ?><button type="button" class="lgw-gchamp-ko-seed-btn" title="Change entry (manual seed)">&#x270F;</button>
+                                <span class="lgw-gchamp-ko-seed-form" style="display:none">
+                                    <select class="lgw-gchamp-ko-seed-select">
+                                        <option value="">&mdash; TBD &mdash;</option>
+                                        <?php foreach ( $seed_pool as $opt ): ?>
+                                        <option value="<?php echo esc_attr( $opt ); ?>"<?php selected( $opt, $match['home'] ); ?>><?php echo esc_html( lgw_gchamp_short_name( $opt ) ); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button type="button" class="lgw-gchamp-ko-seed-save" title="Save">&#x2713;</button>
+                                    <button type="button" class="lgw-gchamp-ko-seed-cancel" title="Cancel">&#x2715;</button>
+                                </span><?php endif; ?>
                             </div>
-                            <div class="lgw-gchamp-ko-team<?php echo $aw ? ' lgw-gchamp-ko-team-win' : ($hw ? ' lgw-gchamp-ko-team-loss' : ''); ?>">
+                            <div class="lgw-gchamp-ko-team<?php echo $aw ? ' lgw-gchamp-ko-team-win' : ($hw ? ' lgw-gchamp-ko-team-loss' : ''); ?>" data-slot="away">
                                 <span class="lgw-gchamp-ko-team-name"><?php echo $match['away'] ? esc_html(lgw_gchamp_short_name($match['away'])) : '<span class="lgw-gchamp-ko-tbd">TBD</span>'; ?></span>
                                 <?php if ( $scored ): ?><span class="lgw-gchamp-ko-score<?php echo $aw?' lgw-gchamp-ko-score-win':''; ?>"><?php echo intval($match['away_score']); ?></span><?php endif; ?>
+                                <?php if ( $slot_editable ): ?><button type="button" class="lgw-gchamp-ko-seed-btn" title="Change entry (manual seed)">&#x270F;</button>
+                                <span class="lgw-gchamp-ko-seed-form" style="display:none">
+                                    <select class="lgw-gchamp-ko-seed-select">
+                                        <option value="">&mdash; TBD &mdash;</option>
+                                        <?php foreach ( $seed_pool as $opt ): ?>
+                                        <option value="<?php echo esc_attr( $opt ); ?>"<?php selected( $opt, $match['away'] ); ?>><?php echo esc_html( lgw_gchamp_short_name( $opt ) ); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button type="button" class="lgw-gchamp-ko-seed-save" title="Save">&#x2713;</button>
+                                    <button type="button" class="lgw-gchamp-ko-seed-cancel" title="Cancel">&#x2715;</button>
+                                </span><?php endif; ?>
                             </div>
                             <?php if ( $can_score && ! $is_bye && ! $ko_complete && $match['home'] && $match['away'] ): ?>
                             <div class="lgw-gchamp-ko-score-entry">

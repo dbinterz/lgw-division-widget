@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.3
+Stable tag: 2026.30.4
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.4 =
+* Fix: Seeding a group-championship knockout bracket no longer fails with "Unexpected token '<' … is not valid JSON". When the total qualifier count is not a power of two (e.g. 12 qualifiers across three days → a 16-slot bracket with 4 byes), each bye slot carries a null name. The bracket builder passes every slot name through the club-extraction callback lgw_gchamp_entry_club(), whose strict string type hint threw a fatal TypeError on the null byes — aborting the AJAX response before JSON could be sent, so the browser received WordPress's HTML critical-error page. lgw_gchamp_entry_club() (and the shared lgw_champ_entry_club()) now accept null/empty and return an empty club, matching the cup builder. This also unblocks the per-day knockout score inputs, which the seed failure had disabled.
+* Fix: Clearing or editing a knockout score now keeps the next round in sync. Clearing a played KO match left the winner it had advanced sitting in the following round (e.g. a semi-final cleared back to blank while the finalist it produced stayed in the Final), and editing a result to a different winner did not update the downstream slot. Score saves now sync the next round: a cleared or drawn result vacates the slot, a changed winner replaces it and cascades — invalidating any now-impossible later-round result — while an edit that keeps the same winner leaves an already-played later round untouched.
+* New: Manual knockout seeding for admins. Each first-round knockout slot now has a pencil control (admin only) to reassign it to any of that day's qualifiers, or clear it to TBD. Moving an entry that already sits in another slot vacates the old one automatically, and changing a participant resets that match and cascades the change down the bracket. Lets you override the automatic 1-vs-N seeding (walkovers, late changes, corrections) without editing the database.
 
 = 2026.30.3 =
 * Fix: Concession penalty now respects the division's max points. When a game is conceded, the concession scorecard was always built with the global max-points option (7), so in a division with a max of 6 (the 12-player division) the conceding team was docked 7 and the winner given 7 instead of ±6. The concession save now uses the division's max points sent from the widget (clamped 6–7), falling back to the global option only if absent. The standings render already used the per-division value; this aligns the stored scorecard with it.
