@@ -108,6 +108,18 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.5]
+### Fixed
+- **Manual knockout seeding rejected valid qualifiers** with "That entry is not a qualifier for this day", despite the dropdown only offering that day's qualifiers. `lgw_gchamp_ko_set_slot` ran the posted value through `sanitize_text_field()`, which collapses the runs of whitespace in entry names (`"Name,    Club"` → `"Name, Club"`), so the strict `in_array()` check against the stored qualifier pool never matched. Validation now compares whitespace-insensitively and assigns the exact canonical stored string. Regression: `tests/manual/gchamp-knockout-regression.php`.
+
+## [2026.30.4]
+### Fixed
+- **Group-championship knockout seeding no longer 500s with "Unexpected token '<' … is not valid JSON".** When the qualifier total is not a power of two (e.g. 12 qualifiers → a 16-slot bracket with 4 byes), bye slots have a `null` name. `lgw_draw_build_bracket()` runs every slot name through the `get_club` callback (`lgw_gchamp_entry_club()`), whose strict `string` type hint raised a fatal `TypeError` on the null byes, so the AJAX handler died and returned WordPress's HTML critical-error page instead of JSON. `lgw_gchamp_entry_club()` and the shared `lgw_champ_entry_club()` now accept `null`/empty and return an empty club (mirroring `lgw_draw_cup_club`). This also restores the per-day knockout score inputs, which the seed fatal had knocked out.
+- **Clearing or editing a knockout score keeps the next round in sync.** `lgw_ajax_gchamp_save_score` (context `ko`) advanced a winner into the next round on save but never rolled it back: clearing a played match left its winner stranded in the following round, and editing a result to a different winner did not update the downstream slot. The save path now calls a new `lgw_gchamp_set_ko_advance()` that advances, rolls back, or replaces the downstream slot for the new result and cascades any now-invalid later-round result — while leaving an already-played later round untouched when a score edit keeps the same winner.
+
+### Added
+- **Manual knockout seeding (admin).** Each first-round knockout slot now has a pencil control (admin only) that reassigns it to any of that day's qualifiers or clears it to TBD, via the new `lgw_gchamp_ko_set_slot` AJAX handler. Reassigning an entry that already occupies another slot vacates the old slot automatically, and any participant change resets that match and cascades down the bracket. Overrides the automatic 1-vs-N seeding for walkovers, late changes, and corrections without touching the database. Regression coverage: `tests/manual/gchamp-knockout-regression.php`.
+
 ## [2026.30.3]
 ### Fixed
 - **Concession penalty respects per-division max points.** `lgw_ajax_save_concession` built the concession scorecard's points from the global `lgw_max_points` option (7), so a division with a max of 6 (the 12-player division) docked the conceder 7 and awarded the winner 7 instead of ±6. The handler now reads `max_points` posted by the widget (clamped 6–7) and falls back to the global option only when absent; `lgw-widget.js` `doSave()` sends the in-scope `maxPts` (from `data-maxpts`). The SSR standings path already used `$atts['max_points']` — this aligns the stored scorecard with it.

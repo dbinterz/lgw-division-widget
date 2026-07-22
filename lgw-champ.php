@@ -870,6 +870,7 @@ function lgw_ajax_champ_perform_draw() {
  * Returns lowercased club name for comparison.
  */
 function lgw_champ_entry_club($entry) {
+    if ( $entry === null || $entry === '' ) return ''; // bye slots have no name
     $parts = array_map('trim', explode(',', $entry, 2));
     return strtolower($parts[1] ?? '');
 }

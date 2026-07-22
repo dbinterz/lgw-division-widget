@@ -537,6 +537,48 @@
 .lgw-gchamp-ko-score     { font-weight: 700; color: var(--lgw-navy); font-size: 13px; flex-shrink: 0; }
 .lgw-gchamp-ko-score-win { color: var(--lgw-qualify); }
 
+/* Manual seeding (admin): reassign a first-round slot */
+.lgw-gchamp-ko-seed-btn {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--lgw-border-soft);
+  border-radius: var(--lgw-radius-sm);
+  background: var(--lgw-bg);
+  color: var(--lgw-text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .1s;
+}
+.lgw-gchamp-ko-team:hover .lgw-gchamp-ko-seed-btn { opacity: 1; }
+.lgw-gchamp-ko-seed-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.lgw-gchamp-ko-seed-select {
+  max-width: 130px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--lgw-border);
+  border-radius: var(--lgw-radius-sm);
+}
+.lgw-gchamp-ko-seed-save,
+.lgw-gchamp-ko-seed-cancel {
+  padding: 2px 6px;
+  border-radius: var(--lgw-radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--lgw-border);
+  background: var(--lgw-bg);
+  cursor: pointer;
+}
+.lgw-gchamp-ko-seed-save    { color: var(--lgw-qualify); }
+.lgw-gchamp-ko-seed-cancel  { color: var(--lgw-text-muted); }
+.lgw-gchamp-ko-seed-save:disabled { opacity: .5; cursor: default; }
+
 /* KO score entry */
 .lgw-gchamp-ko-score-entry {
   display: flex;
