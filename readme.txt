@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.5
+Stable tag: 2026.30.6
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.6 =
+* New: Finals Week draw is available before the knockouts finish. The Finals Week tab now appears as soon as a group championship is drawn (previously it stayed hidden until at least one day's knockout was complete). Every expected qualifier is present from the start as a source-labelled placeholder — "21 June Ards Winner", "Winner of QF1" — so the whole draw can be arranged and dates/rinks set in advance. Placeholders resolve to real names automatically as each day's knockout confirms them.
+* New: Finals Week now builds a proper seeded bracket sized to the qualifier count — e.g. 6 qualifiers (3 days × finalist + runner-up) form an 8-slot knockout with the top two seeds byed straight to the semi-finals (QF → SF → Final). 2- and 4-qualifier championships are unchanged (Final, or SF + Final).
+* New: Manual Finals Week seeding. Each first-round draw position has an admin pencil dropdown to choose which qualifier source takes it; picking a source swaps it with whatever held that position, so you can arrange the draw however you like. Winners propagate through the rounds as scores are entered.
+* New: The [lgw_finals] page has a sort toggle — "By competition" (the existing grouped view) or "By date & rink" (a flat, chronological schedule across every competition, unscheduled matches last). The choice is remembered per season.
 
 = 2026.30.5 =
 * Fix: Manual knockout seeding rejected valid qualifiers with "That entry is not a qualifier for this day", even though the dropdown only offered that day's qualifiers. Entry names contain runs of whitespace (e.g. "Name,    Club"), but sanitize_text_field() collapses those to a single space before the value reaches the validation check — so a strict comparison against the stored qualifier list never matched. The handler now compares whitespace-insensitively and stores the exact canonical entry string.

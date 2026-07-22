@@ -420,6 +420,46 @@
         }
     });
 
+    // ── Manual Finals Week seeding: assign a qualifier source to a draw slot ───
+    document.addEventListener('click', function(e) {
+        var fBtn    = e.target.closest('.lgw-gchamp-finals-seed-btn');
+        var fCancel = e.target.closest('.lgw-gchamp-finals-seed-cancel');
+        var fSave   = e.target.closest('.lgw-gchamp-finals-seed-save');
+
+        if (fBtn) {
+            var slot = fBtn.closest('.lgw-finals-ph-slot');
+            var form = slot ? slot.querySelector('.lgw-gchamp-finals-seed-form') : null;
+            if (form) { form.style.display = 'inline-flex'; fBtn.style.display = 'none'; }
+            return;
+        }
+        if (fCancel) {
+            var slot = fCancel.closest('.lgw-finals-ph-slot');
+            var form = fCancel.closest('.lgw-gchamp-finals-seed-form');
+            if (form) form.style.display = 'none';
+            var b = slot ? slot.querySelector('.lgw-gchamp-finals-seed-btn') : null;
+            if (b) b.style.display = '';
+            return;
+        }
+        if (fSave) {
+            var form   = fSave.closest('.lgw-gchamp-finals-seed-form');
+            var select = form ? form.querySelector('.lgw-gchamp-finals-seed-select') : null;
+            if (!form || !select) return;
+            var champId = form.getAttribute('data-champ-id');
+            var seed    = form.getAttribute('data-seed');
+            fSave.disabled = true;
+
+            var fd = new FormData();
+            fd.append('action','lgw_gchamp_finals_set_slot'); fd.append('nonce',nonce);
+            fd.append('champ_id',champId); fd.append('seed',seed); fd.append('src',select.value);
+
+            fetch(ajaxUrl,{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(data){
+                if (data.success) { location.reload(); }
+                else { fSave.disabled=false; alert('Error: '+(data.data||'Unknown')); }
+            }).catch(function(err){ fSave.disabled=false; alert('Failed: '+err.message); });
+            return;
+        }
+    });
+
 
     if (window.lgwGchampData && lgwGchampData.isAdmin) {
         document.querySelectorAll('.lgw-gchamp-day-pane[data-seed-needed="1"]').forEach(function(pane) {

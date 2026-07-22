@@ -159,9 +159,15 @@ function lgw_finals_shortcode($atts) {
     foreach ($gchamp_rows as $row) {
         $id  = substr($row->option_name, strlen('lgw_gchamp_'));
         $val = maybe_unserialize($row->option_value);
-        if (is_array($val) && isset($val['title']) && ($val['season'] ?? '') === $season
-            && ! empty($val['finals_matches'])
-        ) {
+        if (! is_array($val) || ! isset($val['title']) || ($val['season'] ?? '') !== $season) continue;
+        // Build the Finals Week bracket on the fly when it hasn't been persisted
+        // yet, so the (placeholder) draw appears here as soon as the champ is
+        // drawn — not only after an admin has opened the Finals tab.
+        if (empty($val['finals_matches']) && ! empty($val['draw_complete']) && ! empty($val['has_ko_bracket'])
+            && function_exists('lgw_gchamp_build_finals_matches')) {
+            $val['finals_matches'] = lgw_gchamp_build_finals_matches($val);
+        }
+        if (! empty($val['finals_matches'])) {
             $champs['gchamp_' . $id] = array_merge($val, array('_type' => 'gchamp', '_gchamp_id' => $id));
         }
     }
@@ -184,6 +190,14 @@ function lgw_finals_shortcode($atts) {
     <div class="lgw-finals-wrap" data-season="<?php echo esc_attr($season); ?>">
       <div class="lgw-finals-heading"><?php echo esc_html($heading); ?></div>
 
+      <div class="lgw-finals-sort" role="tablist" aria-label="Sort finals">
+        <span class="lgw-finals-sort-label">Sort:</span>
+        <button type="button" class="lgw-finals-sort-btn is-active" data-sort="competition">By competition</button>
+        <button type="button" class="lgw-finals-sort-btn" data-sort="date">By date &amp; rink</button>
+      </div>
+
+      <?php $flat_matches = array(); ?>
+      <div class="lgw-finals-view lgw-finals-view--comp" data-view="competition">
       <?php foreach ($champs as $champ_id => $champ):
         $is_gchamp = ($champ['_type'] ?? '') === 'gchamp';
         $matches   = $is_gchamp
@@ -245,6 +259,22 @@ function lgw_finals_shortcode($atts) {
               $status_cls = $pending ? 'lgw-finals-match--pending'
                           : ($has_score ? 'lgw-finals-match--complete' : 'lgw-finals-match--upcoming');
 
+              // Collect a flat record for the "by date & rink" view
+              $flat_matches[] = array(
+                  'champ'      => $champ['title'] ?? $champ_id,
+                  'round'      => $m['round_name'],
+                  'dt'         => $dt,
+                  'rink'       => $rink,
+                  'home'       => $home,
+                  'away'       => $away,
+                  'home_label' => $match['home_label'] ?? '',
+                  'away_label' => $match['away_label'] ?? '',
+                  'hs'         => $hs,
+                  'as'         => $as,
+                  'has_score'  => $has_score,
+                  'pending'    => $pending,
+              );
+
               // Store data for JS
               $all_js_data[$mid] = array(
                   'champId'    => $champ_id,
@@ -282,11 +312,17 @@ function lgw_finals_shortcode($atts) {
               </div>
               <?php endif; ?>
 
-              <?php if ($pending): ?>
+              <?php if ($pending):
+                // Group Championship matches carry source labels ("Day 1 Winner",
+                // "Winner of QF1") so pending slots read meaningfully before the
+                // knockouts finish; other brackets just show TBD.
+                $home_ph = $home ? lgw_finals_player_name($home) : ($match['home_label'] ?? 'TBD');
+                $away_ph = $away ? lgw_finals_player_name($away) : ($match['away_label'] ?? 'TBD');
+              ?>
               <div class="lgw-finals-teams lgw-finals-teams--pending">
-                <span class="lgw-finals-tbd">TBD</span>
+                <span class="lgw-finals-tbd<?php echo $home ? ' lgw-finals-tbd--named' : ''; ?>"><?php echo esc_html($home_ph); ?></span>
                 <span class="lgw-finals-vs">v</span>
-                <span class="lgw-finals-tbd">TBD</span>
+                <span class="lgw-finals-tbd<?php echo $away ? ' lgw-finals-tbd--named' : ''; ?>"><?php echo esc_html($away_ph); ?></span>
               </div>
               <?php else: ?>
               <div class="lgw-finals-teams">
@@ -348,6 +384,57 @@ function lgw_finals_shortcode($atts) {
           <?php endforeach; ?>
         </div>
       <?php endforeach; ?>
+      </div><!-- .lgw-finals-view--comp -->
+
+      <?php
+      // ── "By date & rink" view: flat, read-only, chronological across all
+      // competitions. Scheduled matches first (by datetime then rink), unscheduled
+      // last. Editing stays in the by-competition view to avoid duplicate ids.
+      usort($flat_matches, function($a, $b) {
+          $ad = $a['dt'] ?: '';
+          $bd = $b['dt'] ?: '';
+          if (($ad === '') !== ($bd === '')) return ($ad === '') ? 1 : -1; // unscheduled last
+          if ($ad !== $bd) return strcmp($ad, $bd);
+          return strnatcasecmp((string)$a['rink'], (string)$b['rink']);
+      });
+      ?>
+      <div class="lgw-finals-view lgw-finals-view--date" data-view="date" style="display:none">
+        <?php if (empty($flat_matches)): ?>
+        <p class="lgw-finals-empty">No matches yet.</p>
+        <?php else: foreach ($flat_matches as $fm):
+          $f_pending = $fm['pending'];
+          $f_home    = $fm['home'] ? lgw_finals_player_name($fm['home']) : ($fm['home_label'] ?: 'TBD');
+          $f_away    = $fm['away'] ? lgw_finals_player_name($fm['away']) : ($fm['away_label'] ?: 'TBD');
+          $f_cls     = $f_pending ? 'lgw-finals-match--pending'
+                     : ($fm['has_score'] ? 'lgw-finals-match--complete' : 'lgw-finals-match--upcoming');
+        ?>
+        <div class="lgw-finals-daterow <?php echo $f_cls; ?>">
+          <div class="lgw-finals-daterow-when">
+            <?php if ($fm['dt']): ?>
+              <span class="lgw-finals-daterow-dt"><?php echo esc_html(lgw_finals_format_datetime($fm['dt'])); ?></span>
+            <?php else: ?>
+              <span class="lgw-finals-daterow-dt lgw-finals-daterow-dt--tbc">Date TBC</span>
+            <?php endif; ?>
+            <?php if ($fm['rink']): ?><span class="lgw-finals-daterow-rink">Rink <?php echo esc_html($fm['rink']); ?></span><?php endif; ?>
+          </div>
+          <div class="lgw-finals-daterow-body">
+            <div class="lgw-finals-daterow-meta">
+              <span class="lgw-finals-daterow-comp"><?php echo esc_html($fm['champ']); ?></span>
+              <span class="lgw-finals-daterow-round"><?php echo esc_html($fm['round']); ?></span>
+            </div>
+            <div class="lgw-finals-daterow-teams">
+              <span class="lgw-finals-daterow-team<?php echo (!$f_pending && $fm['has_score'] && intval($fm['hs'])>intval($fm['as'])) ? ' is-win' : ''; ?>"><?php echo esc_html($f_home); ?></span>
+              <?php if ($fm['has_score']): ?>
+                <span class="lgw-finals-daterow-score"><?php echo intval($fm['hs']); ?>&ndash;<?php echo intval($fm['as']); ?></span>
+              <?php else: ?>
+                <span class="lgw-finals-daterow-vs">v</span>
+              <?php endif; ?>
+              <span class="lgw-finals-daterow-team<?php echo (!$f_pending && $fm['has_score'] && intval($fm['as'])>intval($fm['hs'])) ? ' is-win' : ''; ?>"><?php echo esc_html($f_away); ?></span>
+            </div>
+          </div>
+        </div>
+        <?php endforeach; endif; ?>
+      </div><!-- .lgw-finals-view--date -->
     </div>
 
     <script>
@@ -355,6 +442,31 @@ function lgw_finals_shortcode($atts) {
     lgwFinalsData.matches = <?php echo wp_json_encode($all_js_data); ?>;
     lgwFinalsData.nonce   = <?php echo wp_json_encode($nonce); ?>;
     lgwFinalsData.isAdmin = <?php echo $is_admin ? '1' : '0'; ?>;
+    (function(){
+      var wrap = document.currentScript ? document.currentScript.closest('.lgw-finals-wrap') : null;
+      if (!wrap) { var ws = document.querySelectorAll('.lgw-finals-wrap'); wrap = ws[ws.length-1]; }
+      if (!wrap || wrap.__lgwSortWired) return;
+      wrap.__lgwSortWired = true;
+      var KEY = 'lgwFinalsSort:' + (wrap.getAttribute('data-season') || '');
+      function apply(sort) {
+        wrap.querySelectorAll('.lgw-finals-sort-btn').forEach(function(b){
+          b.classList.toggle('is-active', b.getAttribute('data-sort') === sort);
+        });
+        wrap.querySelectorAll('.lgw-finals-view').forEach(function(v){
+          v.style.display = (v.getAttribute('data-view') === sort) ? '' : 'none';
+        });
+      }
+      var saved = null;
+      try { saved = localStorage.getItem(KEY); } catch (e) {}
+      apply(saved === 'date' ? 'date' : 'competition');
+      wrap.querySelectorAll('.lgw-finals-sort-btn').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var sort = btn.getAttribute('data-sort');
+          apply(sort);
+          try { localStorage.setItem(KEY, sort); } catch (e) {}
+        });
+      });
+    })();
     </script>
     <?php
     return ob_get_clean();
