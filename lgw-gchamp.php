@@ -4475,6 +4475,10 @@ function lgw_gchamp_shortcode( $atts ) {
                 // Finals-Week fixture, not a day game — both finalists qualify.
                 $play_day_final   = ! empty( $champ['ko_play_day_final'] );
                 $final_not_played = ( $per_day_q === 2 && ! $play_day_final );
+                // No-final days confirm their qualifiers at the semi stage, so
+                // ko_complete goes true early — don't let that lock scoring
+                // (semis stay editable and the final can still be recorded).
+                $ko_locked        = $ko_complete && ! $final_not_played;
                 $total_matches = 0;
                 $played_matches = 0;
                 foreach ($rounds as $ri_c => $round) {
@@ -4568,8 +4572,9 @@ function lgw_gchamp_shortcode( $atts ) {
                                 </span><?php endif; ?>
                             </div>
                             <?php if ( $is_final && $final_not_played && $match['home'] && $match['away'] ): ?>
-                            <div class="lgw-gchamp-ko-finals-fixture-note">&#x1F3C6; Both qualify &middot; final played at Finals Week</div>
-                            <?php elseif ( $can_score && ! $is_bye && ! $ko_complete && $match['home'] && $match['away'] ): ?>
+                            <div class="lgw-gchamp-ko-finals-fixture-note">&#x1F3C6; Both qualify &middot; final is optional (played at Finals Week)</div>
+                            <?php endif; ?>
+                            <?php if ( $can_score && ! $is_bye && ! $ko_locked && $match['home'] && $match['away'] ): ?>
                             <div class="lgw-gchamp-ko-score-entry">
                                 <?php if ( ! $scored ): ?>
                                 <button type="button" class="lgw-gchamp-ko-score-btn">+ Score</button>
@@ -4643,13 +4648,41 @@ function lgw_gchamp_shortcode( $atts ) {
                 }
                 $finals_matches = $champ['finals_matches'] ?? array();
 
-                // Source → label map for the manual-seeding dropdowns.
+                // Source → label map for the manual-seeding dropdowns. Prefer the
+                // resolved name once a day's qualifiers are known so admins pick a
+                // person, not "Day 1 Winner".
                 $finals_src_label = array();
                 foreach ( lgw_gchamp_finals_slots( $champ ) as $s ) {
                     $finals_src_label[ $s['src'] ] = $s['name']
-                        ? $s['label'] . ' — ' . lgw_gchamp_short_name( $s['name'] )
+                        ? lgw_gchamp_short_name( $s['name'] ) . ' — ' . $s['label']
                         : $s['label'] . ' (TBD)';
                 }
+
+                // The draw can be rearranged until the finals actually start (no
+                // scores / live ends anywhere). After that, seed positions lock.
+                $finals_started = false;
+                foreach ( $finals_matches as $_fm ) {
+                    if ( ( $_fm['home_score'] !== null && $_fm['away_score'] !== null ) || ! empty( $_fm['ends'] ) ) { $finals_started = true; break; }
+                }
+                // Emits the pencil + qualifier-source dropdown for a seed slot.
+                // Available on both unresolved (pending) and resolved seed slots so
+                // the draw stays movable once names have flowed forward.
+                $seed_ctrl = function( $match, $side ) use ( $can_score, $finals_src_label, $gchamp_id, $finals_started ) {
+                    if ( ! $can_score || $finals_started || empty( $finals_src_label ) ) return;
+                    $seed = $match[ $side . '_seed' ] ?? null;
+                    if ( $seed === null ) return; // prev-linked (Winner of QFx) — not a draw position
+                    $src = $match[ $side . '_src' ] ?? null;
+                    echo '<button type="button" class="lgw-gchamp-finals-seed-btn" title="Move this qualifier to another draw position">&#x270F;</button>';
+                    echo '<span class="lgw-gchamp-finals-seed-form" style="display:none" data-seed="' . intval( $seed ) . '" data-champ-id="' . esc_attr( $gchamp_id ) . '">';
+                    echo '<select class="lgw-gchamp-finals-seed-select">';
+                    foreach ( $finals_src_label as $osrc => $olabel ) {
+                        echo '<option value="' . esc_attr( $osrc ) . '"' . selected( $osrc, $src, false ) . '>' . esc_html( $olabel ) . '</option>';
+                    }
+                    echo '</select>';
+                    echo '<button type="button" class="lgw-gchamp-finals-seed-save" title="Save">&#x2713;</button>';
+                    echo '<button type="button" class="lgw-gchamp-finals-seed-cancel" title="Cancel">&#x2715;</button>';
+                    echo '</span>';
+                };
 
                 $club_badges = get_option( 'lgw_club_badges', array() );
                 $team_badges = get_option( 'lgw_badges',      array() );
@@ -4733,29 +4766,16 @@ function lgw_gchamp_shortcode( $atts ) {
                             // has confirmed it, else the source label ("Day 1
                             // Winner" / "Winner of QF1"). A seed slot also gets an
                             // admin dropdown to set which qualifier takes it.
-                            $render_ph = function( $side ) use ( $match, $can_score, $finals_src_label, $gchamp_id ) {
+                            $render_ph = function( $side ) use ( $match, $seed_ctrl ) {
                                 $name  = $match[ $side ] ?? null;
                                 $label = $match[ $side . '_label' ] ?? 'TBD';
-                                $seed  = $match[ $side . '_seed' ] ?? null;
-                                $src   = $match[ $side . '_src' ]  ?? null;
                                 echo '<span class="lgw-finals-ph-slot">';
                                 if ( $name ) {
                                     echo '<span class="lgw-finals-ph-name">' . esc_html( lgw_gchamp_short_name( $name ) ) . '</span>';
                                 } else {
                                     echo '<span class="lgw-finals-ph-label">' . esc_html( $label ) . '</span>';
                                 }
-                                if ( $can_score && $seed !== null && ! empty( $finals_src_label ) ) {
-                                    echo '<button type="button" class="lgw-gchamp-finals-seed-btn" title="Set which qualifier takes this position">&#x270F;</button>';
-                                    echo '<span class="lgw-gchamp-finals-seed-form" style="display:none" data-seed="' . intval( $seed ) . '" data-champ-id="' . esc_attr( $gchamp_id ) . '">';
-                                    echo '<select class="lgw-gchamp-finals-seed-select">';
-                                    foreach ( $finals_src_label as $osrc => $olabel ) {
-                                        echo '<option value="' . esc_attr( $osrc ) . '"' . selected( $osrc, $src, false ) . '>' . esc_html( $olabel ) . '</option>';
-                                    }
-                                    echo '</select>';
-                                    echo '<button type="button" class="lgw-gchamp-finals-seed-save" title="Save">&#x2713;</button>';
-                                    echo '<button type="button" class="lgw-gchamp-finals-seed-cancel" title="Cancel">&#x2715;</button>';
-                                    echo '</span>';
-                                }
+                                $seed_ctrl( $match, $side );
                                 echo '</span>';
                             };
                             $render_ph( 'home' );
@@ -4768,7 +4788,7 @@ function lgw_gchamp_shortcode( $atts ) {
                             <div class="lgw-finals-team lgw-finals-team--home">
                                 <?php if ($home_badge): ?><img src="<?php echo esc_url($home_badge); ?>" class="lgw-finals-badge" alt=""><?php endif; ?>
                                 <div class="lgw-finals-team-info">
-                                    <span class="lgw-finals-team-name"><?php echo esc_html( lgw_gchamp_short_name($home) ); ?></span>
+                                    <span class="lgw-finals-team-name"><?php echo esc_html( lgw_gchamp_short_name($home) ); ?><?php $seed_ctrl( $match, 'home' ); ?></span>
                                     <?php $hclub = trim(explode(',',$home,2)[1]??''); if ($hclub): ?>
                                     <span class="lgw-finals-team-club"><?php echo esc_html($hclub); ?></span>
                                     <?php endif; ?>
@@ -4793,7 +4813,7 @@ function lgw_gchamp_shortcode( $atts ) {
                             </div>
                             <div class="lgw-finals-team lgw-finals-team--away">
                                 <div class="lgw-finals-team-info">
-                                    <span class="lgw-finals-team-name"><?php echo esc_html( lgw_gchamp_short_name($away) ); ?></span>
+                                    <span class="lgw-finals-team-name"><?php echo esc_html( lgw_gchamp_short_name($away) ); ?><?php $seed_ctrl( $match, 'away' ); ?></span>
                                     <?php $aclub = trim(explode(',',$away,2)[1]??''); if ($aclub): ?>
                                     <span class="lgw-finals-team-club"><?php echo esc_html($aclub); ?></span>
                                     <?php endif; ?>
