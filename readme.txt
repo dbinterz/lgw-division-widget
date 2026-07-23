@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.9
+Stable tag: 2026.30.10
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.10 =
+* New: Finals Week draw is now editable directly on the public [lgw_finals] page for logged-in admins (previously the draw controls were only in the championship admin pane). Pending slots show a pencil to arrange the draw in place.
+* New: Combined semi-final/final slot editing. Each semi-final (and final) slot now has a single dropdown listing all its possible occupants together — the known byes AND the "Winner of QF1 / QF2" feeds in one list — so you can arrange the semi-final line-up freely, including dropping a bye qualifier into a "Winner of QF" slot or vice-versa. Swaps stay within the round so the bracket remains valid, and the draw locks once the finals start. Quarter-final positions keep the qualifier-pool dropdown. (Supersedes the 2026.30.9 winner-reroute, which is folded into this combined control.)
 
 = 2026.30.9 =
 * New: Manual Finals Week reroute for offline draws. Each "Winner of QF1 / QF2…" slot now has an admin dropdown to choose which earlier match's winner feeds it — e.g. send the Quarter-final 1 winner into Semi-final 2 instead of Semi-final 1. Swaps happen within the round (every winner still lands in exactly one slot), so the bracket stays valid, and the routing locks once the finals start (a score or live end is entered). This completes hands-on control of the draw alongside the existing per-position qualifier placement.

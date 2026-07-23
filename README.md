@@ -108,6 +108,14 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.10]
+### Added
+- **Finals Week draw editable on the public `[lgw_finals]` page** for admins (was pane-only). `lgw-finals.php` renders the shared draw controls on pending gchamp slots; `lgw-finals.js` gained the seed + occupant handlers (using a localized `gchampNonce` for the gchamp AJAX actions).
+- **Combined occupant control for mixed rounds (semi-finals/final).** Each such slot lists all its round's occupants in one dropdown — named byes AND "Winner of QFx" feeds — so byes and winner-feeds can be permuted freely (e.g. drop a bye into a "Winner of QF" slot). Backed by a general `finals_slotmap` (`"layoutIndex:side" => {seed:k|win:j}`) applied in `lgw_gchamp_build_finals_matches()`; `lgw_gchamp_finals_occupant_groups()` computes per-round token sets; new AJAX `lgw_gchamp_finals_set_occupant` swaps within a round. Pure-seed rounds (QFs) keep the qualifier-pool seed dropdown.
+
+### Changed
+- The 2026.30.9 winner-reroute (`finals_winlinks` / `set_winlink`) is superseded by the combined occupant control; `finals_winlinks` is still read for backward compatibility.
+
 ## [2026.30.9]
 ### Added
 - **Manual Finals Week reroute (offline draws).** Each prev-linked slot ("Winner of QFx") gets an admin dropdown to choose which earlier match's winner feeds it. New AJAX `lgw_gchamp_finals_set_winlink` stores a `finals_winlinks` map (`"layoutIndex:side" => prevMatchIndex`); `lgw_gchamp_build_finals_matches()` applies the override when wiring prev-links. Swaps are constrained to slots fed from the same round (bracket stays a valid permutation) and rejected once any finals score/live end exists. `$winlink_ctrl` renders the control on placeholder slots; JS handler mirrors the seed one.

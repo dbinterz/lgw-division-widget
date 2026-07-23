@@ -36,6 +36,7 @@ function lgw_finals_enqueue() {
         'ajaxUrl'    => admin_url('admin-ajax.php'),
         'isAdmin'    => current_user_can('manage_options') ? 1 : 0,
         'nonce'      => wp_create_nonce('lgw_finals_nonce'),
+        'gchampNonce'=> wp_create_nonce('lgw_gchamp_score'),
         'clubBadges' => get_option('lgw_club_badges', array()),
         'badges'     => get_option('lgw_badges',      array()),
     ));
@@ -126,6 +127,35 @@ function lgw_finals_get_gchamp_matches( string $gchamp_id, array $champ ): array
     return $out;
 }
 
+/**
+ * Admin draw control for a pending Group Championship finals slot on the public
+ * Finals Week page. Mixed rounds (semi-finals/final) use the shared occupant
+ * dropdown — byes and "Winner of QFx" feeds in one list. Pure-seed rounds
+ * (quarter-finals) get the qualifier-pool dropdown. Same markup/classes as the
+ * championship admin pane so lgw-finals.js reuses the handlers. Returns '' for
+ * non-editable slots.
+ */
+function lgw_finals_gchamp_draw_ctrl( $cid, $match, $side, $match_idx, $src_label, $occ_groups ) {
+    $round = $match['round'] ?? '';
+    $g     = $occ_groups[ $round ] ?? array();
+    if ( ! empty( $g['has_win'] ) && function_exists( 'lgw_gchamp_finals_occupant_ctrl' ) ) {
+        $wkey = intval( $match_idx ) . ':' . $side;
+        return lgw_gchamp_finals_occupant_ctrl( (string) $cid, $wkey, $g );
+    }
+    // Pure-seed round: qualifier-pool dropdown on the seed slot.
+    $seed = $match[ $side . '_seed' ] ?? null;
+    if ( $seed === null || empty( $src_label ) ) return '';
+    $src = $match[ $side . '_src' ] ?? null;
+    $out  = '<button type="button" class="lgw-gchamp-finals-seed-btn" title="Choose the qualifier for this position">&#x270F;</button>';
+    $out .= '<span class="lgw-gchamp-finals-seed-form" style="display:none" data-seed="' . intval( $seed ) . '" data-champ-id="' . esc_attr( $cid ) . '">';
+    $out .= '<select class="lgw-gchamp-finals-seed-select">';
+    foreach ( $src_label as $osrc => $olabel ) {
+        $out .= '<option value="' . esc_attr( $osrc ) . '"' . selected( $osrc, $src, false ) . '>' . esc_html( $olabel ) . '</option>';
+    }
+    $out .= '</select><button type="button" class="lgw-gchamp-finals-seed-save" title="Save">&#x2713;</button><button type="button" class="lgw-gchamp-finals-seed-cancel" title="Cancel">&#x2715;</button></span>';
+    return $out;
+}
+
 // ── Shortcode ─────────────────────────────────────────────────────────────────
 add_shortcode('lgw_finals', 'lgw_finals_shortcode');
 function lgw_finals_shortcode($atts) {
@@ -211,6 +241,24 @@ function lgw_finals_shortcode($atts) {
             ? lgw_finals_get_gchamp_matches($champ['_gchamp_id'], $champ)
             : lgw_finals_get_matches($champ_id, $champ);
         if (empty($matches)) continue;
+
+        // Admin draw-editing context for a Group Championship: qualifier-source
+        // labels (QF seed dropdowns), occupant groups (semi/final combined
+        // dropdowns), and whether the finals have started (any score/live end
+        // → draw locks).
+        $g_src_label = array(); $g_occ_groups = array(); $g_finals_started = false;
+        if ($is_gchamp && $is_admin && function_exists('lgw_gchamp_finals_slots')) {
+            foreach (lgw_gchamp_finals_slots($champ) as $s) {
+                $g_src_label[$s['src']] = $s['name']
+                    ? lgw_gchamp_short_name($s['name']) . ' — ' . $s['label']
+                    : $s['label'] . ' (TBD)';
+            }
+            $g_occ_groups = lgw_gchamp_finals_occupant_groups($champ);
+            foreach ($champ['finals_matches'] ?? array() as $m0) {
+                if (($m0['home_score'] !== null && $m0['away_score'] !== null) || !empty($m0['ends'])) $g_finals_started = true;
+            }
+        }
+        $gchamp_draw_editable = $is_gchamp && $is_admin && !$g_finals_started;
 
         // Group by round
         $by_round = array();
@@ -327,9 +375,11 @@ function lgw_finals_shortcode($atts) {
                 $away_ph = $away ? lgw_finals_player_name($away) : ($match['away_label'] ?? 'TBD');
               ?>
               <div class="lgw-finals-teams lgw-finals-teams--pending">
-                <span class="lgw-finals-tbd<?php echo $home ? ' lgw-finals-tbd--named' : ''; ?>"><?php echo esc_html($home_ph); ?></span>
+                <span class="lgw-finals-tbd<?php echo $home ? ' lgw-finals-tbd--named' : ''; ?>"><?php echo esc_html($home_ph);
+                  if ($gchamp_draw_editable) echo lgw_finals_gchamp_draw_ctrl($champ['_gchamp_id'], $match, 'home', $m['match_idx'], $g_src_label, $g_occ_groups); ?></span>
                 <span class="lgw-finals-vs">v</span>
-                <span class="lgw-finals-tbd<?php echo $away ? ' lgw-finals-tbd--named' : ''; ?>"><?php echo esc_html($away_ph); ?></span>
+                <span class="lgw-finals-tbd<?php echo $away ? ' lgw-finals-tbd--named' : ''; ?>"><?php echo esc_html($away_ph);
+                  if ($gchamp_draw_editable) echo lgw_finals_gchamp_draw_ctrl($champ['_gchamp_id'], $match, 'away', $m['match_idx'], $g_src_label, $g_occ_groups); ?></span>
               </div>
               <?php else: ?>
               <div class="lgw-finals-teams">

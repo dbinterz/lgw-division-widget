@@ -604,3 +604,49 @@
   .lgw-finals-teams { grid-template-columns: 1fr auto 1fr; gap: 4px; }
   .lgw-finals-ends-th, .lgw-finals-ends-td { padding: 3px 5px; font-size: 11px; }
 }
+
+/* Admin draw-editing controls on pending slots (Group Championship). The
+   gchamp stylesheet is not loaded on this page, so style them here too. */
+.lgw-gchamp-finals-seed-btn,
+.lgw-gchamp-finals-occ-btn {
+  margin-left: 5px;
+  padding: 0 5px;
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .12);
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+  opacity: .75;
+}
+.lgw-gchamp-finals-seed-btn:hover,
+.lgw-gchamp-finals-occ-btn:hover { opacity: 1; }
+.lgw-gchamp-finals-seed-form,
+.lgw-gchamp-finals-occ-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+.lgw-gchamp-finals-seed-select,
+.lgw-gchamp-finals-occ-select {
+  max-width: 190px;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #111;
+}
+.lgw-gchamp-finals-seed-save,
+.lgw-gchamp-finals-seed-cancel,
+.lgw-gchamp-finals-occ-save,
+.lgw-gchamp-finals-occ-cancel {
+  padding: 1px 6px;
+  border: 1px solid rgba(255, 255, 255, .4);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .15);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}

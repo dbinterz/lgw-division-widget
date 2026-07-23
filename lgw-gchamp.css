@@ -805,7 +805,7 @@
 .lgw-finals-ph-name  { font-weight: 600; }
 .lgw-finals-ph-label { color: var(--lgw-text-muted); font-style: italic; font-size: 12px; }
 .lgw-gchamp-finals-seed-btn,
-.lgw-gchamp-finals-wl-btn {
+.lgw-gchamp-finals-occ-btn {
   padding: 1px 5px;
   border: 1px solid var(--lgw-border-soft);
   border-radius: var(--lgw-radius-sm);
@@ -816,24 +816,24 @@
   opacity: .6;
 }
 .lgw-finals-ph-slot:hover .lgw-gchamp-finals-seed-btn,
-.lgw-finals-ph-slot:hover .lgw-gchamp-finals-wl-btn,
+.lgw-finals-ph-slot:hover .lgw-gchamp-finals-occ-btn,
 .lgw-finals-team-name:hover .lgw-gchamp-finals-seed-btn { opacity: 1; }
 .lgw-gchamp-finals-seed-form,
-.lgw-gchamp-finals-wl-form {
+.lgw-gchamp-finals-occ-form {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 .lgw-gchamp-finals-seed-select,
-.lgw-gchamp-finals-wl-select {
+.lgw-gchamp-finals-occ-select {
   max-width: 180px;
   font-size: 11px;
   padding: 2px 4px;
   border: 1px solid var(--lgw-border);
   border-radius: var(--lgw-radius-sm);
 }
-.lgw-gchamp-finals-wl-save,
-.lgw-gchamp-finals-wl-cancel,
+.lgw-gchamp-finals-occ-save,
+.lgw-gchamp-finals-occ-cancel,
 .lgw-gchamp-finals-seed-save,
 .lgw-gchamp-finals-seed-cancel {
   padding: 2px 6px;
