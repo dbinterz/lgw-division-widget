@@ -2,10 +2,17 @@
 (function () {
   'use strict';
 
-  var ajaxUrl  = (typeof lgwFinalsData !== 'undefined') ? lgwFinalsData.ajaxUrl  : '/wp-admin/admin-ajax.php';
-  var isAdmin  = (typeof lgwFinalsData !== 'undefined') && lgwFinalsData.isAdmin == 1;
-  var nonce    = (typeof lgwFinalsData !== 'undefined') ? lgwFinalsData.nonce    : '';
-  var matches  = (typeof lgwFinalsData !== 'undefined') ? (lgwFinalsData.matches || {}) : {};
+  // The match map is stashed on __lgwFinalsBoot because wp_localize_script
+  // redefines lgwFinalsData in the footer and wipes lgwFinalsData.matches set in
+  // the body. Fall back to the boot global so matches (and nonce/isAdmin) survive
+  // regardless of script order — otherwise gchamp saves route to the wrong
+  // handler with a prefixed champ id and fail with "Match not found".
+  var boot     = (typeof window !== 'undefined' && window.__lgwFinalsBoot) ? window.__lgwFinalsBoot : {};
+  var lfd      = (typeof lgwFinalsData !== 'undefined') ? lgwFinalsData : {};
+  var ajaxUrl  = lfd.ajaxUrl || '/wp-admin/admin-ajax.php';
+  var isAdmin  = (lfd.isAdmin != null ? lfd.isAdmin : boot.isAdmin) == 1;
+  var nonce    = lfd.nonce || boot.nonce || '';
+  var matches  = (lfd.matches && Object.keys(lfd.matches).length) ? lfd.matches : (boot.matches || {});
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
   function qs(sel, ctx)  { return (ctx || document).querySelector(sel); }
