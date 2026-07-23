@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.10
+Stable tag: 2026.30.11
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.11 =
+* Fix: Setting the date/time or rink on a Group Championship finals match from the public [lgw_finals] page no longer fails with "Match not found". The finals bracket rebuilt on render (when the qualifier set had grown) was not being persisted, so the save handler re-read an empty/stale match list. The rebuilt bracket is now saved so front-end edits resolve correctly.
 
 = 2026.30.10 =
 * New: Finals Week draw is now editable directly on the public [lgw_finals] page for logged-in admins (previously the draw controls were only in the championship admin pane). Pending slots show a pencil to arrange the draw in place.

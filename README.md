@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.11]
+### Fixed
+- **"Match not found" when setting date/time/rink on a gchamp final from the public `[lgw_finals]` page.** `lgw_finals_render()` rebuilds `finals_matches` on render when the qualifier count has grown, but only into the local `$val` — it was never persisted, so `lgw_ajax_finals_save_schedule()` (and the score/end handlers) re-read an empty/stale `finals_matches` from the stored option and failed the index lookup. The rebuild now stamps `finals_q_count_at_build` and persists via `update_option()` so stored and rendered brackets stay in sync.
+
 ## [2026.30.10]
 ### Added
 - **Finals Week draw editable on the public `[lgw_finals]` page** for admins (was pane-only). `lgw-finals.php` renders the shared draw controls on pending gchamp slots; `lgw-finals.js` gained the seed + occupant handlers (using a localized `gchampNonce` for the gchamp AJAX actions).
