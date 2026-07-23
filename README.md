@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.12]
+### Fixed
+- **"Match not found" — root cause — on gchamp finals date/time/rink/score/end saves from `[lgw_finals]`.** The localized JS match map (`$all_js_data`) omitted the gchamp routing fields, so `lgw-finals.js` took the standard-champ branch and posted `champ_id` as the mid-derived `"gchamp_<id>"`. The gchamp AJAX handlers prepend `lgw_gchamp_`, yielding `lgw_gchamp_gchamp_<id>` — a non-existent option — hence the failed `match_idx` lookup. The map now emits `isGchamp`, the **bare** `_gchamp_id` as `champId`, and the `lgw_gchamp_score` nonce, so `m.isGchamp` routes to the gchamp handlers with the correct id/nonce. (The 2026.30.11 render-persist fix was necessary but not sufficient — this was the operative bug.)
+
 ## [2026.30.11]
 ### Fixed
 - **"Match not found" when setting date/time/rink on a gchamp final from the public `[lgw_finals]` page.** `lgw_finals_render()` rebuilds `finals_matches` on render when the qualifier count has grown, but only into the local `$val` — it was never persisted, so `lgw_ajax_finals_save_schedule()` (and the score/end handlers) re-read an empty/stale `finals_matches` from the stored option and failed the index lookup. The rebuild now stamps `finals_q_count_at_build` and persists via `update_option()` so stored and rendered brackets stay in sync.

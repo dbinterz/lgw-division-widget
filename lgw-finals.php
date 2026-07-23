@@ -337,7 +337,15 @@ function lgw_finals_shortcode($atts) {
 
               // Store data for JS
               $all_js_data[$mid] = array(
-                  'champId'    => $champ_id,
+                  // For gchamp, lgw-finals.js routes to the gchamp AJAX handlers
+                  // (which prepend lgw_gchamp_ to champ_id and verify the
+                  // lgw_gchamp_score nonce). Pass the BARE gchamp id + gchamp
+                  // nonce here — the mid-derived champId still carries the
+                  // "gchamp_" prefix and would double it into a missing option,
+                  // yielding "Match not found".
+                  'isGchamp'   => $is_gchamp ? 1 : 0,
+                  'champId'    => $is_gchamp ? $champ['_gchamp_id'] : $champ_id,
+                  'nonce'      => $is_gchamp ? wp_create_nonce('lgw_gchamp_score') : $nonce,
                   'bracketKey' => $m['bracket_key'],
                   'roundIdx'   => $m['round_idx'],
                   'matchIdx'   => $m['match_idx'],
