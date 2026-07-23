@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.9]
+### Added
+- **Manual Finals Week reroute (offline draws).** Each prev-linked slot ("Winner of QFx") gets an admin dropdown to choose which earlier match's winner feeds it. New AJAX `lgw_gchamp_finals_set_winlink` stores a `finals_winlinks` map (`"layoutIndex:side" => prevMatchIndex`); `lgw_gchamp_build_finals_matches()` applies the override when wiring prev-links. Swaps are constrained to slots fed from the same round (bracket stays a valid permutation) and rejected once any finals score/live end exists. `$winlink_ctrl` renders the control on placeholder slots; JS handler mirrors the seed one.
+
 ## [2026.30.8]
 ### Fixed
 - **Day KO final scoreable on no-final days.** `ko_complete` goes true at the semi stage for `fq==2` no-final days, which was hiding every day-KO score box (final included) and locking the semis. Render now uses `$ko_locked = $ko_complete && ! $final_not_played`, so no-final days keep semis editable and expose an optional final score box (scoring it doesn't change the already-confirmed qualifiers).

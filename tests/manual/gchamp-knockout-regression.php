@@ -327,6 +327,37 @@ $b['rounds'][1]['matches'][0]['home_score'] = 21; $b['rounds'][1]['matches'][0][
 check( "fq2 play-final ON: complete once final scored", lgw_gchamp_ko_qualifiers_complete( $b, 2, true ) === true );
 eq( "fq2 play-final ON: winner ranked first, loser second", array('A','D'), lgw_gchamp_compute_ko_qualifiers( $b, 2, true ) );
 
+echo "\n== Test 9: manual finals reroute (send a QF winner to the other semi) ==\n";
+$champ = unserialize( file_get_contents( __DIR__ . '/fixtures/gchamp-over55-pairs.ser' ) );
+$champ['days'][0]['ko_qualifiers'] = array( 'A0', 'B0' );
+$champ['days'][1]['ko_qualifiers'] = array( 'A1', 'B1' );
+$champ['days'][2]['ko_qualifiers'] = array( 'A2', 'B2' );
+$champ['finals_matches'] = lgw_gchamp_build_finals_matches( $champ );
+// N=6 layout: idx2 = SF1 (away = Winner of QF1), idx3 = SF2 (away = Winner of QF2).
+eq( "default SF1 away = Winner of QF1", 0, $champ['finals_matches'][2]['away_prev'] );
+eq( "default SF2 away = Winner of QF2", 1, $champ['finals_matches'][3]['away_prev'] );
+$GLOBALS['__opt']['lgw_gchamp_nipgl-over55-pairs-2026'] = $champ;
+// Reroute: send the QF1 winner into Semi-final 2 instead of Semi-final 1.
+$_POST = array( 'champ_id' => 'nipgl-over55-pairs-2026', 'nonce' => 'x', 'slot' => '3:away', 'prev' => '0' );
+try { lgw_ajax_gchamp_finals_set_winlink(); check( "set_winlink did not error", false ); }
+catch ( LGW_JsonDone $j ) { check( "set_winlink succeeded", $j->ok === true ); }
+$saved = $GLOBALS['__opt']['lgw_gchamp_nipgl-over55-pairs-2026'];
+eq( "SF2 away rerouted to Winner of QF1", 0, $saved['finals_matches'][3]['away_prev'] );
+eq( "SF1 away swapped to Winner of QF2", 1, $saved['finals_matches'][2]['away_prev'] );
+// Score QF1 → its winner must now flow into SF2 (rerouted), leaving SF1 pending.
+$qf1 = null; foreach ( $saved['finals_matches'] as $mi => $m ) { if ( $m['round']==='Quarter-final' && $m['match_num']===1 ) { $qf1=$mi; break; } }
+$qf1w = $saved['finals_matches'][$qf1]['home'];
+$saved['finals_matches'][$qf1]['home_score'] = 21;
+$saved['finals_matches'][$qf1]['away_score'] = 5;
+$saved['finals_matches'] = lgw_gchamp_build_finals_matches( $saved );
+eq( "QF1 winner routed into SF2 away", $qf1w, $saved['finals_matches'][3]['away'] );
+check( "SF1 away left pending (its QF2 unscored)", $saved['finals_matches'][2]['away'] === null );
+// Once a score exists anywhere, rerouting is locked.
+$GLOBALS['__opt']['lgw_gchamp_nipgl-over55-pairs-2026'] = $saved;
+$_POST = array( 'champ_id' => 'nipgl-over55-pairs-2026', 'nonce' => 'x', 'slot' => '2:away', 'prev' => '0' );
+try { lgw_ajax_gchamp_finals_set_winlink(); check( "locked reroute did not silently pass", false ); }
+catch ( LGW_JsonDone $j ) { check( "reroute rejected after finals started", $j->ok === false ); }
+
 echo "\n";
 if ( $GLOBALS['__fails'] > 0 ) {
     echo $GLOBALS['__fails'] . " check(s) FAILED\n";
