@@ -534,6 +534,58 @@
     if (season) startPoll(season);
   }
 
+  // ── Admin draw editing (Group Championship): reassign a pending finals slot.
+  //    Reuses the gchamp AJAX handlers, so it needs the gchamp-scoped nonce.
+  //    Two controls, same markup as the championship pane: seed (QF qualifier
+  //    pool) and occupant (semi/final combined byes + winner feeds). ──────────
+  var gchampNonce = (typeof lgwFinalsData !== 'undefined') ? (lgwFinalsData.gchampNonce || '') : '';
+
+  function drawToggle(btn, formSel, btnSel, show) {
+    if (btn) {
+      var form = btn.parentNode ? btn.parentNode.querySelector(formSel) : null;
+      if (form) { form.style.display = 'inline-flex'; btn.style.display = 'none'; }
+      return true;
+    }
+    return false;
+  }
+
+  document.addEventListener('click', function (e) {
+    var sBtn = e.target.closest('.lgw-gchamp-finals-seed-btn');
+    var oBtn = e.target.closest('.lgw-gchamp-finals-occ-btn');
+    if (drawToggle(sBtn, '.lgw-gchamp-finals-seed-form')) return;
+    if (drawToggle(oBtn, '.lgw-gchamp-finals-occ-form')) return;
+
+    var cancel = e.target.closest('.lgw-gchamp-finals-seed-cancel, .lgw-gchamp-finals-occ-cancel');
+    if (cancel) {
+      var cf = cancel.closest('.lgw-gchamp-finals-seed-form, .lgw-gchamp-finals-occ-form');
+      if (cf) { cf.style.display = 'none'; var b = cf.parentNode && cf.parentNode.querySelector('.lgw-gchamp-finals-seed-btn, .lgw-gchamp-finals-occ-btn'); if (b) b.style.display = ''; }
+      return;
+    }
+
+    var sSave = e.target.closest('.lgw-gchamp-finals-seed-save');
+    if (sSave) {
+      var sf = sSave.closest('.lgw-gchamp-finals-seed-form');
+      var ssel = sf && sf.querySelector('.lgw-gchamp-finals-seed-select');
+      if (!sf || !ssel) return;
+      sSave.disabled = true;
+      post('lgw_gchamp_finals_set_slot', { nonce: gchampNonce, champ_id: sf.getAttribute('data-champ-id'), seed: sf.getAttribute('data-seed'), src: ssel.value }, function (data) {
+        if (data && data.success) { location.reload(); } else { sSave.disabled = false; alert('Error: ' + ((data && data.data) || 'Unknown')); }
+      });
+      return;
+    }
+    var oSave = e.target.closest('.lgw-gchamp-finals-occ-save');
+    if (oSave) {
+      var of = oSave.closest('.lgw-gchamp-finals-occ-form');
+      var osel = of && of.querySelector('.lgw-gchamp-finals-occ-select');
+      if (!of || !osel) return;
+      oSave.disabled = true;
+      post('lgw_gchamp_finals_set_occupant', { nonce: gchampNonce, champ_id: of.getAttribute('data-champ-id'), slot: of.getAttribute('data-slot'), token: osel.value }, function (data) {
+        if (data && data.success) { location.reload(); } else { oSave.disabled = false; alert('Error: ' + ((data && data.data) || 'Unknown')); }
+      });
+      return;
+    }
+  });
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {

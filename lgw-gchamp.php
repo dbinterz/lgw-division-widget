@@ -2949,77 +2949,132 @@ function lgw_ajax_gchamp_finals_set_slot() {
     wp_send_json_success( array( 'draw' => $champ['finals_draw'] ) );
 }
 
-// ── AJAX: reroute a "Winner of QF/SF" link (manual/offline draw) ──────────────
-// Lets an admin choose which earlier match's winner feeds a given later-round
-// slot, e.g. send the QF1 winner to Semi-final 2 instead of Semi-final 1. Only
-// swaps within the group of slots fed from the same round, so every winner still
-// lands in exactly one slot (the bracket stays a valid permutation).
-add_action( 'wp_ajax_lgw_gchamp_finals_set_winlink', 'lgw_ajax_gchamp_finals_set_winlink' );
-function lgw_ajax_gchamp_finals_set_winlink() {
+/**
+ * Occupant groups for the Finals Week bracket. Each first-round slot of a round
+ * holds a "token" — a qualifier bye (seed) or a match-winner feed (win). Within
+ * a round the tokens can be permuted across the slots (e.g. the two byes and the
+ * two "Winner of QF" feeds in the semi-finals), which is how an admin arranges an
+ * offline draw. Returns per round:
+ *   'has_win' => bool                       (round mixes in winner feeds)
+ *   'options' => [ tokenStr => label ]      (the fixed token set for the round)
+ *   'current' => [ "j:side" => tokenStr ]   (what each slot currently holds)
+ * where tokenStr is "seed:<k>" or "win:<j>".
+ */
+function lgw_gchamp_finals_occupant_groups( array $champ ): array {
+    $slots  = lgw_gchamp_finals_slots( $champ );
+    $n      = count( $slots );
+    $layout = lgw_gchamp_finals_layout( $n );
+    if ( empty( $layout ) ) return array();
+    $draw   = lgw_gchamp_finals_draw_order( $champ, $slots );
+    $by_src = array(); foreach ( $slots as $s ) $by_src[ $s['src'] ] = $s;
+    $rshort = array( 'Quarter-final' => 'QF', 'Semi-final' => 'SF', 'Final' => 'F' );
+
+    // Round name + match number per layout index.
+    $rc = array(); $round_of = array(); $num_of = array();
+    foreach ( $layout as $j => $spec ) { $r = $spec[0]; $rc[$r] = ( $rc[$r] ?? 0 ) + 1; $round_of[$j] = $r; $num_of[$j] = $rc[$r]; }
+
+    $groups = array();
+    foreach ( $layout as $j => $spec ) {
+        $round = $spec[0];
+        foreach ( array( 0 => 'home', 1 => 'away' ) as $k => $side ) {
+            $ss   = $spec[ $k + 1 ];
+            $wkey = $j . ':' . $side;
+            $token = $ss;
+            if ( isset( $champ['finals_slotmap'][ $wkey ] ) ) {
+                $ov = $champ['finals_slotmap'][ $wkey ];
+                if ( is_array( $ov ) && ( isset( $ov['seed'] ) || isset( $ov['win'] ) ) ) $token = $ov;
+            } elseif ( isset( $ss['win'] ) && isset( $champ['finals_winlinks'][ $wkey ] ) ) {
+                $token = array( 'win' => intval( $champ['finals_winlinks'][ $wkey ] ) );
+            }
+            if ( isset( $token['seed'] ) ) {
+                $tstr = 'seed:' . intval( $token['seed'] );
+                $src  = $draw[ $token['seed'] - 1 ] ?? null;
+                $sl   = ( $src !== null ) ? ( $by_src[ $src ] ?? null ) : null;
+                $label = $sl ? ( $sl['name'] ? lgw_gchamp_short_name( $sl['name'] ) : $sl['label'] ) : 'TBD';
+            } else {
+                $pj    = intval( $token['win'] );
+                $tstr  = 'win:' . $pj;
+                $label = 'Winner of ' . ( $rshort[ $round_of[$pj] ?? '' ] ?? ( $round_of[$pj] ?? '' ) ) . ( $num_of[$pj] ?? '' );
+                $groups[ $round ]['has_win'] = true;
+            }
+            $groups[ $round ]['current'][ $wkey ] = $tstr;
+            $groups[ $round ]['options'][ $tstr ] = $label;
+        }
+    }
+    foreach ( $groups as &$g ) { if ( ! isset( $g['has_win'] ) ) $g['has_win'] = false; }
+    unset( $g );
+    return $groups;
+}
+
+/**
+ * HTML for the admin occupant dropdown on a pending finals slot (shared by the
+ * championship pane and the public [lgw_finals] page). Lists every token in the
+ * slot's round group — the named byes and the "Winner of QFx" feeds together —
+ * so any can be dropped into this slot. Returns '' when not editable.
+ */
+function lgw_gchamp_finals_occupant_ctrl( string $champ_id, string $wkey, array $group ): string {
+    if ( empty( $group['has_win'] ) || count( $group['options'] ?? array() ) < 2 ) return '';
+    $cur = $group['current'][ $wkey ] ?? '';
+    $out  = '<button type="button" class="lgw-gchamp-finals-occ-btn" title="Choose who takes this slot">&#x270F;</button>';
+    $out .= '<span class="lgw-gchamp-finals-occ-form" style="display:none" data-slot="' . esc_attr( $wkey ) . '" data-champ-id="' . esc_attr( $champ_id ) . '">';
+    $out .= '<select class="lgw-gchamp-finals-occ-select">';
+    foreach ( $group['options'] as $tok => $label ) {
+        $out .= '<option value="' . esc_attr( $tok ) . '"' . selected( $tok, $cur, false ) . '>' . esc_html( $label ) . '</option>';
+    }
+    $out .= '</select><button type="button" class="lgw-gchamp-finals-occ-save" title="Save">&#x2713;</button>';
+    $out .= '<button type="button" class="lgw-gchamp-finals-occ-cancel" title="Cancel">&#x2715;</button></span>';
+    return $out;
+}
+
+// ── AJAX: set which token occupies a finals slot (manual/offline draw) ────────
+// Permutes byes and winner-feeds within a round, e.g. arrange the two semi-final
+// pairings. Swaps within the slot's round group so the bracket stays valid.
+add_action( 'wp_ajax_lgw_gchamp_finals_set_occupant', 'lgw_ajax_gchamp_finals_set_occupant' );
+function lgw_ajax_gchamp_finals_set_occupant() {
     check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
     if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised.' );
     $champ_id = sanitize_key( $_POST['champ_id'] ?? '' );
-    $slot     = sanitize_text_field( wp_unslash( $_POST['slot'] ?? '' ) ); // "layoutIndex:side"
-    $prev     = intval( $_POST['prev'] ?? -1 );                            // desired source match index
-    if ( ! $champ_id || ! preg_match( '/^\d+:(home|away)$/', $slot ) || $prev < 0 ) {
+    $slot     = sanitize_text_field( wp_unslash( $_POST['slot']  ?? '' ) ); // "layoutIndex:side"
+    $token    = sanitize_text_field( wp_unslash( $_POST['token'] ?? '' ) ); // "seed:k" | "win:j"
+    if ( ! $champ_id || ! preg_match( '/^\d+:(home|away)$/', $slot ) || ! preg_match( '/^(seed|win):\d+$/', $token ) ) {
         wp_send_json_error( 'Missing parameters.' );
     }
 
     $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
     if ( empty( $champ ) ) wp_send_json_error( 'Championship not found.' );
 
-    // Don't reroute once the finals are under way — scores would be scrambled.
     foreach ( $champ['finals_matches'] ?? array() as $fm ) {
         if ( ( $fm['home_score'] !== null && $fm['away_score'] !== null ) || ! empty( $fm['ends'] ) ) {
             wp_send_json_error( 'The finals have started — the draw is locked.' );
         }
     }
 
-    $n      = count( lgw_gchamp_finals_slots( $champ ) );
-    $layout = lgw_gchamp_finals_layout( $n );
-    if ( empty( $layout ) ) wp_send_json_error( 'No finals bracket.' );
+    $groups = lgw_gchamp_finals_occupant_groups( $champ );
+    // Find the round group holding this slot.
+    $round = null;
+    foreach ( $groups as $r => $g ) { if ( isset( $g['current'][ $slot ] ) ) { $round = $r; break; } }
+    if ( $round === null ) wp_send_json_error( 'Unknown slot.' );
+    $g = $groups[ $round ];
+    if ( ! isset( $g['options'][ $token ] ) ) wp_send_json_error( 'That entry cannot take this slot.' );
 
-    // Default prev per win-slot + the round of the match each slot sits in.
-    $default = array();   // "j:side" => prev index
-    $slot_rd = array();   // "j:side" => round name of the containing match
-    foreach ( $layout as $j => $spec ) {
-        foreach ( array( 0 => 'home', 1 => 'away' ) as $k => $side ) {
-            $ss = $spec[ $k + 1 ];
-            if ( isset( $ss['win'] ) ) {
-                $key             = $j . ':' . $side;
-                $default[ $key ] = intval( $ss['win'] );
-                $slot_rd[ $key ] = $spec[0];
-            }
-        }
-    }
-    if ( ! isset( $default[ $slot ] ) ) wp_send_json_error( 'Not a reroutable slot.' );
-
-    // Current effective mapping (defaults + any stored overrides).
-    $cur = $default;
-    foreach ( (array) ( $champ['finals_winlinks'] ?? array() ) as $k => $v ) {
-        if ( isset( $cur[ $k ] ) ) $cur[ $k ] = intval( $v );
-    }
-
-    // Sibling group: win-slots in matches of the same round. The desired source
-    // must belong to this group (so we only ever permute within it).
-    $group = array_keys( array_filter( $slot_rd, fn( $r ) => $r === $slot_rd[ $slot ] ) );
-    $group_srcs = array_map( fn( $g ) => $cur[ $g ], $group );
-    if ( ! in_array( $prev, $group_srcs, true ) ) wp_send_json_error( 'Invalid routing.' );
-
-    // Swap: whoever currently holds $prev takes this slot's old source.
+    // Swap the chosen token into this slot; whoever held it takes the old token.
+    $cur = $g['current'];
     $old = $cur[ $slot ];
-    if ( $old !== $prev ) {
-        foreach ( $group as $g ) { if ( $cur[ $g ] === $prev ) { $cur[ $g ] = $old; break; } }
-        $cur[ $slot ] = $prev;
+    if ( $old !== $token ) {
+        foreach ( $cur as $sk => $t ) { if ( $t === $token ) { $cur[ $sk ] = $old; break; } }
+        $cur[ $slot ] = $token;
     }
 
-    // Store only the group's entries (keep the map compact and per-round valid).
-    $winlinks = (array) ( $champ['finals_winlinks'] ?? array() );
-    foreach ( $group as $g ) $winlinks[ $g ] = $cur[ $g ];
-    $champ['finals_winlinks'] = $winlinks;
+    // Persist the whole group's occupancy as slotmap tokens.
+    $slotmap = (array) ( $champ['finals_slotmap'] ?? array() );
+    foreach ( $cur as $sk => $t ) {
+        list( $kind, $v ) = explode( ':', $t );
+        $slotmap[ $sk ] = ( $kind === 'seed' ) ? array( 'seed' => intval( $v ) ) : array( 'win' => intval( $v ) );
+    }
+    $champ['finals_slotmap']  = $slotmap;
     $champ['finals_matches']  = lgw_gchamp_build_finals_matches( $champ );
     update_option( 'lgw_gchamp_' . $champ_id, $champ );
-    wp_send_json_success( array( 'winlinks' => $champ['finals_winlinks'] ) );
+    wp_send_json_success( array( 'slotmap' => $champ['finals_slotmap'] ) );
 }
 
 // ── Finals Week bracket ───────────────────────────────────────────────────────
@@ -3159,23 +3214,32 @@ function lgw_gchamp_build_finals_matches( array $champ ): array {
             'ends' => array(), 'finals_datetime' => '', 'finals_rink' => '',
         );
         foreach ( array( 'home', 'away' ) as $k => $side ) {
-            $ss = $spec[ $k + 1 ];
-            if ( isset( $ss['seed'] ) ) {
-                $src = $draw[ $ss['seed'] - 1 ] ?? null;
+            $ss   = $spec[ $k + 1 ];
+            $wkey = $j . ':' . $side;
+            // Resolve the token occupying this slot. Default = the layout token
+            // ( seed = a qualifier bye, or win = a match-winner feed ). Admins can
+            // override it: finals_slotmap holds the general per-slot occupant
+            // (a bye OR a winner feed, so byes and "Winner of QFx" can be permuted
+            // across a round); finals_winlinks is the older win-only override,
+            // still honoured for backward compatibility.
+            $token = $ss;
+            if ( isset( $champ['finals_slotmap'][ $wkey ] ) ) {
+                $ov = $champ['finals_slotmap'][ $wkey ];
+                if ( is_array( $ov ) && ( isset( $ov['seed'] ) || isset( $ov['win'] ) ) ) $token = $ov;
+            } elseif ( isset( $ss['win'] ) && isset( $champ['finals_winlinks'][ $wkey ] ) ) {
+                $token = array( 'win' => intval( $champ['finals_winlinks'][ $wkey ] ) );
+            }
+
+            if ( isset( $token['seed'] ) ) {
+                $src = $draw[ $token['seed'] - 1 ] ?? null;
                 $sl  = ( $src !== null ) ? ( $by_src[ $src ] ?? null ) : null;
                 $m[ $side . '_src' ]   = $src;
-                $m[ $side . '_seed' ]  = $ss['seed'];
+                $m[ $side . '_seed' ]  = $token['seed'];
                 $m[ $side ]            = $sl['name'] ?? null;
                 $m[ $side . '_label' ] = $sl['label'] ?? 'TBD';
             } else {
-                // Which earlier match's winner feeds this slot. Admins can reroute
-                // it (offline draw) via finals_winlinks, keyed by "layoutIndex:side".
-                $prev = intval( $ss['win'] );
-                $wkey = $j . ':' . $side;
-                if ( isset( $champ['finals_winlinks'][ $wkey ] ) ) {
-                    $override = intval( $champ['finals_winlinks'][ $wkey ] );
-                    if ( isset( $layout[ $override ] ) ) $prev = $override;
-                }
+                $prev = intval( $token['win'] );
+                if ( ! isset( $layout[ $prev ] ) ) $prev = intval( $ss['win'] ?? 0 );
                 $m[ $side . '_prev' ]  = $prev;
                 $pr = $layout[ $prev ][0] ?? 'match';
                 $m[ $side . '_label' ] = 'Winner of ' . ( $round_short[ $pr ] ?? $pr );
@@ -4739,20 +4803,26 @@ function lgw_gchamp_shortcode( $atts ) {
                 }
 
                 // The draw can be rearranged until the finals actually start (no
-                // scores / live ends anywhere). After that, seed positions lock.
+                // scores / live ends anywhere). After that, the draw locks.
                 $finals_started = false;
                 foreach ( $finals_matches as $_fm ) {
                     if ( ( $_fm['home_score'] !== null && $_fm['away_score'] !== null ) || ! empty( $_fm['ends'] ) ) { $finals_started = true; break; }
                 }
-                // Emits the pencil + qualifier-source dropdown for a seed slot.
-                // Available on both unresolved (pending) and resolved seed slots so
-                // the draw stays movable once names have flowed forward.
-                $seed_ctrl = function( $match, $side ) use ( $can_score, $finals_src_label, $gchamp_id, $finals_started ) {
+
+                // Occupant groups: within a round that mixes byes + winner feeds
+                // (semi-finals, final) those occupants can be permuted across the
+                // slots. Pure-seed rounds (quarter-finals) keep the qualifier-pool
+                // seed dropdown instead.
+                $occ_groups = lgw_gchamp_finals_occupant_groups( $champ );
+
+                // Seed control (qualifier pool) — only on pure-seed rounds (QFs).
+                $seed_ctrl = function( $match, $side ) use ( $can_score, $finals_src_label, $gchamp_id, $finals_started, $occ_groups ) {
                     if ( ! $can_score || $finals_started || empty( $finals_src_label ) ) return;
+                    if ( ! empty( $occ_groups[ $match['round'] ]['has_win'] ) ) return; // occupant control handles this round
                     $seed = $match[ $side . '_seed' ] ?? null;
-                    if ( $seed === null ) return; // prev-linked (Winner of QFx) — not a draw position
+                    if ( $seed === null ) return;
                     $src = $match[ $side . '_src' ] ?? null;
-                    echo '<button type="button" class="lgw-gchamp-finals-seed-btn" title="Move this qualifier to another draw position">&#x270F;</button>';
+                    echo '<button type="button" class="lgw-gchamp-finals-seed-btn" title="Choose the qualifier for this position">&#x270F;</button>';
                     echo '<span class="lgw-gchamp-finals-seed-form" style="display:none" data-seed="' . intval( $seed ) . '" data-champ-id="' . esc_attr( $gchamp_id ) . '">';
                     echo '<select class="lgw-gchamp-finals-seed-select">';
                     foreach ( $finals_src_label as $osrc => $olabel ) {
@@ -4764,37 +4834,13 @@ function lgw_gchamp_shortcode( $atts ) {
                     echo '</span>';
                 };
 
-                // Candidate sources per round for rerouting "Winner of QFx" links:
-                // round name => [ prevMatchIdx => "Winner of QF1" ].
-                $rshort = array( 'Quarter-final' => 'QF', 'Semi-final' => 'SF', 'Final' => 'F' );
-                $winlink_group = array();
-                foreach ( $finals_matches as $m0 ) {
-                    foreach ( array( 'home', 'away' ) as $sd ) {
-                        $p0 = $m0[ $sd . '_prev' ] ?? null;
-                        if ( $p0 === null || ! isset( $finals_matches[ $p0 ] ) ) continue;
-                        $srcm = $finals_matches[ $p0 ];
-                        $winlink_group[ $m0['round'] ][ $p0 ] = 'Winner of ' . ( $rshort[ $srcm['round'] ] ?? $srcm['round'] ) . $srcm['match_num'];
-                    }
-                }
-                // Emits the pencil + source dropdown for a "Winner of QFx" slot so
-                // an admin can send that winner into a different later-round slot.
-                $winlink_ctrl = function( $match, $side ) use ( $can_score, $finals_started, $winlink_group, $gchamp_id ) {
+                // Occupant control (combined byes + winner feeds) — on mixed rounds.
+                $draw_ctrl = function( $match, $side ) use ( $can_score, $finals_started, $occ_groups, $gchamp_id ) {
                     if ( ! $can_score || $finals_started ) return;
-                    $p = $match[ $side . '_prev' ] ?? null;
-                    if ( $p === null ) return; // seed slot, not a winner-link
-                    $opts = $winlink_group[ $match['round'] ] ?? array();
-                    if ( count( $opts ) < 2 ) return; // nothing to swap with
-                    $key = intval( $match['_idx'] ) . ':' . $side;
-                    echo '<button type="button" class="lgw-gchamp-finals-wl-btn" title="Send a different match winner into this slot">&#x270F;</button>';
-                    echo '<span class="lgw-gchamp-finals-wl-form" style="display:none" data-slot="' . esc_attr( $key ) . '" data-champ-id="' . esc_attr( $gchamp_id ) . '">';
-                    echo '<select class="lgw-gchamp-finals-wl-select">';
-                    foreach ( $opts as $pi => $olabel ) {
-                        echo '<option value="' . intval( $pi ) . '"' . selected( $pi, $p, false ) . '>' . esc_html( $olabel ) . '</option>';
-                    }
-                    echo '</select>';
-                    echo '<button type="button" class="lgw-gchamp-finals-wl-save" title="Save">&#x2713;</button>';
-                    echo '<button type="button" class="lgw-gchamp-finals-wl-cancel" title="Cancel">&#x2715;</button>';
-                    echo '</span>';
+                    $g = $occ_groups[ $match['round'] ] ?? array();
+                    if ( empty( $g['has_win'] ) ) return; // pure-seed round uses the seed control
+                    $wkey = intval( $match['_idx'] ) . ':' . $side;
+                    echo lgw_gchamp_finals_occupant_ctrl( (string) $gchamp_id, $wkey, $g );
                 };
 
                 $club_badges = get_option( 'lgw_club_badges', array() );
@@ -4879,7 +4925,7 @@ function lgw_gchamp_shortcode( $atts ) {
                             // has confirmed it, else the source label ("Day 1
                             // Winner" / "Winner of QF1"). A seed slot also gets an
                             // admin dropdown to set which qualifier takes it.
-                            $render_ph = function( $side ) use ( $match, $seed_ctrl, $winlink_ctrl ) {
+                            $render_ph = function( $side ) use ( $match, $seed_ctrl, $draw_ctrl ) {
                                 $name  = $match[ $side ] ?? null;
                                 $label = $match[ $side . '_label' ] ?? 'TBD';
                                 echo '<span class="lgw-finals-ph-slot">';
@@ -4889,7 +4935,7 @@ function lgw_gchamp_shortcode( $atts ) {
                                     echo '<span class="lgw-finals-ph-label">' . esc_html( $label ) . '</span>';
                                 }
                                 $seed_ctrl( $match, $side );
-                                $winlink_ctrl( $match, $side );
+                                $draw_ctrl( $match, $side );
                                 echo '</span>';
                             };
                             $render_ph( 'home' );

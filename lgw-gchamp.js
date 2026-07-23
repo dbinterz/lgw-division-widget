@@ -460,40 +460,40 @@
         }
     });
 
-    // ── Manual Finals Week reroute: send a match winner into a different slot ───
+    // ── Manual Finals Week occupancy: choose who takes a semi-final/final slot ──
     document.addEventListener('click', function(e) {
-        var wBtn    = e.target.closest('.lgw-gchamp-finals-wl-btn');
-        var wCancel = e.target.closest('.lgw-gchamp-finals-wl-cancel');
-        var wSave   = e.target.closest('.lgw-gchamp-finals-wl-save');
+        var oBtn    = e.target.closest('.lgw-gchamp-finals-occ-btn');
+        var oCancel = e.target.closest('.lgw-gchamp-finals-occ-cancel');
+        var oSave   = e.target.closest('.lgw-gchamp-finals-occ-save');
 
-        if (wBtn) {
-            var form = wBtn.parentNode ? wBtn.parentNode.querySelector('.lgw-gchamp-finals-wl-form') : null;
-            if (form) { form.style.display = 'inline-flex'; wBtn.style.display = 'none'; }
+        if (oBtn) {
+            var form = oBtn.parentNode ? oBtn.parentNode.querySelector('.lgw-gchamp-finals-occ-form') : null;
+            if (form) { form.style.display = 'inline-flex'; oBtn.style.display = 'none'; }
             return;
         }
-        if (wCancel) {
-            var form = wCancel.closest('.lgw-gchamp-finals-wl-form');
+        if (oCancel) {
+            var form = oCancel.closest('.lgw-gchamp-finals-occ-form');
             if (form) form.style.display = 'none';
-            var b = form && form.parentNode ? form.parentNode.querySelector('.lgw-gchamp-finals-wl-btn') : null;
+            var b = form && form.parentNode ? form.parentNode.querySelector('.lgw-gchamp-finals-occ-btn') : null;
             if (b) b.style.display = '';
             return;
         }
-        if (wSave) {
-            var form   = wSave.closest('.lgw-gchamp-finals-wl-form');
-            var select = form ? form.querySelector('.lgw-gchamp-finals-wl-select') : null;
+        if (oSave) {
+            var form   = oSave.closest('.lgw-gchamp-finals-occ-form');
+            var select = form ? form.querySelector('.lgw-gchamp-finals-occ-select') : null;
             if (!form || !select) return;
             var champId = form.getAttribute('data-champ-id');
             var slot    = form.getAttribute('data-slot');
-            wSave.disabled = true;
+            oSave.disabled = true;
 
             var fd = new FormData();
-            fd.append('action','lgw_gchamp_finals_set_winlink'); fd.append('nonce',nonce);
-            fd.append('champ_id',champId); fd.append('slot',slot); fd.append('prev',select.value);
+            fd.append('action','lgw_gchamp_finals_set_occupant'); fd.append('nonce',nonce);
+            fd.append('champ_id',champId); fd.append('slot',slot); fd.append('token',select.value);
 
             fetch(ajaxUrl,{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(data){
                 if (data.success) { location.reload(); }
-                else { wSave.disabled=false; alert('Error: '+(data.data||'Unknown')); }
-            }).catch(function(err){ wSave.disabled=false; alert('Failed: '+err.message); });
+                else { oSave.disabled=false; alert('Error: '+(data.data||'Unknown')); }
+            }).catch(function(err){ oSave.disabled=false; alert('Failed: '+err.message); });
             return;
         }
     });
