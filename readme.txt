@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.8
+Stable tag: 2026.30.9
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.9 =
+* New: Manual Finals Week reroute for offline draws. Each "Winner of QF1 / QF2…" slot now has an admin dropdown to choose which earlier match's winner feeds it — e.g. send the Quarter-final 1 winner into Semi-final 2 instead of Semi-final 1. Swaps happen within the round (every winner still lands in exactly one slot), so the bracket stays valid, and the routing locks once the finals start (a score or live end is entered). This completes hands-on control of the draw alongside the existing per-position qualifier placement.
 
 = 2026.30.8 =
 * Fix: On a 2-qualifier "no day-final" day, entering the day knockout final score was blocked once both finalists were confirmed (the day locked at the semi stage). The final is now optional but always available to record, and the semi-finals stay editable after qualification.
