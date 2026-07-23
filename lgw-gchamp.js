@@ -427,16 +427,16 @@
         var fSave   = e.target.closest('.lgw-gchamp-finals-seed-save');
 
         if (fBtn) {
-            var slot = fBtn.closest('.lgw-finals-ph-slot');
-            var form = slot ? slot.querySelector('.lgw-gchamp-finals-seed-form') : null;
+            // The form is the button's sibling in both the pending placeholder
+            // slot and the resolved team-name slot — find it via the shared parent.
+            var form = fBtn.parentNode ? fBtn.parentNode.querySelector('.lgw-gchamp-finals-seed-form') : null;
             if (form) { form.style.display = 'inline-flex'; fBtn.style.display = 'none'; }
             return;
         }
         if (fCancel) {
-            var slot = fCancel.closest('.lgw-finals-ph-slot');
             var form = fCancel.closest('.lgw-gchamp-finals-seed-form');
             if (form) form.style.display = 'none';
-            var b = slot ? slot.querySelector('.lgw-gchamp-finals-seed-btn') : null;
+            var b = form && form.parentNode ? form.parentNode.querySelector('.lgw-gchamp-finals-seed-btn') : null;
             if (b) b.style.display = '';
             return;
         }

@@ -108,6 +108,15 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.8]
+### Fixed
+- **Day KO final scoreable on no-final days.** `ko_complete` goes true at the semi stage for `fq==2` no-final days, which was hiding every day-KO score box (final included) and locking the semis. Render now uses `$ko_locked = $ko_complete && ! $final_not_played`, so no-final days keep semis editable and expose an optional final score box (scoring it doesn't change the already-confirmed qualifiers).
+- **Finals draw stays adjustable after names resolve.** The per-position seed dropdown was only emitted inside the `pending` branch, so once slots resolved to names (e.g. all 6 QF positions) they lost their move control. Extracted a `$seed_ctrl` closure rendered on both placeholder and resolved seed slots, gated on `! $finals_started` (no score/live end entered anywhere in the bracket). JS seed toggle now locates its form via the shared parent rather than `.lgw-finals-ph-slot`.
+- **`[lgw_finals]` refreshes placeholders to names.** Front-end now rebuilds `finals_matches` when the live qualifier count differs from `finals_q_count_at_build` (not only when empty), so confirmed names replace source-label placeholders without waiting for an admin to open the Finals tab. Rebuild preserves entered scores/schedule.
+
+### Changed
+- Manual seeding dropdown options lead with the resolved qualifier name (`Name — Source label`) instead of the source label alone.
+
 ## [2026.30.7]
 ### Added
 - **Setting: "Play a day-final for 2-qualifier days"** (`ko_play_day_final`, off by default). For days configured with 2 finals qualifiers, both finalists advance to Finals Week once the semi-finals are decided; the day final is a Finals-Week fixture, not a day game. Turning it on plays a ranking day-final (winner seeded first). Threaded through `lgw_gchamp_ko_qualifiers_complete()` and `lgw_gchamp_compute_ko_qualifiers()` via a `$play_final` argument; the day KO view marks the final "Played at Finals Week" and omits its score entry.

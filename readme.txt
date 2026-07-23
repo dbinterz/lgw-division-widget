@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.7
+Stable tag: 2026.30.8
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,12 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.8 =
+* Fix: On a 2-qualifier "no day-final" day, entering the day knockout final score was blocked once both finalists were confirmed (the day locked at the semi stage). The final is now optional but always available to record, and the semi-finals stay editable after qualification.
+* Fix: The Finals Week draw could not be rearranged once qualifier names had flowed into the bracket — the per-position "move" dropdowns only showed on unresolved (placeholder) slots, so with 6 qualifiers the quarter-final positions became fixed. The move control now stays on every seeded draw position until the finals actually start (a score or live end is entered), so the draw is adjustable throughout the placeholder-to-name transition.
+* Improve: Manual seeding dropdowns now lead with the qualifier's name once known ("M Stewart/M Trew — 21 June Ards Winner") instead of the source label alone, so there's no back-and-forth working out who each slot is.
+* Fix: The [lgw_finals] page now refreshes the bracket when a day's qualifiers are confirmed, so real names replace "Day 1 Winner"/"Runner-up" placeholders without waiting for an admin to open the Finals tab.
 
 = 2026.30.7 =
 * New: Group championship setting "Play a day-final for 2-qualifier days" (off by default). On days set to 2 finals qualifiers, both finalists now qualify to Finals Week as soon as the semi-finals are decided — the day final is treated as a Finals-Week fixture and is not played on the day. The knockout view shows the final as "Played at Finals Week" rather than asking for a score. Turn the setting on to play a ranking day-final instead (the winner is seeded first at Finals Week). Days set to 1, 3 or 4 qualifiers are unchanged.

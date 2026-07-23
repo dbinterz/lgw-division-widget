@@ -161,11 +161,18 @@ function lgw_finals_shortcode($atts) {
         $val = maybe_unserialize($row->option_value);
         if (! is_array($val) || ! isset($val['title']) || ($val['season'] ?? '') !== $season) continue;
         // Build the Finals Week bracket on the fly when it hasn't been persisted
-        // yet, so the (placeholder) draw appears here as soon as the champ is
-        // drawn — not only after an admin has opened the Finals tab.
-        if (empty($val['finals_matches']) && ! empty($val['draw_complete']) && ! empty($val['has_ko_bracket'])
+        // yet (so the placeholder draw appears as soon as the champ is drawn),
+        // and also rebuild whenever the qualifier set has grown since the stored
+        // build — otherwise a bracket built while slots were still placeholders
+        // keeps showing "Day 1 Winner" after the names are known. Rebuilding
+        // preserves any scores/schedule already entered (matched by round+match).
+        if (! empty($val['draw_complete']) && ! empty($val['has_ko_bracket'])
             && function_exists('lgw_gchamp_build_finals_matches')) {
-            $val['finals_matches'] = lgw_gchamp_build_finals_matches($val);
+            $q_now = 0;
+            foreach ($val['days'] ?? array() as $d) { $q_now += count($d['ko_qualifiers'] ?? array()); }
+            if (empty($val['finals_matches']) || ($val['finals_q_count_at_build'] ?? -1) !== $q_now) {
+                $val['finals_matches'] = lgw_gchamp_build_finals_matches($val);
+            }
         }
         if (! empty($val['finals_matches'])) {
             $champs['gchamp_' . $id] = array_merge($val, array('_type' => 'gchamp', '_gchamp_id' => $id));
