@@ -508,10 +508,24 @@ function lgw_finals_shortcode($atts) {
     </div>
 
     <script>
-    if (typeof lgwFinalsData === 'undefined') var lgwFinalsData = {};
+    // Match map for lgw-finals.js. IMPORTANT: wp_localize_script prints
+    // `var lgwFinalsData = {…}` in the FOOTER (after this body script), which
+    // REDEFINES lgwFinalsData and wipes any .matches we set on it here — before
+    // lgw-finals.js runs. That made every gchamp match fall through to the
+    // standard save handler with a prefixed champ id ("gchamp_<id>") and fail
+    // with "Match not found". So we also stash the boot data on a DEDICATED
+    // global that the footer localize never touches; lgw-finals.js reads matches
+    // from there when lgwFinalsData.matches is absent. (Order-independent.)
+    window.lgwFinalsData = window.lgwFinalsData || {};
     lgwFinalsData.matches = <?php echo wp_json_encode($all_js_data); ?>;
     lgwFinalsData.nonce   = <?php echo wp_json_encode($nonce); ?>;
     lgwFinalsData.isAdmin = <?php echo $is_admin ? '1' : '0'; ?>;
+    window.__lgwFinalsBoot = {
+      matches: lgwFinalsData.matches,
+      nonce:   lgwFinalsData.nonce,
+      isAdmin: lgwFinalsData.isAdmin
+    };
+    (function(){
     (function(){
       var wrap = document.currentScript ? document.currentScript.closest('.lgw-finals-wrap') : null;
       if (!wrap) { var ws = document.querySelectorAll('.lgw-finals-wrap'); wrap = ws[ws.length-1]; }
