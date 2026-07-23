@@ -40,6 +40,81 @@
   letter-spacing: .03em;
 }
 
+/* ── Sort toggle ──────────────────────────────────────────────────────────── */
+.lgw-finals-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--lgw-bg-soft, #f4f5f9);
+  border: 1px solid var(--lgw-border);
+  border-top: none;
+}
+.lgw-finals-sort-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lgw-text-muted);
+  margin-right: 2px;
+}
+.lgw-finals-sort-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--lgw-border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--lgw-navy);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.lgw-finals-sort-btn.is-active {
+  background: var(--lgw-navy);
+  color: #fff;
+  border-color: var(--lgw-navy);
+}
+
+/* ── "By date & rink" view ────────────────────────────────────────────────── */
+.lgw-finals-view--date {
+  border: 1px solid var(--lgw-border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  overflow: hidden;
+}
+.lgw-finals-daterow {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--lgw-border-soft);
+}
+.lgw-finals-daterow:last-child { border-bottom: none; }
+.lgw-finals-daterow-when {
+  flex: 0 0 auto;
+  min-width: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lgw-finals-daterow-dt { font-size: 12px; font-weight: 700; color: var(--lgw-navy); }
+.lgw-finals-daterow-dt--tbc { color: var(--lgw-text-light); font-weight: 600; font-style: italic; }
+.lgw-finals-daterow-rink { font-size: 11px; color: var(--lgw-text-muted); }
+.lgw-finals-daterow-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lgw-finals-daterow-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.lgw-finals-daterow-comp  { font-size: 12px; font-weight: 700; }
+.lgw-finals-daterow-round { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--lgw-text-muted); }
+.lgw-finals-daterow-teams { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+.lgw-finals-daterow-team.is-win { font-weight: 700; }
+.lgw-finals-daterow-score { font-weight: 700; color: var(--lgw-navy); }
+.lgw-finals-daterow-vs { color: var(--lgw-text-light); font-size: 12px; }
+@media (max-width: 480px) {
+  .lgw-finals-daterow { flex-direction: column; gap: 4px; }
+  .lgw-finals-daterow-when { flex-direction: row; gap: 10px; min-width: 0; }
+}
+
+/* ── Placeholder (source-label) slots in pending matches ──────────────────── */
+.lgw-finals-tbd--named { color: var(--lgw-text-muted); font-style: italic; }
+
 /* ── Championship block ──────────────────────────────────────────────────── */
 .lgw-finals-champ {
   border: 1px solid var(--lgw-border);

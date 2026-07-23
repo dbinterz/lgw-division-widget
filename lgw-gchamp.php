@@ -67,6 +67,9 @@ function lgw_gchamp_handle_admin_actions() {
         $has_ko_bracket   = isset( $_POST['lgw_gchamp_has_ko'] ) ? 1 : 0;
         $ko_bracket_size  = intval( $_POST['lgw_gchamp_ko_bracket_size'] ?? 0 );
         $finals_q_per_day = max( 1, min( 4, intval( $_POST['lgw_gchamp_finals_q_per_day'] ?? 1 ) ) );
+        // For 2-qualifier days: play a ranking day-final, or leave it as a
+        // Finals-Week fixture (both finalists qualify without a day game).
+        $ko_play_day_final = isset( $_POST['lgw_gchamp_ko_play_day_final'] ) ? 1 : 0;
 
         // ── Days config ───────────────────────────────────────────────────────
         $days_config    = array();
@@ -137,6 +140,7 @@ function lgw_gchamp_handle_admin_actions() {
             'has_ko_bracket'       => $has_ko_bracket,
             'ko_bracket_size'          => $ko_bracket_size,
             'finals_qualifiers_per_day' => $finals_q_per_day,
+            'ko_play_day_final'    => $ko_play_day_final,
             'days_config'          => $days_config,
             'days'                 => ( function() use ( $existing, $days_config ) {
                 $drawn_days = $existing['days'] ?? array();
@@ -390,6 +394,7 @@ function lgw_gchamp_edit_page( $champ_id ) {
     $total_entries   = count( $champ['entries'] ?? array() );
     $has_ko          = ! empty( $champ['has_ko_bracket'] );
     $ko_bracket_size = intval( $champ['ko_bracket_size'] ?? 0 );
+    $ko_play_day_final = ! empty( $champ['ko_play_day_final'] );
     ?>
     <div class="wrap">
     <?php lgw_page_header( $is_new ? 'New Group Championship' : 'Edit: ' . ( $champ['title'] ?? $champ_id ) ); ?>
@@ -640,6 +645,15 @@ function lgw_gchamp_edit_page( $champ_id ) {
             Include an internal knockout bracket after the group stage
         </label>
         <p class="description">Leave unchecked if Finals Week is run separately outside this system.</p>
+        <label style="display:block;margin-top:10px">
+            <input type="checkbox" name="lgw_gchamp_ko_play_day_final" value="1" <?php checked($ko_play_day_final,true);?> id="lgw_gchamp_ko_play_day_final">
+            Play a day-final for 2-qualifier days
+        </label>
+        <p class="description">
+            Only affects days set to <strong>2 finals qualifiers</strong>. Off (default): both
+            finalists qualify and the final is played at Finals Week — no day game.
+            On: the day final is played to rank the two qualifiers (winner seeded first).
+        </p>
         </td></tr>
     </table>
 
@@ -1755,11 +1769,12 @@ function lgw_ajax_gchamp_save_score() {
         // Check ko_complete — done when required qualifier rounds are all played
         $num_days_total = count( $champ['days'] );
         $fq             = intval( $champ['days'][$day_id]['finals_qualifiers'] ?? $champ['finals_qualifiers_per_day'] ?? 1 );
-        $ko_complete    = lgw_gchamp_ko_qualifiers_complete( $champ['days'][$day_id]['ko_bracket'], $fq );
+        $play_final     = ! empty( $champ['ko_play_day_final'] );
+        $ko_complete    = lgw_gchamp_ko_qualifiers_complete( $champ['days'][$day_id]['ko_bracket'], $fq, $play_final );
         if ( $ko_complete && ! $clear ) {
             $champ['days'][$day_id]['ko_complete']   = true;
             $champ['days'][$day_id]['ko_qualifiers'] = lgw_gchamp_compute_ko_qualifiers(
-                $champ['days'][$day_id]['ko_bracket'], $fq
+                $champ['days'][$day_id]['ko_bracket'], $fq, $play_final
             );
             // Rebuild Finals Week matches now that we have new qualifiers
             $new_q_count = array_sum( array_map(
@@ -2652,13 +2667,35 @@ function lgw_gchamp_set_ko_advance( array &$bracket, int $r, int $m, ?string $wi
  * Returns true when enough KO rounds have been played to confirm all
  * required Finals Week qualifiers for this day.
  *
- * finals_qualifiers 1–3 → need the final round (winner + runner-up known)
+ * finals_qualifiers 1, 3 → need the final round (winner + runner-up known)
+ * finals_qualifiers 2   → both finalists qualify; when $play_final is false the
+ *                         day final is NOT played (it is a Finals-Week fixture),
+ *                         so completion only needs the final's two slots filled
  * finals_qualifiers 4   → need the semi-final round (all 4 SFs known)
  */
-function lgw_gchamp_ko_qualifiers_complete( array $bracket, int $finals_qualifiers ): bool {
+function lgw_gchamp_ko_qualifiers_complete( array $bracket, int $finals_qualifiers, bool $play_final = true ): bool {
     $rounds     = $bracket['rounds'] ?? array();
     $num_rounds = count( $rounds );
     if ( $num_rounds === 0 ) return false;
+
+    // 2-qualifier day with no day-final: both finalists advance, so we don't
+    // need the final scored — only every round *before* it played (to resolve
+    // the two final slots) and the final match's slots non-null.
+    if ( $finals_qualifiers === 2 && ! $play_final ) {
+        for ( $ri = 0; $ri < $num_rounds - 1; $ri++ ) {
+            foreach ( $rounds[$ri]['matches'] as $match ) {
+                if ( ! empty( $match['bye'] ) ) continue;
+                if ( $match['home'] === null || $match['away'] === null ) continue; // TBD
+                if ( $match['home_score'] === null || $match['away_score'] === null ) return false;
+            }
+        }
+        $final = $rounds[ $num_rounds - 1 ];
+        foreach ( $final['matches'] as $match ) {
+            if ( ! empty( $match['bye'] ) ) continue;
+            if ( $match['home'] === null || $match['away'] === null ) return false; // slots not resolved
+        }
+        return true;
+    }
 
     // Determine the last round index we need to be complete
     // fq >= 4 → semi-finals (2 rounds from end), else → final (last round)
@@ -2692,9 +2729,11 @@ function lgw_gchamp_ko_all_played( array $bracket ): bool {
 /**
  * Compute Finals Week qualifiers from a completed KO bracket.
  * Rule: 1 day = SF (4), 2 days = F (2 each), 4 days = W (1 each).
+ * When $play_final is false and per_day == 2 the day final is not played —
+ * both finalists (the two players occupying the final slots) qualify.
  * Returns qualifiers in finish order.
  */
-function lgw_gchamp_compute_ko_qualifiers( array $bracket, int $per_day ): array {
+function lgw_gchamp_compute_ko_qualifiers( array $bracket, int $per_day, bool $play_final = true ): array {
 
     // Work back from the final round
     $rounds     = $bracket['rounds'];
@@ -2704,6 +2743,16 @@ function lgw_gchamp_compute_ko_qualifiers( array $bracket, int $per_day ): array
     // Final round (last round) winner = champion
     $final_round = $rounds[ $num_rounds - 1 ] ?? null;
     if ( ! $final_round ) return array();
+
+    // 2-qualifier day, no day-final: both finalists advance to Finals Week.
+    if ( $per_day === 2 && ! $play_final ) {
+        foreach ( $final_round['matches'] as $match ) {
+            if ( ! empty( $match['bye'] ) ) continue;
+            if ( $match['home'] ) $qualifiers[] = $match['home'];
+            if ( $match['away'] ) $qualifiers[] = $match['away'];
+        }
+        return array_values( array_filter( array_unique( $qualifiers ) ) );
+    }
 
     // Final round: winner and runner-up (only needed when per_day < 4)
     if ( $per_day < 4 ) {
@@ -2858,68 +2907,267 @@ function lgw_ajax_gchamp_finals_save_score() {
     if ( ! isset( $champ['finals_matches'][$match_idx] ) ) wp_send_json_error( 'Match not found.' );
     $champ['finals_matches'][$match_idx]['home_score'] = $hs;
     $champ['finals_matches'][$match_idx]['away_score'] = $as;
+    // Rebuild so the winner flows into the next round (scores preserved).
+    $champ['finals_matches'] = lgw_gchamp_build_finals_matches( $champ );
     update_option( 'lgw_gchamp_' . $champ_id, $champ );
     wp_send_json_success( array( 'homeScore'=>$hs, 'awayScore'=>$as ) );
 }
 
-// ── Build Finals Week match list from ko_qualifiers across all days ────────────
-function lgw_gchamp_build_finals_matches( array $champ ): array {
-    // Collect all confirmed ko_qualifiers in day order
-    $all_qs = array();
-    foreach ( $champ['days'] ?? array() as $day ) {
-        foreach ( $day['ko_qualifiers'] ?? array() as $q ) {
-            $all_qs[] = $q;
-        }
+// ── AJAX: manually set a Finals Week draw position (source → seed) ────────────
+add_action( 'wp_ajax_lgw_gchamp_finals_set_slot', 'lgw_ajax_gchamp_finals_set_slot' );
+function lgw_ajax_gchamp_finals_set_slot() {
+    check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised.' );
+    $champ_id = sanitize_key( $_POST['champ_id'] ?? '' );
+    $seed     = intval( $_POST['seed'] ?? 0 );                          // 1-indexed draw position
+    $src      = sanitize_text_field( wp_unslash( $_POST['src'] ?? '' ) ); // source to place there
+    if ( ! $champ_id || $seed < 1 ) wp_send_json_error( 'Missing parameters.' );
+
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) ) wp_send_json_error( 'Championship not found.' );
+
+    $slots      = lgw_gchamp_finals_slots( $champ );
+    $n          = count( $slots );
+    if ( $n < 2 )       wp_send_json_error( 'No finals qualifiers configured.' );
+    if ( $seed > $n )   wp_send_json_error( 'Invalid draw position.' );
+    $valid_srcs = array_map( fn($s) => $s['src'], $slots );
+    if ( ! in_array( $src, $valid_srcs, true ) ) wp_send_json_error( 'Unknown qualifier source.' );
+
+    // Swap the chosen source into the target position; whatever sat there moves
+    // to the source's old spot (the draw is always a permutation of the slots).
+    $draw   = lgw_gchamp_finals_draw_order( $champ, $slots );
+    $target = $seed - 1;
+    $pos    = array_search( $src, $draw, true );
+    if ( $pos !== false && $pos !== $target ) {
+        $tmp             = $draw[ $target ];
+        $draw[ $target ] = $src;
+        $draw[ $pos ]    = $tmp;
     }
-    if ( count( $all_qs ) < 2 ) return array();
-
-    $n        = count( $all_qs );
-    $num_days = count( $champ['days'] ?? array() );
-
-    // Determine round structure from number of qualifiers
-    // 4 qualifiers → SF + Final; 2 → Final only; other → round of n
-    $matches = array();
-
-    if ( $n === 4 ) {
-        // Semi-finals: 1v4, 2v3 → Final
-        $matches[] = array( 'round'=>'Semi-final', 'match_num'=>1, 'home'=>$all_qs[0], 'away'=>$all_qs[3], 'home_score'=>null, 'away_score'=>null, 'ends'=>array(), 'finals_datetime'=>'', 'finals_rink'=>'' );
-        $matches[] = array( 'round'=>'Semi-final', 'match_num'=>2, 'home'=>$all_qs[1], 'away'=>$all_qs[2], 'home_score'=>null, 'away_score'=>null, 'ends'=>array(), 'finals_datetime'=>'', 'finals_rink'=>'' );
-        $matches[] = array( 'round'=>'Final',      'match_num'=>1, 'home'=>null,        'away'=>null,        'home_score'=>null, 'away_score'=>null, 'ends'=>array(), 'finals_datetime'=>'', 'finals_rink'=>'', 'prev_sf'=>[0,1] );
-    } elseif ( $n === 2 ) {
-        $matches[] = array( 'round'=>'Final', 'match_num'=>1, 'home'=>$all_qs[0], 'away'=>$all_qs[1], 'home_score'=>null, 'away_score'=>null, 'ends'=>array(), 'finals_datetime'=>'', 'finals_rink'=>'' );
-    } else {
-        // Generic: pair them up sequentially, last match is the final
-        $round_name = $n <= 4 ? 'Semi-final' : 'Quarter-final';
-        for ( $i = 0; $i < $n - 1; $i += 2 ) {
-            $matches[] = array( 'round'=>$round_name, 'match_num'=>intval($i/2)+1, 'home'=>$all_qs[$i], 'away'=>$all_qs[$i+1]??null, 'home_score'=>null, 'away_score'=>null, 'ends'=>array(), 'finals_datetime'=>'', 'finals_rink'=>'' );
-        }
-        $matches[] = array( 'round'=>'Final', 'match_num'=>1, 'home'=>null, 'away'=>null, 'home_score'=>null, 'away_score'=>null, 'ends'=>array(), 'finals_datetime'=>'', 'finals_rink'=>'' );
-    }
-
-    return $matches;
+    $champ['finals_draw']    = array_values( $draw );
+    $champ['finals_matches'] = lgw_gchamp_build_finals_matches( $champ );
+    update_option( 'lgw_gchamp_' . $champ_id, $champ );
+    wp_send_json_success( array( 'draw' => $champ['finals_draw'] ) );
 }
 
-// ── Propagate SF winners into the Final slot ──────────────────────────────────
-function lgw_gchamp_finals_propagate( array &$champ ): void {
-    $matches = &$champ['finals_matches'];
-    if ( empty( $matches ) ) return;
-    // Find the Final match (last one or round=='Final')
-    $final_idx = null;
-    foreach ( $matches as $i => $m ) {
-        if ( $m['round'] === 'Final' ) $final_idx = $i;
-    }
-    if ( $final_idx === null ) return;
-    // Find SF winners
-    $sf_winners = array();
-    foreach ( $matches as $i => $m ) {
-        if ( $m['round'] !== 'Semi-final' ) continue;
-        $hs = $m['home_score']; $as = $m['away_score'];
-        if ( $hs !== null && $as !== null && $hs !== $as ) {
-            $sf_winners[] = $hs > $as ? $m['home'] : $m['away'];
+// ── Finals Week bracket ───────────────────────────────────────────────────────
+
+/**
+ * The expected Finals Week qualifier slots, in day order. One per day per
+ * finals_qualifiers. Each slot:
+ *   src   'd{day}:{rank}'  stable source key
+ *   day   int
+ *   rank  int              0 = winner, 1 = runner-up, …
+ *   label string           e.g. "21 June Ards Winner"
+ *   name  ?string          resolved qualifier once the day's KO confirms it
+ * Because it is built from the day configuration (not confirmed results) the
+ * full set of slots exists from the moment the championship is drawn — the
+ * Finals Week draw can be arranged before any knockout has finished.
+ */
+function lgw_gchamp_finals_slots( array $champ ): array {
+    $slots = array();
+    foreach ( $champ['days'] ?? array() as $di => $day ) {
+        $fq    = intval( $day['finals_qualifiers'] ?? $champ['finals_qualifiers_per_day'] ?? 1 );
+        $names = array_values( $day['ko_qualifiers'] ?? array() );
+        $dname = $day['name'] ?? ( 'Day ' . ( $di + 1 ) );
+        for ( $r = 0; $r < $fq; $r++ ) {
+            $slots[] = array(
+                'src'   => 'd' . $di . ':' . $r,
+                'day'   => $di,
+                'rank'  => $r,
+                'label' => $dname . ' ' . lgw_gchamp_finals_rank_label( $r, $fq ),
+                'name'  => $names[ $r ] ?? null,
+            );
         }
     }
-    if ( isset( $sf_winners[0] ) ) $matches[$final_idx]['home'] = $sf_winners[0];
-    if ( isset( $sf_winners[1] ) ) $matches[$final_idx]['away'] = $sf_winners[1];
+    return $slots;
+}
+
+function lgw_gchamp_finals_rank_label( int $rank, int $fq ): string {
+    if ( $fq <= 1 )  return 'Winner';
+    if ( $fq === 2 ) return $rank === 0 ? 'Winner' : 'Runner-up';
+    if ( $fq === 3 ) return array( 'Winner', 'Runner-up', 'Semi-finalist' )[ $rank ] ?? ( 'Q' . ( $rank + 1 ) );
+    return 'Semi-finalist ' . ( $rank + 1 );
+}
+
+/**
+ * Seeded single-elimination layout for N finals qualifiers (2–8), rounded up to
+ * the next power of two with the top seeds byed straight into the later round.
+ * Each match is [ round_name, slotA, slotB ] where a slot is:
+ *   array('seed'=>k)  — 1-indexed draw position (a real qualifier)
+ *   array('win'=>j)   — winner of the match at index j in this list
+ */
+function lgw_gchamp_finals_layout( int $n ): array {
+    $L = array(
+        2 => array(
+            array( 'Final', array('seed'=>1), array('seed'=>2) ),
+        ),
+        3 => array(
+            array( 'Semi-final', array('seed'=>2), array('seed'=>3) ),
+            array( 'Final',      array('seed'=>1), array('win'=>0) ),
+        ),
+        4 => array(
+            array( 'Semi-final', array('seed'=>1), array('seed'=>4) ),
+            array( 'Semi-final', array('seed'=>2), array('seed'=>3) ),
+            array( 'Final',      array('win'=>0),  array('win'=>1) ),
+        ),
+        5 => array(
+            array( 'Quarter-final', array('seed'=>4), array('seed'=>5) ),
+            array( 'Semi-final',    array('seed'=>2), array('seed'=>3) ),
+            array( 'Semi-final',    array('seed'=>1), array('win'=>0) ),
+            array( 'Final',         array('win'=>2),  array('win'=>1) ),
+        ),
+        6 => array(
+            array( 'Quarter-final', array('seed'=>3), array('seed'=>6) ),
+            array( 'Quarter-final', array('seed'=>4), array('seed'=>5) ),
+            array( 'Semi-final',    array('seed'=>1), array('win'=>0) ),
+            array( 'Semi-final',    array('seed'=>2), array('win'=>1) ),
+            array( 'Final',         array('win'=>2),  array('win'=>3) ),
+        ),
+        7 => array(
+            array( 'Quarter-final', array('seed'=>4), array('seed'=>5) ),
+            array( 'Quarter-final', array('seed'=>3), array('seed'=>6) ),
+            array( 'Quarter-final', array('seed'=>2), array('seed'=>7) ),
+            array( 'Semi-final',    array('seed'=>1), array('win'=>0) ),
+            array( 'Semi-final',    array('win'=>1),  array('win'=>2) ),
+            array( 'Final',         array('win'=>3),  array('win'=>4) ),
+        ),
+        8 => array(
+            array( 'Quarter-final', array('seed'=>1), array('seed'=>8) ),
+            array( 'Quarter-final', array('seed'=>4), array('seed'=>5) ),
+            array( 'Quarter-final', array('seed'=>3), array('seed'=>6) ),
+            array( 'Quarter-final', array('seed'=>2), array('seed'=>7) ),
+            array( 'Semi-final',    array('win'=>0),  array('win'=>1) ),
+            array( 'Semi-final',    array('win'=>2),  array('win'=>3) ),
+            array( 'Final',         array('win'=>4),  array('win'=>5) ),
+        ),
+    );
+    return $L[ $n ] ?? array();
+}
+
+/**
+ * Return the finals draw order (list of source keys, one per seed position).
+ * Falls back to the natural day order when no valid stored draw exists.
+ */
+function lgw_gchamp_finals_draw_order( array $champ, array $slots ): array {
+    $default = array_map( fn($s) => $s['src'], $slots );
+    $draw    = $champ['finals_draw'] ?? array();
+    if ( count( $draw ) !== count( $default ) ) return $default;
+    // Must be a permutation of the current source set
+    if ( array_diff( $draw, $default ) || array_diff( $default, $draw ) ) return $default;
+    return array_values( $draw );
+}
+
+// ── Build Finals Week match list (seeded 8-slot-style bracket) ────────────────
+function lgw_gchamp_build_finals_matches( array $champ ): array {
+    $slots = lgw_gchamp_finals_slots( $champ );
+    $n     = count( $slots );
+    if ( $n < 2 ) return array();
+
+    $by_src = array();
+    foreach ( $slots as $s ) $by_src[ $s['src'] ] = $s;
+    $draw   = lgw_gchamp_finals_draw_order( $champ, $slots );
+    $layout = lgw_gchamp_finals_layout( $n );
+    if ( empty( $layout ) ) return array(); // unsupported count (>8) — no auto bracket
+
+    $round_short = array( 'Quarter-final' => 'QF', 'Semi-final' => 'SF', 'Final' => 'F' );
+    $round_counts = array();
+    $matches = array();
+    foreach ( $layout as $j => $spec ) {
+        $round = $spec[0];
+        $round_counts[ $round ] = ( $round_counts[ $round ] ?? 0 ) + 1;
+        $m = array(
+            'round' => $round, 'match_num' => $round_counts[ $round ],
+            'home' => null, 'away' => null,
+            'home_src' => null, 'away_src' => null,
+            'home_seed' => null, 'away_seed' => null,
+            'home_prev' => null, 'away_prev' => null,
+            'home_label' => 'TBD', 'away_label' => 'TBD',
+            'home_score' => null, 'away_score' => null,
+            'ends' => array(), 'finals_datetime' => '', 'finals_rink' => '',
+        );
+        foreach ( array( 'home', 'away' ) as $k => $side ) {
+            $ss = $spec[ $k + 1 ];
+            if ( isset( $ss['seed'] ) ) {
+                $src = $draw[ $ss['seed'] - 1 ] ?? null;
+                $sl  = ( $src !== null ) ? ( $by_src[ $src ] ?? null ) : null;
+                $m[ $side . '_src' ]   = $src;
+                $m[ $side . '_seed' ]  = $ss['seed'];
+                $m[ $side ]            = $sl['name'] ?? null;
+                $m[ $side . '_label' ] = $sl['label'] ?? 'TBD';
+            } else {
+                $prev = intval( $ss['win'] );
+                $m[ $side . '_prev' ]  = $prev;
+                $pr = $layout[ $prev ][0] ?? 'match';
+                $m[ $side . '_label' ] = 'Winner of ' . ( $round_short[ $pr ] ?? $pr );
+            }
+        }
+        $matches[ $j ] = $m;
+    }
+
+    // Give "Winner of QF/SF" labels a match number now that numbering is known.
+    foreach ( $matches as $j => &$m ) {
+        foreach ( array( 'home', 'away' ) as $side ) {
+            $prev = $m[ $side . '_prev' ];
+            if ( $prev === null || ! isset( $matches[ $prev ] ) ) continue;
+            $pm = $matches[ $prev ];
+            $m[ $side . '_label' ] = 'Winner of ' . ( $round_short[ $pm['round'] ] ?? $pm['round'] ) . $pm['match_num'];
+        }
+    }
+    unset( $m );
+
+    // Preserve scores / schedule already entered against the previous build,
+    // matched by (round, match_num) so rebuilding never loses played results.
+    foreach ( $champ['finals_matches'] ?? array() as $old ) {
+        foreach ( $matches as &$m ) {
+            if ( $m['round'] === ( $old['round'] ?? '' ) && $m['match_num'] === ( $old['match_num'] ?? -1 ) ) {
+                foreach ( array( 'home_score', 'away_score', 'ends', 'finals_datetime', 'finals_rink' ) as $f ) {
+                    if ( isset( $old[ $f ] ) ) $m[ $f ] = $old[ $f ];
+                }
+                break;
+            }
+        }
+        unset( $m );
+    }
+
+    lgw_gchamp_finals_propagate_matches( $matches );
+    return array_values( $matches );
+}
+
+/**
+ * Flow decided-match winners into the prev-linked slots of later matches.
+ * Recomputed each build, so a rescored earlier match re-propagates cleanly.
+ */
+function lgw_gchamp_finals_propagate_matches( array &$matches ): void {
+    $count = count( $matches );
+    for ( $pass = 0; $pass <= $count; $pass++ ) {
+        $changed = false;
+        foreach ( $matches as $i => $m ) {
+            foreach ( array( 'home', 'away' ) as $side ) {
+                $prev = $m[ $side . '_prev' ] ?? null;
+                if ( $prev === null || ! isset( $matches[ $prev ] ) ) continue;
+                if ( $matches[ $i ][ $side ] !== null ) continue;
+                $src = $matches[ $prev ];
+                if ( $src['home_score'] === null || $src['away_score'] === null ) continue;
+                $hs = intval( $src['home_score'] ); $as = intval( $src['away_score'] );
+                if ( $hs === $as ) continue; // no winner
+                $winner = $hs > $as ? $src['home'] : $src['away'];
+                if ( $winner === null ) continue;
+                $matches[ $i ][ $side ] = $winner;
+                $changed = true;
+            }
+        }
+        if ( ! $changed ) break;
+    }
+}
+
+// ── Compat wrapper: rebuild the finals bracket in place ──────────────────────
+// Older call sites used lgw_gchamp_finals_propagate($champ) to push SF winners
+// into the Final. Rebuilding from source is a superset of that and also fills
+// the new source labels / QF round, so this now rebuilds the whole bracket
+// (scores preserved) and stores it back on the champ.
+function lgw_gchamp_finals_propagate( array &$champ ): void {
+    if ( empty( $champ['finals_matches'] ) ) return;
+    $champ['finals_matches'] = lgw_gchamp_build_finals_matches( $champ );
 }
 
 
@@ -3954,6 +4202,10 @@ function lgw_gchamp_shortcode( $atts ) {
         // Show finals tab as soon as any day's KO is complete
         $has_any_ko_complete = false;
         foreach ( $days as $d ) { if ( ! empty( $d['ko_complete'] ) ) { $has_any_ko_complete = true; break; } }
+        // The Finals Week draw is available as soon as the championship is drawn
+        // and uses an internal knockout — the qualifier slots exist from the
+        // day config, so the draw can be arranged before any KO has finished.
+        $show_finals = $drawn && ! empty( $champ['has_ko_bracket'] );
         $finals_matches = $champ['finals_matches'] ?? array();
         $all_ko_complete = true;
         foreach ( $days as $d ) { if ( empty( $d['ko_complete'] ) ) { $all_ko_complete = false; break; } }
@@ -3972,7 +4224,7 @@ function lgw_gchamp_shortcode( $atts ) {
                 <?php endif; ?>
             </button>
             <?php endforeach; ?>
-            <?php if ( $has_any_ko_complete ): ?>
+            <?php if ( $show_finals ): ?>
             <button class="lgw-gchamp-day-tab<?php echo $all_ko_complete && !empty($finals_matches) ? '' : ''; ?>"
                     data-day-tab="finals"
                     role="tab"
@@ -4219,9 +4471,17 @@ function lgw_gchamp_shortcode( $atts ) {
                 $per_day_q  = intval( $day['finals_qualifiers'] ?? $champ['finals_qualifiers_per_day'] ?? (
                     $num_days === 1 ? 4 : ( $num_days === 2 ? 2 : max(1, intval(ceil(4/$num_days))) )
                 ) );
+                // 2-qualifier day with the day-final setting off: the final is a
+                // Finals-Week fixture, not a day game — both finalists qualify.
+                $play_day_final   = ! empty( $champ['ko_play_day_final'] );
+                $final_not_played = ( $per_day_q === 2 && ! $play_day_final );
                 $total_matches = 0;
                 $played_matches = 0;
-                foreach ($rounds as $round) { foreach ($round['matches'] as $m) { if (empty($m['bye'])) { $total_matches++; if ($m['home_score']!==null&&$m['away_score']!==null) $played_matches++; } } }
+                foreach ($rounds as $ri_c => $round) {
+                    $is_final_c = ( $round['round'] === $num_rounds - 1 );
+                    if ( $final_not_played && $is_final_c ) continue; // not a scored day game
+                    foreach ($round['matches'] as $m) { if (empty($m['bye'])) { $total_matches++; if ($m['home_score']!==null&&$m['away_score']!==null) $played_matches++; } }
+                }
                 // Manual seeding (admin): first-round slots can be reassigned to
                 // any of this day's qualifiers. Build the option pool once.
                 $can_seed_ko = current_user_can( 'manage_options' );
@@ -4256,9 +4516,11 @@ function lgw_gchamp_shortcode( $atts ) {
                     <div class="lgw-gchamp-ko-round">
                         <div class="lgw-gchamp-ko-round-label">
                             <?php echo esc_html( $round['label'] ); ?>
-                            <?php if ( $is_final && $qualifies_at_final ): ?>
+                            <?php if ( $is_final && $final_not_played ): ?>
+                                <span class="lgw-gchamp-ko-qualifies-note">&#x1F3C6; Played at Finals Week</span>
+                            <?php elseif ( $is_final && $qualifies_at_final ): ?>
                                 <span class="lgw-gchamp-ko-qualifies-note">&#x1F3C6; Finals Week</span>
-                            <?php elseif ( $is_sf && ( $qualifies_at_sf || $qualifies_at_sf_one ) ): ?>
+                            <?php elseif ( $is_sf && ( $qualifies_at_sf || $qualifies_at_sf_one || $final_not_played ) ): ?>
                                 <span class="lgw-gchamp-ko-qualifies-note">&#x1F3C6; Finals Week</span>
                             <?php endif; ?>
                         </div>
@@ -4305,7 +4567,9 @@ function lgw_gchamp_shortcode( $atts ) {
                                     <button type="button" class="lgw-gchamp-ko-seed-cancel" title="Cancel">&#x2715;</button>
                                 </span><?php endif; ?>
                             </div>
-                            <?php if ( $can_score && ! $is_bye && ! $ko_complete && $match['home'] && $match['away'] ): ?>
+                            <?php if ( $is_final && $final_not_played && $match['home'] && $match['away'] ): ?>
+                            <div class="lgw-gchamp-ko-finals-fixture-note">&#x1F3C6; Both qualify &middot; final played at Finals Week</div>
+                            <?php elseif ( $can_score && ! $is_bye && ! $ko_complete && $match['home'] && $match['away'] ): ?>
                             <div class="lgw-gchamp-ko-score-entry">
                                 <?php if ( ! $scored ): ?>
                                 <button type="button" class="lgw-gchamp-ko-score-btn">+ Score</button>
@@ -4364,36 +4628,27 @@ function lgw_gchamp_shortcode( $atts ) {
         <?php endif; // drawn ?>
 
         <?php /* ── Finals Week pane ── */ ?>
-        <?php if ( $drawn && $has_any_ko_complete ): ?>
+        <?php if ( $show_finals ): ?>
         <div class="lgw-gchamp-day-pane" data-day-tab="finals" data-day-pane="finals">
             <div class="lgw-gchamp-finals-pane">
 
                 <?php
-                // Count current total qualifiers
-                $current_q_count = array_sum( array_map(
-                    fn($d) => count( $d['ko_qualifiers'] ?? array() ),
-                    $champ['days'] ?? array()
-                ) );
-                $built_q_count = count( array_filter(
-                    $finals_matches,
-                    fn($m) => $m['round'] !== 'Final' || $m['home'] || $m['away']
-                ) );
-                // Rebuild if: no matches yet, OR qualifier count changed (new day completed)
-                $needs_rebuild = empty( $finals_matches )
-                    || ( $current_q_count !== ( $champ['finals_q_count_at_build'] ?? -1 ) );
+                // Always rebuild from source: cheap, preserves entered scores /
+                // schedule, resolves confirmed qualifiers into their seeded
+                // positions and propagates winners. Persist only when changed.
+                $built = lgw_gchamp_build_finals_matches( $champ );
+                if ( ! empty( $built ) && $built !== ( $champ['finals_matches'] ?? null ) ) {
+                    $champ['finals_matches'] = $built;
+                    update_option( 'lgw_gchamp_' . $gchamp_id, $champ );
+                }
+                $finals_matches = $champ['finals_matches'] ?? array();
 
-                if ( $needs_rebuild ) {
-                    $built = lgw_gchamp_build_finals_matches( $champ );
-                    if ( ! empty( $built ) ) {
-                        $champ['finals_matches']           = $built;
-                        $champ['finals_q_count_at_build']  = $current_q_count;
-                        $finals_matches                    = $built;
-                        update_option( 'lgw_gchamp_' . $gchamp_id, $champ );
-                    }
-                } else {
-                    // Propagate SF winners into Final slot
-                    lgw_gchamp_finals_propagate( $champ );
-                    $finals_matches = $champ['finals_matches'];
+                // Source → label map for the manual-seeding dropdowns.
+                $finals_src_label = array();
+                foreach ( lgw_gchamp_finals_slots( $champ ) as $s ) {
+                    $finals_src_label[ $s['src'] ] = $s['name']
+                        ? $s['label'] . ' — ' . lgw_gchamp_short_name( $s['name'] )
+                        : $s['label'] . ' (TBD)';
                 }
 
                 $club_badges = get_option( 'lgw_club_badges', array() );
@@ -4473,9 +4728,40 @@ function lgw_gchamp_shortcode( $atts ) {
 
                         <?php if ( $pending ): ?>
                         <div class="lgw-finals-teams lgw-finals-teams--pending">
-                            <span class="lgw-finals-tbd">TBD</span>
+                            <?php
+                            // One placeholder side: the resolved name if the KO
+                            // has confirmed it, else the source label ("Day 1
+                            // Winner" / "Winner of QF1"). A seed slot also gets an
+                            // admin dropdown to set which qualifier takes it.
+                            $render_ph = function( $side ) use ( $match, $can_score, $finals_src_label, $gchamp_id ) {
+                                $name  = $match[ $side ] ?? null;
+                                $label = $match[ $side . '_label' ] ?? 'TBD';
+                                $seed  = $match[ $side . '_seed' ] ?? null;
+                                $src   = $match[ $side . '_src' ]  ?? null;
+                                echo '<span class="lgw-finals-ph-slot">';
+                                if ( $name ) {
+                                    echo '<span class="lgw-finals-ph-name">' . esc_html( lgw_gchamp_short_name( $name ) ) . '</span>';
+                                } else {
+                                    echo '<span class="lgw-finals-ph-label">' . esc_html( $label ) . '</span>';
+                                }
+                                if ( $can_score && $seed !== null && ! empty( $finals_src_label ) ) {
+                                    echo '<button type="button" class="lgw-gchamp-finals-seed-btn" title="Set which qualifier takes this position">&#x270F;</button>';
+                                    echo '<span class="lgw-gchamp-finals-seed-form" style="display:none" data-seed="' . intval( $seed ) . '" data-champ-id="' . esc_attr( $gchamp_id ) . '">';
+                                    echo '<select class="lgw-gchamp-finals-seed-select">';
+                                    foreach ( $finals_src_label as $osrc => $olabel ) {
+                                        echo '<option value="' . esc_attr( $osrc ) . '"' . selected( $osrc, $src, false ) . '>' . esc_html( $olabel ) . '</option>';
+                                    }
+                                    echo '</select>';
+                                    echo '<button type="button" class="lgw-gchamp-finals-seed-save" title="Save">&#x2713;</button>';
+                                    echo '<button type="button" class="lgw-gchamp-finals-seed-cancel" title="Cancel">&#x2715;</button>';
+                                    echo '</span>';
+                                }
+                                echo '</span>';
+                            };
+                            $render_ph( 'home' );
+                            ?>
                             <span class="lgw-finals-vs">v</span>
-                            <span class="lgw-finals-tbd">TBD</span>
+                            <?php $render_ph( 'away' ); ?>
                         </div>
                         <?php else: ?>
                         <div class="lgw-finals-teams">

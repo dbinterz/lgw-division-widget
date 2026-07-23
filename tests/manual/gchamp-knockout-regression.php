@@ -246,6 +246,87 @@ eq( "duplicate cleared from SF2 home (was the same entry)", null, d0_r0( 1, 'hom
 list( $ok, ) = call_set_slot( array( 'ko_match' => '1', 'slot' => 'away', 'value' => '' ) );
 eq( "empty value vacates the slot to TBD", null, d0_r0( 1, 'away' ) );
 
+echo "\n== Test 4: Finals Week bracket (6 qualifiers, 8-slot with byes) ==\n";
+$champ = unserialize( file_get_contents( __DIR__ . '/fixtures/gchamp-over55-pairs.ser' ) );
+// Fixture has 3 days x finals_qualifiers=2 = 6 expected slots, none confirmed yet.
+$slots = lgw_gchamp_finals_slots( $champ );
+eq( "6 expected finals slots", 6, count( $slots ) );
+eq( "slot 0 label is day-name + Winner", '21 June Ards Winner', $slots[0]['label'] );
+eq( "slot 1 label is Runner-up", '21 June Ards Runner-up', $slots[1]['label'] );
+
+$fm = lgw_gchamp_build_finals_matches( $champ );
+$rounds = array_map( fn($m) => $m['round'] . $m['match_num'], $fm );
+eq( "bracket shape = 2 QF, 2 SF, 1 Final", array('Quarter-final1','Quarter-final2','Semi-final1','Semi-final2','Final1'), $rounds );
+check( "all participants unresolved (placeholders only)", ! array_filter( $fm, fn($m) => $m['home'] !== null || $m['away'] !== null ) );
+// SF1 home is seed 1 = day 0 winner (source label shown until confirmed)
+eq( "SF1 home placeholder label", '21 June Ards Winner', $fm[2]['home_label'] );
+eq( "SF1 away is the QF1 winner", 'Winner of QF1', $fm[2]['away_label'] );
+
+// Confirm day 0's two qualifiers → they resolve into the bracket
+$champ['days'][0]['ko_qualifiers'] = array( 'M Stewart/M Trew, U. Transport', 'P Canning/W Angus,    Ards' );
+$fm = lgw_gchamp_build_finals_matches( $champ );
+eq( "SF1 home now resolved to day-0 winner", 'M Stewart/M Trew, U. Transport', $fm[2]['home'] );
+eq( "SF2 home resolved to day-0 runner-up", 'P Canning/W Angus,    Ards', $fm[3]['home'] );
+
+echo "\n== Test 5: manual finals seeding (source -> draw position swap) ==\n";
+$GLOBALS['__opt']['lgw_gchamp_nipgl-over55-pairs-2026'] = $champ;
+// Default draw: [d0:0,d0:1,d1:0,d1:1,d2:0,d2:1]; SF1 home (seed 1) = d0:0.
+$_POST = array( 'champ_id' => 'nipgl-over55-pairs-2026', 'nonce' => 'x', 'seed' => '1', 'src' => 'd2:0' );
+try { lgw_ajax_gchamp_finals_set_slot(); check( "finals_set_slot did not throw error", false ); }
+catch ( LGW_JsonDone $j ) { check( "finals_set_slot succeeded", $j->ok === true ); }
+$saved = $GLOBALS['__opt']['lgw_gchamp_nipgl-over55-pairs-2026'];
+eq( "seed position 1 now holds d2:0", 'd2:0', $saved['finals_draw'][0] );
+eq( "displaced d0:0 moved to d2:0's old slot (pos 4)", 'd0:0', $saved['finals_draw'][4] );
+eq( "SF1 home_src rebuilt to d2:0", 'd2:0', $saved['finals_matches'][2]['home_src'] );
+
+echo "\n== Test 6: finals propagation (QF winner -> SF) ==\n";
+$champ = unserialize( file_get_contents( __DIR__ . '/fixtures/gchamp-over55-pairs.ser' ) );
+// Confirm every day's qualifiers so QF slots hold real names.
+$champ['days'][0]['ko_qualifiers'] = array( 'A0', 'B0' );
+$champ['days'][1]['ko_qualifiers'] = array( 'A1', 'B1' );
+$champ['days'][2]['ko_qualifiers'] = array( 'A2', 'B2' );
+$champ['finals_matches'] = lgw_gchamp_build_finals_matches( $champ );
+// QF1 = seed3 (d1:0=A1) v seed6 (d2:1=B2). Score it: A1 wins.
+$qf1 = null; foreach ( $champ['finals_matches'] as $mi => $m ) { if ( $m['round']==='Quarter-final' && $m['match_num']===1 ) { $qf1=$mi; break; } }
+$champ['finals_matches'][$qf1]['home_score'] = 21;
+$champ['finals_matches'][$qf1]['away_score'] = 10;
+$champ['finals_matches'] = lgw_gchamp_build_finals_matches( $champ );
+eq( "QF1 winner propagated into SF1 away", $champ['finals_matches'][$qf1]['home'], $champ['finals_matches'][2]['away'] );
+
+echo "\n== Test 7: existing 4-qualifier champ still builds SF+Final ==\n";
+$c4 = array( 'finals_qualifiers_per_day' => 4, 'days' => array(
+    array( 'name' => 'Day', 'finals_qualifiers' => 4, 'ko_qualifiers' => array('W','X','Y','Z') ),
+) );
+$fm4 = lgw_gchamp_build_finals_matches( $c4 );
+eq( "4 qualifiers -> SF,SF,Final", array('Semi-final1','Semi-final2','Final1'), array_map( fn($m)=>$m['round'].$m['match_num'], $fm4 ) );
+eq( "SF1 = seed1 v seed4", array('W','Z'), array( $fm4[0]['home'], $fm4[0]['away'] ) );
+
+echo "\n== Test 8: 2-qualifier day, no day-final (ko_play_day_final off) ==\n";
+// Semis played, final slots resolved but final left UNPLAYED.
+$b = make_bracket();
+lgw_gchamp_set_ko_advance( $b, 0, 0, 'A' ); // SF1: A beats B
+lgw_gchamp_set_ko_advance( $b, 0, 1, 'D' ); // SF2: D beats C
+$b['rounds'][0]['matches'][0]['home_score'] = 2; $b['rounds'][0]['matches'][0]['away_score'] = 1;
+$b['rounds'][0]['matches'][1]['home_score'] = 0; $b['rounds'][0]['matches'][1]['away_score'] = 1;
+// play_final = false → complete at semi stage (final slots filled), final unscored
+check( "fq2 no-final: complete once semis done + final slots filled", lgw_gchamp_ko_qualifiers_complete( $b, 2, false ) === true );
+check( "fq2 no-final: final left unplayed (no scores)", final_match( $b )['home_score'] === null && final_match( $b )['away_score'] === null );
+eq( "fq2 no-final: both finalists qualify (semi winners)", array('A','D'), lgw_gchamp_compute_ko_qualifiers( $b, 2, false ) );
+// A semi-final LOSER must never appear as a qualifier (the B Power case)
+$quals = lgw_gchamp_compute_ko_qualifiers( $b, 2, false );
+check( "fq2 no-final: semi loser B not a qualifier", ! in_array( 'B', $quals, true ) );
+check( "fq2 no-final: semi loser C not a qualifier", ! in_array( 'C', $quals, true ) );
+// With only one semi played, the final slot is unresolved → not complete yet
+$b2 = make_bracket();
+lgw_gchamp_set_ko_advance( $b2, 0, 0, 'A' );
+$b2['rounds'][0]['matches'][0]['home_score'] = 2; $b2['rounds'][0]['matches'][0]['away_score'] = 1;
+check( "fq2 no-final: incomplete while a semi is unresolved", lgw_gchamp_ko_qualifiers_complete( $b2, 2, false ) === false );
+// play_final = true → legacy behaviour: needs the final scored
+check( "fq2 play-final ON: NOT complete until final scored", lgw_gchamp_ko_qualifiers_complete( $b, 2, true ) === false );
+$b['rounds'][1]['matches'][0]['home_score'] = 21; $b['rounds'][1]['matches'][0]['away_score'] = 15; // A wins final
+check( "fq2 play-final ON: complete once final scored", lgw_gchamp_ko_qualifiers_complete( $b, 2, true ) === true );
+eq( "fq2 play-final ON: winner ranked first, loser second", array('A','D'), lgw_gchamp_compute_ko_qualifiers( $b, 2, true ) );
+
 echo "\n";
 if ( $GLOBALS['__fails'] > 0 ) {
     echo $GLOBALS['__fails'] . " check(s) FAILED\n";

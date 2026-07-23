@@ -505,6 +505,18 @@
   text-transform: none;
 }
 
+.lgw-gchamp-ko-finals-fixture-note {
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--lgw-qualify);
+  background: var(--lgw-qualify-bg);
+  border: 1px dashed var(--lgw-qualify-border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  text-align: center;
+}
+
 .lgw-gchamp-ko-match {
   border: 1px solid var(--lgw-border);
   border-radius: var(--lgw-radius-sm);
@@ -782,6 +794,53 @@
   padding-bottom: 6px;
   border-bottom: 2px solid var(--lgw-border);
 }
+/* Finals Week placeholder slots + manual seeding (admin) */
+.lgw-finals-ph-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lgw-finals-ph-name  { font-weight: 600; }
+.lgw-finals-ph-label { color: var(--lgw-text-muted); font-style: italic; font-size: 12px; }
+.lgw-gchamp-finals-seed-btn {
+  padding: 1px 5px;
+  border: 1px solid var(--lgw-border-soft);
+  border-radius: var(--lgw-radius-sm);
+  background: var(--lgw-bg);
+  color: var(--lgw-text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  opacity: .6;
+}
+.lgw-finals-ph-slot:hover .lgw-gchamp-finals-seed-btn { opacity: 1; }
+.lgw-gchamp-finals-seed-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.lgw-gchamp-finals-seed-select {
+  max-width: 180px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--lgw-border);
+  border-radius: var(--lgw-radius-sm);
+}
+.lgw-gchamp-finals-seed-save,
+.lgw-gchamp-finals-seed-cancel {
+  padding: 2px 6px;
+  border-radius: var(--lgw-radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--lgw-border);
+  background: var(--lgw-bg);
+  cursor: pointer;
+}
+.lgw-gchamp-finals-seed-save   { color: var(--lgw-qualify); }
+.lgw-gchamp-finals-seed-cancel { color: var(--lgw-text-muted); }
+.lgw-gchamp-finals-seed-save:disabled { opacity: .5; cursor: default; }
+
 /* Match cards reuse lgw-finals.css — just ensure container width */
 .lgw-gchamp-finals-pane .lgw-finals-match {
   max-width: 680px;

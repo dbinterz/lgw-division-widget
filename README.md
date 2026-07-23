@@ -108,6 +108,26 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.7]
+### Added
+- **Setting: "Play a day-final for 2-qualifier days"** (`ko_play_day_final`, off by default). For days configured with 2 finals qualifiers, both finalists advance to Finals Week once the semi-finals are decided; the day final is a Finals-Week fixture, not a day game. Turning it on plays a ranking day-final (winner seeded first). Threaded through `lgw_gchamp_ko_qualifiers_complete()` and `lgw_gchamp_compute_ko_qualifiers()` via a `$play_final` argument; the day KO view marks the final "Played at Finals Week" and omits its score entry.
+
+### Fixed
+- **2-qualifier days now qualify the two finalists (both semi winners).** Previously `compute_ko_qualifiers()` required the day final to be *scored* (final winner + runner-up), so an unplayed final produced no qualifiers and a hand-set list could surface a semi-final loser as a qualifier. `finals_qualifiers === 2` with the setting off derives qualifiers from the resolved final slots and completes at the semi-final stage.
+
+### Regression
+- `tests/manual/gchamp-knockout-regression.php` Test 8: fq2 no-final completion/qualifiers (semi losers excluded), incomplete-until-slots-resolved, and legacy play-final-on behaviour.
+
+## [2026.30.6]
+### Added
+- **Finals Week draw available before the knockouts finish.** The Finals Week tab now shows as soon as a group championship is drawn and uses an internal KO (was gated on `has_any_ko_complete`). `lgw_gchamp_finals_slots()` derives every expected qualifier from the day config, so all slots exist immediately as source-labelled placeholders ("21 June Ards Winner", "Winner of QF1") and resolve to real names as each day's KO confirms them.
+- **Seeded, size-appropriate finals bracket.** `lgw_gchamp_build_finals_matches()` reworked to seed a single-elimination bracket rounded up to the next power of two with the top seeds byed to the later round (e.g. 6 qualifiers → 8-slot QF→SF→Final, seeds 1–2 bye to the semis). 2- and 4-qualifier champs still produce Final / SF+Final. Winners propagate via `lgw_gchamp_finals_propagate_matches()`.
+- **Manual Finals Week seeding.** Per-position admin dropdown (`lgw_gchamp_finals_set_slot`) assigns which qualifier source occupies each first-round draw slot, swapping it with the current occupant; the draw is stored as `finals_draw` (a permutation of the sources) and the bracket rebuilt from it.
+- **`[lgw_finals]` sort toggle.** "By competition" (grouped, as before) or "By date & rink" (flat chronological schedule across all competitions, unscheduled matches last), remembered per season in `localStorage`.
+
+### Regression
+- `tests/manual/gchamp-knockout-regression.php` extended: 8-slot finals build, placeholder resolution, manual source→position swap, QF→SF propagation, and 4-qualifier backward-compat.
+
 ## [2026.30.5]
 ### Fixed
 - **Manual knockout seeding rejected valid qualifiers** with "That entry is not a qualifier for this day", despite the dropdown only offering that day's qualifiers. `lgw_gchamp_ko_set_slot` ran the posted value through `sanitize_text_field()`, which collapses the runs of whitespace in entry names (`"Name,    Club"` → `"Name, Club"`), so the strict `in_array()` check against the stored qualifier pool never matched. Validation now compares whitespace-insensitively and assigns the exact canonical stored string. Regression: `tests/manual/gchamp-knockout-regression.php`.
