@@ -67,6 +67,9 @@ function lgw_gchamp_handle_admin_actions() {
         $has_ko_bracket   = isset( $_POST['lgw_gchamp_has_ko'] ) ? 1 : 0;
         $ko_bracket_size  = intval( $_POST['lgw_gchamp_ko_bracket_size'] ?? 0 );
         $finals_q_per_day = max( 1, min( 4, intval( $_POST['lgw_gchamp_finals_q_per_day'] ?? 1 ) ) );
+        // For 2-qualifier days: play a ranking day-final, or leave it as a
+        // Finals-Week fixture (both finalists qualify without a day game).
+        $ko_play_day_final = isset( $_POST['lgw_gchamp_ko_play_day_final'] ) ? 1 : 0;
 
         // ── Days config ───────────────────────────────────────────────────────
         $days_config    = array();
@@ -137,6 +140,7 @@ function lgw_gchamp_handle_admin_actions() {
             'has_ko_bracket'       => $has_ko_bracket,
             'ko_bracket_size'          => $ko_bracket_size,
             'finals_qualifiers_per_day' => $finals_q_per_day,
+            'ko_play_day_final'    => $ko_play_day_final,
             'days_config'          => $days_config,
             'days'                 => ( function() use ( $existing, $days_config ) {
                 $drawn_days = $existing['days'] ?? array();
@@ -390,6 +394,7 @@ function lgw_gchamp_edit_page( $champ_id ) {
     $total_entries   = count( $champ['entries'] ?? array() );
     $has_ko          = ! empty( $champ['has_ko_bracket'] );
     $ko_bracket_size = intval( $champ['ko_bracket_size'] ?? 0 );
+    $ko_play_day_final = ! empty( $champ['ko_play_day_final'] );
     ?>
     <div class="wrap">
     <?php lgw_page_header( $is_new ? 'New Group Championship' : 'Edit: ' . ( $champ['title'] ?? $champ_id ) ); ?>
@@ -640,6 +645,15 @@ function lgw_gchamp_edit_page( $champ_id ) {
             Include an internal knockout bracket after the group stage
         </label>
         <p class="description">Leave unchecked if Finals Week is run separately outside this system.</p>
+        <label style="display:block;margin-top:10px">
+            <input type="checkbox" name="lgw_gchamp_ko_play_day_final" value="1" <?php checked($ko_play_day_final,true);?> id="lgw_gchamp_ko_play_day_final">
+            Play a day-final for 2-qualifier days
+        </label>
+        <p class="description">
+            Only affects days set to <strong>2 finals qualifiers</strong>. Off (default): both
+            finalists qualify and the final is played at Finals Week — no day game.
+            On: the day final is played to rank the two qualifiers (winner seeded first).
+        </p>
         </td></tr>
     </table>
 
@@ -1755,11 +1769,12 @@ function lgw_ajax_gchamp_save_score() {
         // Check ko_complete — done when required qualifier rounds are all played
         $num_days_total = count( $champ['days'] );
         $fq             = intval( $champ['days'][$day_id]['finals_qualifiers'] ?? $champ['finals_qualifiers_per_day'] ?? 1 );
-        $ko_complete    = lgw_gchamp_ko_qualifiers_complete( $champ['days'][$day_id]['ko_bracket'], $fq );
+        $play_final     = ! empty( $champ['ko_play_day_final'] );
+        $ko_complete    = lgw_gchamp_ko_qualifiers_complete( $champ['days'][$day_id]['ko_bracket'], $fq, $play_final );
         if ( $ko_complete && ! $clear ) {
             $champ['days'][$day_id]['ko_complete']   = true;
             $champ['days'][$day_id]['ko_qualifiers'] = lgw_gchamp_compute_ko_qualifiers(
-                $champ['days'][$day_id]['ko_bracket'], $fq
+                $champ['days'][$day_id]['ko_bracket'], $fq, $play_final
             );
             // Rebuild Finals Week matches now that we have new qualifiers
             $new_q_count = array_sum( array_map(
@@ -2652,13 +2667,35 @@ function lgw_gchamp_set_ko_advance( array &$bracket, int $r, int $m, ?string $wi
  * Returns true when enough KO rounds have been played to confirm all
  * required Finals Week qualifiers for this day.
  *
- * finals_qualifiers 1–3 → need the final round (winner + runner-up known)
+ * finals_qualifiers 1, 3 → need the final round (winner + runner-up known)
+ * finals_qualifiers 2   → both finalists qualify; when $play_final is false the
+ *                         day final is NOT played (it is a Finals-Week fixture),
+ *                         so completion only needs the final's two slots filled
  * finals_qualifiers 4   → need the semi-final round (all 4 SFs known)
  */
-function lgw_gchamp_ko_qualifiers_complete( array $bracket, int $finals_qualifiers ): bool {
+function lgw_gchamp_ko_qualifiers_complete( array $bracket, int $finals_qualifiers, bool $play_final = true ): bool {
     $rounds     = $bracket['rounds'] ?? array();
     $num_rounds = count( $rounds );
     if ( $num_rounds === 0 ) return false;
+
+    // 2-qualifier day with no day-final: both finalists advance, so we don't
+    // need the final scored — only every round *before* it played (to resolve
+    // the two final slots) and the final match's slots non-null.
+    if ( $finals_qualifiers === 2 && ! $play_final ) {
+        for ( $ri = 0; $ri < $num_rounds - 1; $ri++ ) {
+            foreach ( $rounds[$ri]['matches'] as $match ) {
+                if ( ! empty( $match['bye'] ) ) continue;
+                if ( $match['home'] === null || $match['away'] === null ) continue; // TBD
+                if ( $match['home_score'] === null || $match['away_score'] === null ) return false;
+            }
+        }
+        $final = $rounds[ $num_rounds - 1 ];
+        foreach ( $final['matches'] as $match ) {
+            if ( ! empty( $match['bye'] ) ) continue;
+            if ( $match['home'] === null || $match['away'] === null ) return false; // slots not resolved
+        }
+        return true;
+    }
 
     // Determine the last round index we need to be complete
     // fq >= 4 → semi-finals (2 rounds from end), else → final (last round)
@@ -2692,9 +2729,11 @@ function lgw_gchamp_ko_all_played( array $bracket ): bool {
 /**
  * Compute Finals Week qualifiers from a completed KO bracket.
  * Rule: 1 day = SF (4), 2 days = F (2 each), 4 days = W (1 each).
+ * When $play_final is false and per_day == 2 the day final is not played —
+ * both finalists (the two players occupying the final slots) qualify.
  * Returns qualifiers in finish order.
  */
-function lgw_gchamp_compute_ko_qualifiers( array $bracket, int $per_day ): array {
+function lgw_gchamp_compute_ko_qualifiers( array $bracket, int $per_day, bool $play_final = true ): array {
 
     // Work back from the final round
     $rounds     = $bracket['rounds'];
@@ -2704,6 +2743,16 @@ function lgw_gchamp_compute_ko_qualifiers( array $bracket, int $per_day ): array
     // Final round (last round) winner = champion
     $final_round = $rounds[ $num_rounds - 1 ] ?? null;
     if ( ! $final_round ) return array();
+
+    // 2-qualifier day, no day-final: both finalists advance to Finals Week.
+    if ( $per_day === 2 && ! $play_final ) {
+        foreach ( $final_round['matches'] as $match ) {
+            if ( ! empty( $match['bye'] ) ) continue;
+            if ( $match['home'] ) $qualifiers[] = $match['home'];
+            if ( $match['away'] ) $qualifiers[] = $match['away'];
+        }
+        return array_values( array_filter( array_unique( $qualifiers ) ) );
+    }
 
     // Final round: winner and runner-up (only needed when per_day < 4)
     if ( $per_day < 4 ) {
@@ -4422,9 +4471,17 @@ function lgw_gchamp_shortcode( $atts ) {
                 $per_day_q  = intval( $day['finals_qualifiers'] ?? $champ['finals_qualifiers_per_day'] ?? (
                     $num_days === 1 ? 4 : ( $num_days === 2 ? 2 : max(1, intval(ceil(4/$num_days))) )
                 ) );
+                // 2-qualifier day with the day-final setting off: the final is a
+                // Finals-Week fixture, not a day game — both finalists qualify.
+                $play_day_final   = ! empty( $champ['ko_play_day_final'] );
+                $final_not_played = ( $per_day_q === 2 && ! $play_day_final );
                 $total_matches = 0;
                 $played_matches = 0;
-                foreach ($rounds as $round) { foreach ($round['matches'] as $m) { if (empty($m['bye'])) { $total_matches++; if ($m['home_score']!==null&&$m['away_score']!==null) $played_matches++; } } }
+                foreach ($rounds as $ri_c => $round) {
+                    $is_final_c = ( $round['round'] === $num_rounds - 1 );
+                    if ( $final_not_played && $is_final_c ) continue; // not a scored day game
+                    foreach ($round['matches'] as $m) { if (empty($m['bye'])) { $total_matches++; if ($m['home_score']!==null&&$m['away_score']!==null) $played_matches++; } }
+                }
                 // Manual seeding (admin): first-round slots can be reassigned to
                 // any of this day's qualifiers. Build the option pool once.
                 $can_seed_ko = current_user_can( 'manage_options' );
@@ -4459,9 +4516,11 @@ function lgw_gchamp_shortcode( $atts ) {
                     <div class="lgw-gchamp-ko-round">
                         <div class="lgw-gchamp-ko-round-label">
                             <?php echo esc_html( $round['label'] ); ?>
-                            <?php if ( $is_final && $qualifies_at_final ): ?>
+                            <?php if ( $is_final && $final_not_played ): ?>
+                                <span class="lgw-gchamp-ko-qualifies-note">&#x1F3C6; Played at Finals Week</span>
+                            <?php elseif ( $is_final && $qualifies_at_final ): ?>
                                 <span class="lgw-gchamp-ko-qualifies-note">&#x1F3C6; Finals Week</span>
-                            <?php elseif ( $is_sf && ( $qualifies_at_sf || $qualifies_at_sf_one ) ): ?>
+                            <?php elseif ( $is_sf && ( $qualifies_at_sf || $qualifies_at_sf_one || $final_not_played ) ): ?>
                                 <span class="lgw-gchamp-ko-qualifies-note">&#x1F3C6; Finals Week</span>
                             <?php endif; ?>
                         </div>
@@ -4508,7 +4567,9 @@ function lgw_gchamp_shortcode( $atts ) {
                                     <button type="button" class="lgw-gchamp-ko-seed-cancel" title="Cancel">&#x2715;</button>
                                 </span><?php endif; ?>
                             </div>
-                            <?php if ( $can_score && ! $is_bye && ! $ko_complete && $match['home'] && $match['away'] ): ?>
+                            <?php if ( $is_final && $final_not_played && $match['home'] && $match['away'] ): ?>
+                            <div class="lgw-gchamp-ko-finals-fixture-note">&#x1F3C6; Both qualify &middot; final played at Finals Week</div>
+                            <?php elseif ( $can_score && ! $is_bye && ! $ko_complete && $match['home'] && $match['away'] ): ?>
                             <div class="lgw-gchamp-ko-score-entry">
                                 <?php if ( ! $scored ): ?>
                                 <button type="button" class="lgw-gchamp-ko-score-btn">+ Score</button>

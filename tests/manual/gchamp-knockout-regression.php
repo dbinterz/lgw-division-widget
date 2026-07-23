@@ -301,6 +301,32 @@ $fm4 = lgw_gchamp_build_finals_matches( $c4 );
 eq( "4 qualifiers -> SF,SF,Final", array('Semi-final1','Semi-final2','Final1'), array_map( fn($m)=>$m['round'].$m['match_num'], $fm4 ) );
 eq( "SF1 = seed1 v seed4", array('W','Z'), array( $fm4[0]['home'], $fm4[0]['away'] ) );
 
+echo "\n== Test 8: 2-qualifier day, no day-final (ko_play_day_final off) ==\n";
+// Semis played, final slots resolved but final left UNPLAYED.
+$b = make_bracket();
+lgw_gchamp_set_ko_advance( $b, 0, 0, 'A' ); // SF1: A beats B
+lgw_gchamp_set_ko_advance( $b, 0, 1, 'D' ); // SF2: D beats C
+$b['rounds'][0]['matches'][0]['home_score'] = 2; $b['rounds'][0]['matches'][0]['away_score'] = 1;
+$b['rounds'][0]['matches'][1]['home_score'] = 0; $b['rounds'][0]['matches'][1]['away_score'] = 1;
+// play_final = false → complete at semi stage (final slots filled), final unscored
+check( "fq2 no-final: complete once semis done + final slots filled", lgw_gchamp_ko_qualifiers_complete( $b, 2, false ) === true );
+check( "fq2 no-final: final left unplayed (no scores)", final_match( $b )['home_score'] === null && final_match( $b )['away_score'] === null );
+eq( "fq2 no-final: both finalists qualify (semi winners)", array('A','D'), lgw_gchamp_compute_ko_qualifiers( $b, 2, false ) );
+// A semi-final LOSER must never appear as a qualifier (the B Power case)
+$quals = lgw_gchamp_compute_ko_qualifiers( $b, 2, false );
+check( "fq2 no-final: semi loser B not a qualifier", ! in_array( 'B', $quals, true ) );
+check( "fq2 no-final: semi loser C not a qualifier", ! in_array( 'C', $quals, true ) );
+// With only one semi played, the final slot is unresolved → not complete yet
+$b2 = make_bracket();
+lgw_gchamp_set_ko_advance( $b2, 0, 0, 'A' );
+$b2['rounds'][0]['matches'][0]['home_score'] = 2; $b2['rounds'][0]['matches'][0]['away_score'] = 1;
+check( "fq2 no-final: incomplete while a semi is unresolved", lgw_gchamp_ko_qualifiers_complete( $b2, 2, false ) === false );
+// play_final = true → legacy behaviour: needs the final scored
+check( "fq2 play-final ON: NOT complete until final scored", lgw_gchamp_ko_qualifiers_complete( $b, 2, true ) === false );
+$b['rounds'][1]['matches'][0]['home_score'] = 21; $b['rounds'][1]['matches'][0]['away_score'] = 15; // A wins final
+check( "fq2 play-final ON: complete once final scored", lgw_gchamp_ko_qualifiers_complete( $b, 2, true ) === true );
+eq( "fq2 play-final ON: winner ranked first, loser second", array('A','D'), lgw_gchamp_compute_ko_qualifiers( $b, 2, true ) );
+
 echo "\n";
 if ( $GLOBALS['__fails'] > 0 ) {
     echo $GLOBALS['__fails'] . " check(s) FAILED\n";

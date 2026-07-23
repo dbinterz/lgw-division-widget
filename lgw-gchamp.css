@@ -505,6 +505,18 @@
   text-transform: none;
 }
 
+.lgw-gchamp-ko-finals-fixture-note {
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--lgw-qualify);
+  background: var(--lgw-qualify-bg);
+  border: 1px dashed var(--lgw-qualify-border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  text-align: center;
+}
+
 .lgw-gchamp-ko-match {
   border: 1px solid var(--lgw-border);
   border-radius: var(--lgw-radius-sm);

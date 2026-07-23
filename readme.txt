@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.6
+Stable tag: 2026.30.7
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.7 =
+* New: Group championship setting "Play a day-final for 2-qualifier days" (off by default). On days set to 2 finals qualifiers, both finalists now qualify to Finals Week as soon as the semi-finals are decided — the day final is treated as a Finals-Week fixture and is not played on the day. The knockout view shows the final as "Played at Finals Week" rather than asking for a score. Turn the setting on to play a ranking day-final instead (the winner is seeded first at Finals Week). Days set to 1, 3 or 4 qualifiers are unchanged.
+* Fix: On a 2-qualifier day, the qualifiers are now the two finalists (both semi-final winners). Previously the day's qualifiers could only be produced by scoring the day final, which risked showing a semi-final loser as a qualifier if the list was ever set before the final resolved.
 
 = 2026.30.6 =
 * New: Finals Week draw is available before the knockouts finish. The Finals Week tab now appears as soon as a group championship is drawn (previously it stayed hidden until at least one day's knockout was complete). Every expected qualifier is present from the start as a source-labelled placeholder — "21 June Ards Winner", "Winner of QF1" — so the whole draw can be arranged and dates/rinks set in advance. Placeholders resolve to real names automatically as each day's knockout confirms them.
