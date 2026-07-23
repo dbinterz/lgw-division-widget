@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.11
+Stable tag: 2026.30.12
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.12 =
+* Fix: "Match not found" (the actual root cause) when setting the date/time, rink, score or ends on a Group Championship finals match from the public [lgw_finals] page. The JS match map was missing the gchamp routing fields, so saves fell through to the standard-championship path and sent the prefixed champ id ("gchamp_<id>"), which the handler then doubled into a non-existent option. The map now carries the bare championship id, the gchamp nonce and an isGchamp flag so edits route to the correct handler.
 
 = 2026.30.11 =
 * Fix: Setting the date/time or rink on a Group Championship finals match from the public [lgw_finals] page no longer fails with "Match not found". The finals bracket rebuilt on render (when the qualifier set had grown) was not being persisted, so the save handler re-read an empty/stale match list. The rebuilt bracket is now saved so front-end edits resolve correctly.
