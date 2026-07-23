@@ -201,7 +201,12 @@ function lgw_finals_shortcode($atts) {
             $q_now = 0;
             foreach ($val['days'] ?? array() as $d) { $q_now += count($d['ko_qualifiers'] ?? array()); }
             if (empty($val['finals_matches']) || ($val['finals_q_count_at_build'] ?? -1) !== $q_now) {
-                $val['finals_matches'] = lgw_gchamp_build_finals_matches($val);
+                $val['finals_matches']            = lgw_gchamp_build_finals_matches($val);
+                $val['finals_q_count_at_build']   = $q_now;
+                // Persist so the stored option matches what we render — otherwise the
+                // schedule/score AJAX handlers re-read an empty/stale finals_matches and
+                // fail with "Match not found".
+                update_option('lgw_gchamp_' . $id, $val);
             }
         }
         if (! empty($val['finals_matches'])) {
