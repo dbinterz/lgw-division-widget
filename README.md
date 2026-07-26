@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.18]
+### Fixed
+- **Rename dropdown now surfaces names lingering only in the finals.** `lgw_gchamp_collect_all_entries()` (the source for the rename dropdown) didn't scan `finals_matches` or `days[*]['ko_qualifiers']`, so an entry renamed **before** 2026.30.17 — whose old spelling survived only in those finals structures — couldn't be selected to correct it. Both are now collected, so the old name reappears in the dropdown and a resave (old → correct) patches the leftover finals copies (2026.30.17 already renames those structures on save).
+
 ## [2026.30.17]
 ### Fixed
 - **Group Championship entry rename now propagates to the Finals Week bracket.** `lgw_ajax_gchamp_rename_entry` renamed entries, group fixtures, per-day `ko_bracket`, `days[*]['qualifiers']`, and the top-level bracket/qualifiers — but not `days[*]['ko_qualifiers']` (the name source `lgw_gchamp_finals_slots()` seeds from) nor `finals_matches[*]['home'/'away']` (the finals snapshot the finals page reads directly). A corrected name therefore updated the group stage but still showed the old spelling in the finals. Both are now renamed (finals via the existing flat-matches helper). Verified: a rename of an over55-pairs entry updates 1 finals slot + 1 ko_qualifiers entry that previously stayed stale.

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.17
+Stable tag: 2026.30.18
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.18 =
+* Fix: the entry-rename dropdown now also lists names found only in the Finals Week snapshot (finals_matches) and per-day ko_qualifiers. This lets you correct an entry that was renamed before 2026.30.17 — the old spelling left behind in the finals now appears in the dropdown, so a resave (old name → correct name) patches the finals copies.
 
 = 2026.30.17 =
 * Fix: renaming an entry in a Group Championship now carries the new name through to the Finals Week bracket. The rename tool updated the group stage, per-day knockouts and qualifier lists but skipped the finals snapshot (finals_matches) and the per-day ko_qualifiers list the finals bracket seeds from, so a corrected name still showed the old spelling on the finals page. Both are now renamed too.
