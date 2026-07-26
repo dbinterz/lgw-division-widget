@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v2026.30.15 */
+/* LGW Finals Week Widget JS - v2026.30.16 */
 (function () {
   'use strict';
 
@@ -18,6 +18,36 @@
   function qs(sel, ctx)  { return (ctx || document).querySelector(sel); }
   function qsa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // Disc palette mirrors lgw_finals_disc_palette() in lgw-finals.php.
+  var DISC_PALETTE = {
+    red:['Red','#d32f2f'], yellow:['Yellow','#f7c400'], blue:['Blue','#1565c0'],
+    green:['Green','#2e7d32'], orange:['Orange','#ef6c00'], brown:['Brown','#6d4c41'],
+    black:['Black','#222222'], white:['White','#f5f5f5'], pink:['Pink','#e91e8c']
+  };
+  function discSelectHtml(side, cur) {
+    var o = '<select class="lgw-finals-pop-disc" data-side="' + side + '"><option value="">— Default —</option>';
+    Object.keys(DISC_PALETTE).forEach(function(k){
+      o += '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + DISC_PALETTE[k][0] + '</option>';
+    });
+    return o + '</select>';
+  }
+  function discChipHtml(slug) {
+    var d = DISC_PALETTE[slug];
+    if (!d) return '';
+    return '<span class="lgw-finals-disc lgw-finals-disc--' + slug + '" title="' + esc(d[0]) + ' disc">'
+         + '<span class="lgw-finals-disc-dot" style="background:' + d[1] + '"></span>'
+         + '<span class="lgw-finals-disc-label">' + esc(d[0]) + '</span></span>';
+  }
+  // Replace (or insert) the disc chip for one side within a match element.
+  function updateDiscChip(matchEl, side, effSlug) {
+    var info = qs('.lgw-finals-team--' + side + ' .lgw-finals-team-info', matchEl);
+    if (!info) return;
+    var chip = qs('.lgw-finals-disc', info);
+    var html = discChipHtml(effSlug);
+    if (chip) { chip.outerHTML = html; }
+    else if (html) { info.insertAdjacentHTML('beforeend', html); }
+  }
 
   function post(action, data, cb) {
     var fd = new FormData();
@@ -155,6 +185,11 @@
     + '<label class="lgw-finals-pop-label" for="lgw-finals-rink-input">Rink</label>'
     + '<input class="lgw-finals-pop-input lgw-finals-pop-input--rink" type="text" id="lgw-finals-rink-input" maxlength="10" placeholder="e.g. 3" value="' + esc(currentRink) + '">'
     + '</div>'
+    + '<div class="lgw-finals-pop-row lgw-finals-pop-row--disc">'
+    + '<label class="lgw-finals-pop-label">Discs</label>'
+    + '<span class="lgw-finals-pop-disc-wrap">Home ' + discSelectHtml('home', m.discHome || '') + '</span>'
+    + '<span class="lgw-finals-pop-disc-wrap">Away ' + discSelectHtml('away', m.discAway || '') + '</span>'
+    + '</div>'
     + '<div class="lgw-finals-pop-actions">'
     + '<button class="lgw-finals-pop-save">Save</button>'
     + '<button class="lgw-finals-pop-cancel">Cancel</button>'
@@ -187,8 +222,25 @@
     var payload = m.isGchamp
       ? { champ_id: m.champId, match_idx: m.matchIdx, nonce: m.nonce, datetime: dt, rink: rink }
       : { champ_id: p.champId, bracket_key: p.bracketKey, round_idx: p.roundIdx, match_idx: p.matchIdx, datetime: dt, rink: rink };
+    // Include per-match disc overrides from the popup (all competitions).
+    if (pop) {
+      var dh = qs('.lgw-finals-pop-disc[data-side="home"]', pop);
+      var da = qs('.lgw-finals-pop-disc[data-side="away"]', pop);
+      if (dh) payload.disc_home = dh.value;
+      if (da) payload.disc_away = da.value;
+    }
     post(action, payload, function(res) {
       if (!res.success) { msgEl.textContent = 'Error: ' + (res.data || 'Unknown'); return; }
+      // Refresh disc chips + cache from the resolved (effective) colours.
+      if (res.data && (res.data.discHomeEff || res.data.discAwayEff)) {
+        var mEl = qs('#lgw-fm-' + mid);
+        if (mEl) {
+          updateDiscChip(mEl, 'home', res.data.discHomeEff);
+          updateDiscChip(mEl, 'away', res.data.discAwayEff);
+        }
+        m.discHome = res.data.discHome; m.discAway = res.data.discAway;
+        m.discHomeEff = res.data.discHomeEff; m.discAwayEff = res.data.discAwayEff;
+      }
       closePop();
       // Update datetime + rink display
       var matchEl = qs('#lgw-fm-' + mid);
@@ -589,7 +641,7 @@
       var status = dc.querySelector('.lgw-finals-disc-status');
       dSave.disabled = true;
       if (status) status.textContent = 'Saving…';
-      post('lgw_gchamp_finals_set_discs', { nonce: gchampNonce, champ_id: dc.getAttribute('data-champ-id'), home_disc: hs.value, away_disc: as.value }, function (data) {
+      post('lgw_finals_set_discs', { nonce: nonce, champ_id: dc.getAttribute('data-champ-id'), is_gchamp: dc.getAttribute('data-is-gchamp'), home_disc: hs.value, away_disc: as.value }, function (data) {
         if (data && data.success) { location.reload(); }
         else { dSave.disabled = false; if (status) status.textContent = ''; alert('Error: ' + ((data && data.data) || 'Unknown')); }
       });

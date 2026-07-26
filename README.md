@@ -108,6 +108,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.16]
+### Added
+- **Per-match disc override.** Beyond the whole-championship convention, admins can set a per-side disc colour for a single match from that match's date/time editor. Each side has a select with a `— Default —` option (empty = inherit the convention). Stored as `finals_disc_home` / `finals_disc_away` on the individual match slot; the extended `save_datetime` handlers (both gchamp in `lgw-gchamp.php` and standard in `lgw-finals.php`) persist it and return the resolved effective colours, which the JS uses to swap the chips live.
+### Changed
+- **Disc convention + override now work on every finals competition, not just Group Championships.** The bulk header control and per-match overrides are available for standard championship finals (singles/pairs/triples/fours/…) too. The bulk control posts to a new generic `lgw_finals_set_discs` handler (verifies `lgw_finals_nonce`) that routes to `lgw_gchamp_<id>` or `lgw_champ_<id>` via an `is_gchamp` flag; the gchamp-only `lgw_gchamp_finals_set_discs` handler from 2026.30.15 is removed in favour of it.
+
 ## [2026.30.15]
 ### Added
 - **Disc-colour chips on Finals Week matches.** Each side shows a coloured dot + label (e.g. 🔴 Red / 🟡 Yellow) so viewers can identify entries on the green. Convention is set per championship (bulk) from the Finals page header via an admin "Discs: Home […] Away […] — Apply to all" control, stored as `finals_disc_home` / `finals_disc_away` on the gchamp option and applied to every match. Defaults Red (home) / Yellow (away). Palette: red, yellow, blue, green, orange, brown, black, white, pink. New AJAX handler `lgw_gchamp_finals_set_discs` (verifies `lgw_gchamp_score` nonce, validates slugs against `lgw_finals_disc_palette()`).
