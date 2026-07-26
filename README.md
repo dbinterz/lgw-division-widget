@@ -108,6 +108,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.15]
+### Added
+- **Disc-colour chips on Finals Week matches.** Each side shows a coloured dot + label (e.g. 🔴 Red / 🟡 Yellow) so viewers can identify entries on the green. Convention is set per championship (bulk) from the Finals page header via an admin "Discs: Home […] Away […] — Apply to all" control, stored as `finals_disc_home` / `finals_disc_away` on the gchamp option and applied to every match. Defaults Red (home) / Yellow (away). Palette: red, yellow, blue, green, orange, brown, black, white, pink. New AJAX handler `lgw_gchamp_finals_set_discs` (verifies `lgw_gchamp_score` nonce, validates slugs against `lgw_finals_disc_palette()`).
+### Fixed
+- **Club badges now display on Finals Week matches.** The lookup lowercased the parsed club name but compared it against `lgw_club_badges` keys stored in original case (`N.I.C.S.`, `Ards`), so no badge ever resolved. A lowercased key map is now built once for a case-insensitive match.
+
 ## [2026.30.14]
 ### Fixed
 - **"Match not found" (still) on gchamp finals edits + dead "by competition / by date" sort tabs — a syntax error introduced by 2026.30.13.** The 2026.30.13 edit wrapped the finals body inline script but left a **duplicate, unclosed `(function(){`** before the existing sort IIFE (double-open, single close). The whole `<script>` failed to parse (`Uncaught SyntaxError: Unexpected end of input`), so nothing in it ran — including the `window.__lgwFinalsBoot` assignment (the 2026.30.13 fallback) **and** the sort/view toggle wiring. Result: the match map fallback was never set (`__lgwFinalsBoot` undefined, `lgwFinalsData.matches === {}`), gchamp saves fell to the standard handler with the prefixed `champ_id` again, and the sort tabs stopped switching. Confirmed live via browser console (`boot: undefined | matches: 0`) and the real POST capture. Fix: removed the stray wrapper so the block parses; both the save-routing fallback and the sort toggle work again.

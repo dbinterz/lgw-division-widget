@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v7.1.26 */
+/* LGW Finals Week Widget JS - v2026.30.15 */
 (function () {
   'use strict';
 
@@ -580,6 +580,22 @@
       });
       return;
     }
+    var dSave = e.target.closest('.lgw-finals-disc-save');
+    if (dSave) {
+      var dc = dSave.closest('.lgw-finals-disc-ctrl');
+      var hs = dc && dc.querySelector('.lgw-finals-disc-select[data-side="home"]');
+      var as = dc && dc.querySelector('.lgw-finals-disc-select[data-side="away"]');
+      if (!dc || !hs || !as) return;
+      var status = dc.querySelector('.lgw-finals-disc-status');
+      dSave.disabled = true;
+      if (status) status.textContent = 'Saving…';
+      post('lgw_gchamp_finals_set_discs', { nonce: gchampNonce, champ_id: dc.getAttribute('data-champ-id'), home_disc: hs.value, away_disc: as.value }, function (data) {
+        if (data && data.success) { location.reload(); }
+        else { dSave.disabled = false; if (status) status.textContent = ''; alert('Error: ' + ((data && data.data) || 'Unknown')); }
+      });
+      return;
+    }
+
     var oSave = e.target.closest('.lgw-gchamp-finals-occ-save');
     if (oSave) {
       var of = oSave.closest('.lgw-gchamp-finals-occ-form');

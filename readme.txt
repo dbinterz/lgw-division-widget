@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.14
+Stable tag: 2026.30.15
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.15 =
+* New: Finals Week matches now show a coloured "disc" chip (dot + label) beside each entry so viewers can tell which side is which on the green. Admins set the convention per championship from the Finals page header (e.g. Home = Yellow, Away = Blue) via "Apply to all" — it applies to every match at once. Defaults to Red (home) / Yellow (away). Palette: Red, Yellow, Blue, Green, Orange, Brown, Black, White, Pink.
+* Fix: club badges now show on Finals Week matches. The badge lookup lowercased the parsed club name but compared against option keys stored in their original case ("N.I.C.S.", "Ards"), so nothing matched; the lookup is now case-insensitive.
 
 = 2026.30.14 =
 * Fix: "Match not found" (still) on Group Championship finals edits, and dead "by competition / by date" sort tabs. The 2026.30.13 change left a stray, unclosed inline function wrapper in the finals page body, so the whole inline <script> failed to parse ("Unexpected end of input"). That block both sets the fallback match map AND wires the sort/view toggle, so neither ran: gchamp saves fell back to the wrong handler again, and the sort tabs stopped switching. Removed the duplicate wrapper so the block parses and both features work.

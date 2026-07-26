@@ -128,6 +128,62 @@ function lgw_finals_get_gchamp_matches( string $gchamp_id, array $champ ): array
 }
 
 /**
+ * Bowls disc-colour palette used to identify each side of a finals match.
+ * slug => [ label, dot hex, readable text colour for a tinted background ].
+ */
+function lgw_finals_disc_palette(): array {
+    return array(
+        'red'    => array( 'Red',    '#d32f2f', '#fff' ),
+        'yellow' => array( 'Yellow', '#f7c400', '#222' ),
+        'blue'   => array( 'Blue',   '#1565c0', '#fff' ),
+        'green'  => array( 'Green',  '#2e7d32', '#fff' ),
+        'orange' => array( 'Orange', '#ef6c00', '#fff' ),
+        'brown'  => array( 'Brown',  '#6d4c41', '#fff' ),
+        'black'  => array( 'Black',  '#222222', '#fff' ),
+        'white'  => array( 'White',  '#f5f5f5', '#222' ),
+        'pink'   => array( 'Pink',   '#e91e8c', '#fff' ),
+    );
+}
+
+/**
+ * Render a small coloured "disc" chip (dot + label) for one side of a match.
+ * $slug is a palette key; unknown/empty slugs render nothing.
+ */
+function lgw_finals_disc_chip( $slug ): string {
+    $slug = sanitize_key( $slug );
+    $pal  = lgw_finals_disc_palette();
+    if ( ! isset( $pal[ $slug ] ) ) return '';
+    list( $label, $hex ) = $pal[ $slug ];
+    return '<span class="lgw-finals-disc lgw-finals-disc--' . esc_attr( $slug ) . '" title="' . esc_attr( $label . ' disc' ) . '">'
+         . '<span class="lgw-finals-disc-dot" style="background:' . esc_attr( $hex ) . '"></span>'
+         . '<span class="lgw-finals-disc-label">' . esc_html( $label ) . '</span></span>';
+}
+
+/**
+ * Admin control (gchamp only) to set the home/away disc colours for a whole
+ * championship at once — the "bulk" convention (e.g. all home = Yellow, all
+ * away = Blue). Posts to lgw_gchamp_finals_set_discs; the page reloads on save.
+ */
+function lgw_finals_disc_bulk_ctrl( $cid, $home_slug, $away_slug ): string {
+    $pal = lgw_finals_disc_palette();
+    $sel = function( $name, $current ) use ( $pal ) {
+        $out = '<select class="lgw-finals-disc-select" data-side="' . esc_attr( $name ) . '">';
+        foreach ( $pal as $slug => $meta ) {
+            $out .= '<option value="' . esc_attr( $slug ) . '"' . selected( $slug, $current, false ) . '>'
+                  . esc_html( $meta[0] ) . '</option>';
+        }
+        return $out . '</select>';
+    };
+    return '<div class="lgw-finals-disc-ctrl" data-champ-id="' . esc_attr( $cid ) . '">'
+         . '<span class="lgw-finals-disc-ctrl-label">Discs:</span>'
+         . '<label>Home ' . $sel( 'home', $home_slug ) . '</label>'
+         . '<label>Away ' . $sel( 'away', $away_slug ) . '</label>'
+         . '<button type="button" class="lgw-finals-disc-save">Apply to all</button>'
+         . '<span class="lgw-finals-disc-status" aria-live="polite"></span>'
+         . '</div>';
+}
+
+/**
  * Admin draw control for a pending Group Championship finals slot on the public
  * Finals Week page. Mixed rounds (semi-finals/final) use the shared occupant
  * dropdown — byes and "Winner of QFx" feeds in one list. Pure-seed rounds
@@ -221,6 +277,11 @@ function lgw_finals_shortcode($atts) {
     $is_admin    = current_user_can('manage_options');
     $club_badges = get_option('lgw_club_badges', array());
     $team_badges = get_option('lgw_badges',      array());
+    // Club-badge keys are stored in their original case ("N.I.C.S.", "Ards"),
+    // but the club name parsed from a player string is lowercased for lookup.
+    // Key a lowercased copy so the match is case-insensitive.
+    $club_badges_lc = array();
+    foreach ($club_badges as $k => $v) $club_badges_lc[strtolower($k)] = $v;
     $nonce       = wp_create_nonce('lgw_finals_nonce');
 
     // Build all match data for JS
@@ -265,6 +326,11 @@ function lgw_finals_shortcode($atts) {
         }
         $gchamp_draw_editable = $is_gchamp && $is_admin && !$g_finals_started;
 
+        // Disc-colour convention for this championship (bulk: applies to every
+        // match). Home defaults Red, away Yellow; gchamp stores overrides.
+        $disc_home = sanitize_key($champ['finals_disc_home'] ?? 'red');
+        $disc_away = sanitize_key($champ['finals_disc_away'] ?? 'yellow');
+
         // Group by round
         $by_round = array();
         foreach ($matches as $m) {
@@ -274,6 +340,7 @@ function lgw_finals_shortcode($atts) {
         <div class="lgw-finals-champ" data-champ-id="<?php echo esc_attr($champ_id); ?>">
           <div class="lgw-finals-champ-header">
             <span class="lgw-finals-champ-title"><?php echo esc_html($champ['title'] ?? $champ_id); ?></span>
+            <?php if ($is_gchamp && $is_admin) echo lgw_finals_disc_bulk_ctrl($champ['_gchamp_id'], $disc_home, $disc_away); ?>
           </div>
 
           <?php foreach ($by_round as $round_name => $round_matches): ?>
@@ -309,11 +376,11 @@ function lgw_finals_shortcode($atts) {
               }
               if (!$home_badge) {
                   $hclub = strtolower(trim(explode(',', $home, 2)[1] ?? ''));
-                  $home_badge = $club_badges[$hclub] ?? '';
+                  $home_badge = $club_badges_lc[$hclub] ?? '';
               }
               if (!$away_badge) {
                   $aclub = strtolower(trim(explode(',', $away, 2)[1] ?? ''));
-                  $away_badge = $club_badges[$aclub] ?? '';
+                  $away_badge = $club_badges_lc[$aclub] ?? '';
               }
 
               $status_cls = $pending ? 'lgw-finals-match--pending'
@@ -403,6 +470,7 @@ function lgw_finals_shortcode($atts) {
                     <?php $hclub = lgw_finals_club_name($home); if ($hclub): ?>
                     <span class="lgw-finals-team-club"><?php echo esc_html($hclub); ?></span>
                     <?php endif; ?>
+                    <?php echo lgw_finals_disc_chip($disc_home); ?>
                   </div>
                 </div>
 
@@ -430,6 +498,7 @@ function lgw_finals_shortcode($atts) {
                     <?php $aclub = lgw_finals_club_name($away); if ($aclub): ?>
                     <span class="lgw-finals-team-club"><?php echo esc_html($aclub); ?></span>
                     <?php endif; ?>
+                    <?php echo lgw_finals_disc_chip($disc_away); ?>
                   </div>
                   <?php if ($away_badge): ?><img src="<?php echo esc_url($away_badge); ?>" class="lgw-finals-badge" alt=""><?php endif; ?>
                 </div>
