@@ -2931,14 +2931,13 @@ function lgw_ajax_gchamp_finals_save_end() {
     if ( ! $champ_id || $match_idx < 0 ) wp_send_json_error( 'Invalid parameters.' );
     $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
     if ( ! isset( $champ['finals_matches'][$match_idx] ) ) wp_send_json_error( 'Match not found.' );
-    $ends = $champ['finals_matches'][$match_idx]['ends'] ?? array();
-    if ( $action === 'delete_last' ) { if ( ! empty( $ends ) ) array_pop( $ends ); }
-    else $ends[] = array( max(0,$home_end), max(0,$away_end) );
-    $champ['finals_matches'][$match_idx]['ends'] = $ends;
-    $ht = 0; $at = 0;
-    foreach ( $ends as $e ) { $ht += $e[0]; $at += $e[1]; }
+    $match = &$champ['finals_matches'][$match_idx];
+    // Shared live-scoring logic (add / delete_last / reset / set_total) lives in
+    // lgw-finals.php so gchamp and standard finals behave identically.
+    lgw_finals_apply_end_action( $match, $action, $home_end, $away_end );
     update_option( 'lgw_gchamp_' . $champ_id, $champ );
-    wp_send_json_success( array( 'ends'=>$ends, 'homeTotal'=>$ht, 'awayTotal'=>$at, 'endCount'=>count($ends) ) );
+    $mid = 'gchamp_' . $champ_id . '--gchamp--0--' . $match_idx;
+    wp_send_json_success( lgw_finals_scoring_response( $match, $mid ) );
 }
 
 add_action( 'wp_ajax_lgw_gchamp_finals_save_score', 'lgw_ajax_gchamp_finals_save_score' );

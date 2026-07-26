@@ -108,6 +108,11 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.20]
+### Added
+- **Summary (quick-score) live mode + Reset, for all finals competitions.** A match can be scored end-by-end (detailed) **or** by overall updates (⚡ Quick score, stored as `live_home`/`live_away` on the match slot, mutually exclusive with `ends`). New **↺ Reset** clears all ends / the summary score back to "not started" (schedule untouched). Toolbar: `+ Add end`, `⚡ Quick score`, `↺ Reset`, `✓ Complete game`.
+- The scoring-area markup is now produced by one server helper `lgw_finals_render_scoring_area()` (three states: detailed / summary / not-started), and the `save_end` AJAX handlers (gchamp + standard) return that HTML fragment plus totals via shared helpers `lgw_finals_apply_end_action()` + `lgw_finals_scoring_response()`, so the browser swaps in the fragment instead of rebuilding it — no client/server divergence. `end_action` gains `reset` and `set_total`; the render/score-block/status-class use a unified `$is_live` (ends **or** summary total).
+
 ## [2026.30.19]
 ### Fixed
 - **"Enter final score" button dead after starting live scoring.** In `saveEnd()` the order was: re-render ends table → `bindMatchButtons()` → `updateScoreBlock()`. But `updateScoreBlock()` replaces the score-block markup (including the edit-score ✏️ button), so the freshly-created button was never bound and looked disabled. Now `updateScoreBlock()` runs first and `bindMatchButtons()` binds the whole match element afterward.
