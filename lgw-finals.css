@@ -457,6 +457,13 @@
 .lgw-finals-summary-sep { margin: 0 6px; color: var(--lgw-text-muted); }
 .lgw-finals-summary-val.win { color: var(--lgw-win); }
 .lgw-finals-pop-hint { font-size: 11px; color: var(--lgw-text-muted); margin: 2px 0 6px; }
+
+/* Summary-baseline row inside the running-total table */
+.lgw-finals-ends-tr--summary td {
+  background: var(--lgw-live-bg, #fff6e6);
+  font-style: italic;
+}
+.lgw-finals-ends-tr--summary .lgw-finals-ends-td--end { font-style: normal; font-weight: 700; }
 .lgw-finals-complete-btn {
   font-size: 12px;
   font-weight: 700;

@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.20
+Stable tag: 2026.30.21
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.21 =
+* Change: the summary score and end-by-end scoring now work together. The summary (⚡) score acts as a baseline and any ends you add count on top of it (running total = summary + ends), instead of being separate modes. The baseline shows as its own row (Σ) at the top of the ends table. Set/update it any time with ⚡ Set/Update summary; Reset still clears everything.
 
 = 2026.30.20 =
 * New: quick "summary" live scoring. Each finals match can now be scored either end-by-end (detailed, as before) or by updating the overall score at irregular intervals (⚡ Quick score) — handy when you can't capture every end. One mode per match; switching is a click away.

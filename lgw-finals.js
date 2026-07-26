@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v2026.30.20 */
+/* LGW Finals Week Widget JS - v2026.30.21 */
 (function () {
   'use strict';
 
@@ -356,7 +356,7 @@
     var pop = document.createElement('div');
     pop.className = 'lgw-finals-pop';
     pop.innerHTML =
-      '<div class="lgw-finals-pop-title">Quick score (overall)</div>'
+      '<div class="lgw-finals-pop-title">Summary score</div>'
     + '<div class="lgw-finals-pop-row lgw-finals-pop-row--ends">'
     + '<div class="lgw-finals-pop-end-label">' + esc(shortName(m.home || 'Home')) + '</div>'
     + '<input class="lgw-finals-pop-input lgw-finals-pop-input--end" id="lgw-finals-qh" type="number" min="0" max="99" value="' + esc(String(lh)) + '" placeholder="0">'
@@ -364,7 +364,7 @@
     + '<input class="lgw-finals-pop-input lgw-finals-pop-input--end" id="lgw-finals-qa" type="number" min="0" max="99" value="' + esc(String(la)) + '" placeholder="0">'
     + '<div class="lgw-finals-pop-end-label lgw-finals-pop-end-label--right">' + esc(shortName(m.away || 'Away')) + '</div>'
     + '</div>'
-    + '<div class="lgw-finals-pop-hint">Sets the overall live score without entering each end.</div>'
+    + '<div class="lgw-finals-pop-hint">Sets a baseline score. Any ends you add count on top of this.</div>'
     + '<div class="lgw-finals-pop-actions">'
     + '<button class="lgw-finals-pop-save">Update</button>'
     + '<button class="lgw-finals-pop-cancel">Cancel</button>'
