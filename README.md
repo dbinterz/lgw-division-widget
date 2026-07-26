@@ -109,12 +109,16 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 ## Changelog
 
 ## [2026.30.21]
-### Changed
-- **Summary score is now a baseline that coexists with ends** (was one-mode-per-match). Running total = `live_home/live_away` (baseline) + sum(`ends`); the two are no longer mutually exclusive. The baseline renders as the first row of the running-total table, and `+ Add end` counts on top of it. `set_total` sets/updates the baseline without clearing ends; `add` appends without clearing the baseline; `reset` clears both. `lgw_finals_baseline()` centralises parsing; `lgw_finals_render_ends_table()` gains `$base_h/$base_a` params; render + `scoring_response` seed running totals from the baseline.
 ### Added
-- **Summary records which end it's up to** (`live_ends`, "Score after end N"). The baseline row shows `≤N`, and subsequently-added ends continue the numbering (`N+1`, `N+2`, …). Threaded through `apply_end_action` (new `$summary_ends` arg), `render_ends_table` (`$base_ends`), the handlers (`summary_ends` POST) and the JS quick-score popover (a "Score after end" field) + response cache.
+- **Live finals scoring is now an ordered log of checkpoints + ends** (freely mixable). Two item kinds stored in `$match['ends']`:
+  - **end** — a delta pair `[h, a]` (`+ Add end`); running += delta, end# = prev + 1.
+  - **checkpoint** — `⚡ Update score`: an *absolute* score declared at end N, stored as the delta needed to reach it (`['0'=>dh,'1'=>da,'sum'=>1,'end'=>N]`), so `sum(item[0]/item[1])` is still the running total everywhere (poll, complete, finals-started). The running total *jumps* to a checkpoint's absolute; it is not a new base to re-add ends onto.
+  - Example: Update 14-10@12 → Add 3-0 (17-10, end 13) → Update 18-14@16 (jump, new line) → Add 0-2 (18-16, end 17).
+  - New helpers `lgw_finals_score_items()` (reads the log; migrates legacy 2026.30.20/.21 `live_home/away/ends` baseline into a leading checkpoint) and `lgw_finals_fold_items()` (folds to display rows + running totals + current end). `apply_end_action`/`scoring_response`/`render_ends_table`/`render_scoring_area` all rebuilt around them; `set_total` appends a checkpoint delta; `reset` clears the log.
+### Changed
+- **Rendering fully centralised server-side.** The scoring area (table + toolbar) is produced only by `lgw_finals_render_scoring_area()` and returned as an HTML fragment by the `save_end` handlers **and the live poll**; the client-side `renderEndsTable()` mirror is removed. `updateScoreBlock()` uses the server's authoritative totals. Poll now returns `html` + `homeTotal/awayTotal/curEnd/isLive`.
 ### Fixed
-- **Adding an end no longer drops the summary from the displayed score.** `updateScoreBlock()` recomputed the block total from `ends` only, ignoring the baseline; it now prefers the server's authoritative `homeTotal/awayTotal` (baseline + ends) when provided.
+- Adding an end no longer drops earlier scoring from the displayed total (superseded by the log model + server-authoritative totals).
 
 ## [2026.30.20]
 ### Added
