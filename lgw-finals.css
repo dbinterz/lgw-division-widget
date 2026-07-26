@@ -650,3 +650,54 @@
   font-size: 12px;
   cursor: pointer;
 }
+
+/* ── Disc-colour chips (identify each side of a finals match) ─────────────── */
+.lgw-finals-disc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--lgw-text-muted);
+}
+.lgw-finals-team--away .lgw-finals-disc { flex-direction: row-reverse; }
+.lgw-finals-disc-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .25) inset;
+  flex-shrink: 0;
+}
+.lgw-finals-disc-label { letter-spacing: .02em; }
+
+/* Bulk disc-convention control in the championship header (admin only) */
+.lgw-finals-disc-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.lgw-finals-disc-ctrl-label { font-weight: 600; }
+.lgw-finals-disc-ctrl label { display: inline-flex; align-items: center; gap: 3px; }
+.lgw-finals-disc-select { font-size: 12px; padding: 1px 3px; }
+.lgw-finals-disc-save {
+  padding: 1px 8px;
+  border: 1px solid rgba(255, 255, 255, .5);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .12);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.lgw-finals-disc-save:disabled { opacity: .6; cursor: default; }
+.lgw-finals-disc-status { font-size: 11px; opacity: .85; }
+
+@media (max-width: 600px) {
+  .lgw-finals-disc-ctrl { margin-left: 0; margin-top: 6px; flex-wrap: wrap; }
+}

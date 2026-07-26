@@ -2949,6 +2949,26 @@ function lgw_ajax_gchamp_finals_set_slot() {
     wp_send_json_success( array( 'draw' => $champ['finals_draw'] ) );
 }
 
+// ── AJAX: set the home/away disc-colour convention for a whole championship ───
+add_action( 'wp_ajax_lgw_gchamp_finals_set_discs', 'lgw_ajax_gchamp_finals_set_discs' );
+function lgw_ajax_gchamp_finals_set_discs() {
+    check_ajax_referer( 'lgw_gchamp_score', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorised.' );
+    $champ_id = sanitize_key( $_POST['champ_id'] ?? '' );
+    $home     = sanitize_key( $_POST['home_disc'] ?? '' );
+    $away     = sanitize_key( $_POST['away_disc'] ?? '' );
+    if ( ! $champ_id ) wp_send_json_error( 'Missing championship.' );
+    $palette = function_exists( 'lgw_finals_disc_palette' ) ? lgw_finals_disc_palette() : array();
+    if ( ! isset( $palette[ $home ] ) || ! isset( $palette[ $away ] ) )
+        wp_send_json_error( 'Unknown disc colour.' );
+    $champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
+    if ( empty( $champ ) ) wp_send_json_error( 'Championship not found.' );
+    $champ['finals_disc_home'] = $home;
+    $champ['finals_disc_away'] = $away;
+    update_option( 'lgw_gchamp_' . $champ_id, $champ );
+    wp_send_json_success( array( 'home' => $home, 'away' => $away ) );
+}
+
 /**
  * Occupant groups for the Finals Week bracket. Each first-round slot of a round
  * holds a "token" — a qualifier bye (seed) or a match-winner feed (win). Within
