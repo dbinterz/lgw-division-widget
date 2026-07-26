@@ -1666,6 +1666,18 @@ function lgw_ajax_gchamp_rename_entry() {
                     }
                 }
             }
+
+            // ko_qualifiers is the name list the Finals Week bracket seeds from
+            // (lgw_gchamp_finals_slots reads day['ko_qualifiers']). Rename here
+            // too, else the finals show the old name after a rebuild.
+            if ( ! empty( $day['ko_qualifiers'] ) && is_array( $day['ko_qualifiers'] ) ) {
+                foreach ( $day['ko_qualifiers'] as $qi => $q ) {
+                    if ( $matches_old( $q ) ) {
+                        $day['ko_qualifiers'][$qi] = $new_name;
+                        $replaced++;
+                    }
+                }
+            }
         }
         unset( $day );
     }
@@ -1681,6 +1693,14 @@ function lgw_ajax_gchamp_rename_entry() {
             $champ['qualifiers'][$qi] = $new_name;
             $replaced++;
         }
+    }
+
+    // 5. Finals Week bracket snapshot. build_finals_matches() copies qualifier
+    //    names into finals_matches[*]['home'/'away'] (and propagates winners the
+    //    same way), so the finals page reads these strings directly — rename them
+    //    or the finals keep the old name even though the group stage updated.
+    if ( ! empty( $champ['finals_matches'] ) && is_array( $champ['finals_matches'] ) ) {
+        $rename_in_flat_matches( $champ['finals_matches'] );
     }
 
     if ( $replaced === 0 ) {
