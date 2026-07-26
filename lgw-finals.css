@@ -741,3 +741,87 @@
 @media (max-width: 600px) {
   .lgw-finals-disc-ctrl { margin-left: 0; margin-top: 6px; flex-wrap: wrap; }
 }
+
+/* ── LED scoreboard view ────────────────────────────────────────────────── */
+.lgw-finals-view--board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  background: #0a0e14;
+  padding: 16px;
+  border-radius: 10px;
+}
+.lgw-finals-led {
+  background: linear-gradient(#12161d, #0d1117);
+  border: 1px solid #1e2733;
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: inset 0 0 24px rgba(0,0,0,.6);
+  font-family: "DSEG7", "Courier New", ui-monospace, monospace;
+}
+.lgw-finals-led-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin-bottom: 10px;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.lgw-finals-led-comp { color: #8fd0ff; font-weight: 700; font-size: 13px; letter-spacing: .02em; }
+.lgw-finals-led-round { color: #5b6b7d; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.lgw-finals-led-rink { color: #5b6b7d; font-size: 11px; margin-left: auto; }
+.lgw-finals-led-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+.lgw-finals-led-team {
+  color: #cdd8e3;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lgw-finals-led-num {
+  flex: none;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: #ff6b1a;
+  text-shadow: 0 0 6px rgba(255,107,26,.75), 0 0 14px rgba(255,107,26,.45);
+  min-width: 1.8em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.lgw-finals-led-foot {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #1a222c;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.lgw-finals-led-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: #5b6b7d;
+}
+.lgw-finals-led-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #ff3b3b;
+  box-shadow: 0 0 6px #ff3b3b;
+  animation: lgw-finals-pulse 1.4s infinite;
+}
+/* State tints */
+.lgw-finals-led--live { border-color: #7a2a1a; }
+.lgw-finals-led--live .lgw-finals-led-status { color: #ff6b6b; }
+.lgw-finals-led--final .lgw-finals-led-num { color: #48e08a; text-shadow: 0 0 6px rgba(72,224,138,.7), 0 0 14px rgba(72,224,138,.4); }
+.lgw-finals-led--final .lgw-finals-led-status { color: #48e08a; }
+.lgw-finals-led--upcoming .lgw-finals-led-num { color: #46586a; text-shadow: none; }

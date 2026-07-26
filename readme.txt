@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.21
+Stable tag: 2026.30.22
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.22 =
+* New: LED scoreboard view on the Finals Week page. A third tab (📟 Scoreboard) shows an old-style dark-panel LED board of the summary scores for every scheduled match — live matches first with glowing amber digits and a pulsing "LIVE · END n", then upcoming, then finished matches in green marked FINAL. The board updates live from the same source as the rest of the page (admin score entry and the automatic refresh for public viewers). Your chosen tab is remembered.
 
 = 2026.30.21 =
 * New: mix quick score updates and end-by-end scoring freely on a live finals match. Live scoring is now an ordered history: "⚡ Update score" records the overall score as of a given end (a checkpoint line, the running total jumps to it); "+ Add end" adds one end on top of the latest running total and continues the end numbering. Example: Update 14-10 after end 12 → Add end 3-0 (17-10, end 13) → Update 18-14 after end 16 → Add end 0-2 (18-16, end 17). Checkpoint rows show which end they are up to; Reset clears the history. Works on all finals competitions.

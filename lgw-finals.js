@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v2026.30.21 */
+/* LGW Finals Week Widget JS - v2026.30.22 */
 (function () {
   'use strict';
 
@@ -122,6 +122,32 @@
       block.innerHTML = '<span class="lgw-finals-score-placeholder">v</span>' + editBtn;
       matchEl.classList.remove('lgw-finals-match--live', 'lgw-finals-match--complete');
       matchEl.classList.add('lgw-finals-match--upcoming');
+    }
+
+    // Mirror onto the LED scoreboard card (if that view rendered this match).
+    if (hs !== null && as_score !== null) {
+      updateLed(mid, hs, as_score, 'final', 0);
+    } else if (isLiveState) {
+      updateLed(mid, ht, at, 'live', (matches[mid] && matches[mid].curEnd) || 0);
+    }
+  }
+
+  // Refresh a match's LED scoreboard card: two-digit padded numbers, state
+  // class, and status line. No-op if the board view didn't render this match.
+  function pad2(n) { n = parseInt(n, 10) || 0; return (n < 10 ? '0' : '') + n; }
+  function updateLed(mid, homeNum, awayNum, state, endNo) {
+    var card = qs('.lgw-finals-led[data-mid="' + (window.CSS && CSS.escape ? CSS.escape(mid) : mid) + '"]');
+    if (!card) return;
+    var h = qs('#lgw-led-' + mid + '-h');
+    var a = qs('#lgw-led-' + mid + '-a');
+    var s = qs('#lgw-led-' + mid + '-s');
+    if (h) h.textContent = pad2(homeNum);
+    if (a) a.textContent = pad2(awayNum);
+    card.classList.remove('lgw-finals-led--live', 'lgw-finals-led--final', 'lgw-finals-led--upcoming');
+    card.classList.add('lgw-finals-led--' + state);
+    if (s) {
+      if (state === 'live') s.innerHTML = '<span class="lgw-finals-led-dot"></span>LIVE' + (endNo ? ' · END ' + endNo : '');
+      else if (state === 'final') s.textContent = 'FINAL';
     }
   }
 
@@ -559,6 +585,7 @@
             local.homeScore = d.homeScore;
             local.awayScore = d.awayScore;
             local.ends      = d.ends;
+            local.curEnd    = d.curEnd;
             // Update rink display if changed
             if (local.rink !== d.rink) {
               local.rink = d.rink;

@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.22]
+### Added
+- **LED scoreboard view on the Finals Week page.** New third tab (`📟 Scoreboard`) beside "By competition" / "By date & rink" renders an old-style dark-panel LED board of summary scores across every scheduled match — live matches first (amber glowing digits, pulsing `● LIVE · END n`), then upcoming, then finished (green `FINAL`). Score cells carry stable ids (`#lgw-led-<mid>-h/-a/-s`) and refresh through the same update path as the rest of the page: admin saves and the public 30s poll both flow through `updateScoreBlock()`, which now mirrors totals onto the board via `updateLed()`. Tab choice persists in `localStorage` alongside the existing sort. Pure-additive: no scoring/data-model changes.
+
 ## [2026.30.21]
 ### Added
 - **Live finals scoring is now an ordered log of checkpoints + ends** (freely mixable). Two item kinds stored in `$match['ends']`:
