@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.17]
+### Fixed
+- **Group Championship entry rename now propagates to the Finals Week bracket.** `lgw_ajax_gchamp_rename_entry` renamed entries, group fixtures, per-day `ko_bracket`, `days[*]['qualifiers']`, and the top-level bracket/qualifiers — but not `days[*]['ko_qualifiers']` (the name source `lgw_gchamp_finals_slots()` seeds from) nor `finals_matches[*]['home'/'away']` (the finals snapshot the finals page reads directly). A corrected name therefore updated the group stage but still showed the old spelling in the finals. Both are now renamed (finals via the existing flat-matches helper). Verified: a rename of an over55-pairs entry updates 1 finals slot + 1 ko_qualifiers entry that previously stayed stale.
+
 ## [2026.30.16]
 ### Added
 - **Per-match disc override.** Beyond the whole-championship convention, admins can set a per-side disc colour for a single match from that match's date/time editor. Each side has a select with a `— Default —` option (empty = inherit the convention). Stored as `finals_disc_home` / `finals_disc_away` on the individual match slot; the extended `save_datetime` handlers (both gchamp in `lgw-gchamp.php` and standard in `lgw-finals.php`) persist it and return the resolved effective colours, which the JS uses to swap the chips live.
