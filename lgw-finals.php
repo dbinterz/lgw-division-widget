@@ -425,6 +425,8 @@ function lgw_finals_shortcode($atts) {
                       'rink'      => $rink,
                       'home'      => lgw_finals_player_name($home),
                       'away'      => lgw_finals_player_name($away),
+                      'home_club' => trim(explode(',', $home, 2)[1] ?? ''),
+                      'away_club' => trim(explode(',', $away, 2)[1] ?? ''),
                       'hs'        => $has_score ? intval($hs) : ($is_live ? $home_running : null),
                       'as'        => $has_score ? intval($as) : ($is_live ? $away_running : null),
                       'has_score' => $has_score,
@@ -643,11 +645,17 @@ function lgw_finals_shortcode($atts) {
             <?php if ($bm['rink']): ?><span class="lgw-finals-led-rink">Rink <?php echo esc_html($bm['rink']); ?></span><?php endif; ?>
           </div>
           <div class="lgw-finals-led-row">
-            <span class="lgw-finals-led-team"><?php echo esc_html($bm['home']); ?></span>
+            <span class="lgw-finals-led-name">
+              <span class="lgw-finals-led-team"><?php echo str_replace('/', '/<wbr>', esc_html($bm['home'])); ?></span>
+              <?php if ($bm['home_club']): ?><span class="lgw-finals-led-club"><?php echo esc_html($bm['home_club']); ?></span><?php endif; ?>
+            </span>
             <span class="lgw-finals-led-num" data-side="home" id="lgw-led-<?php echo esc_attr($bm['mid']); ?>-h"><?php echo esc_html($led($bm['hs'])); ?></span>
           </div>
           <div class="lgw-finals-led-row">
-            <span class="lgw-finals-led-team"><?php echo esc_html($bm['away']); ?></span>
+            <span class="lgw-finals-led-name">
+              <span class="lgw-finals-led-team"><?php echo str_replace('/', '/<wbr>', esc_html($bm['away'])); ?></span>
+              <?php if ($bm['away_club']): ?><span class="lgw-finals-led-club"><?php echo esc_html($bm['away_club']); ?></span><?php endif; ?>
+            </span>
             <span class="lgw-finals-led-num" data-side="away" id="lgw-led-<?php echo esc_attr($bm['mid']); ?>-a"><?php echo esc_html($led($bm['as'])); ?></span>
           </div>
           <div class="lgw-finals-led-foot">

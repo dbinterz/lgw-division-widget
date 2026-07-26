@@ -108,6 +108,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.23]
+### Added
+- **DSEG7 seven-segment webfont on the LED scoreboard** (SIL OFL, bundled under `fonts/dseg/`; two `@font-face` weights, `url()` resolved relative to `lgw-finals.css`). Digits render as a real 7-seg display, with a **ghost unlit-segment** layer — a faint all-lit `88` via `::before` at 13% opacity behind the live/final numbers.
+- **Club names on the scoreboard** — a sub-line under each player/team name (parsed from the `Name, Club` string), uppercase grey.
+### Changed
+- **Long team names wrap** on the board instead of one-line ellipsis. `<wbr>` break points injected after each `/`, so pairs/triples split player-per-line under a tight card; `.lgw-finals-led-team` uses `overflow-wrap: anywhere`.
+
 ## [2026.30.22]
 ### Added
 - **LED scoreboard view on the Finals Week page.** New third tab (`📟 Scoreboard`) beside "By competition" / "By date & rink" renders an old-style dark-panel LED board of summary scores across every scheduled match — live matches first (amber glowing digits, pulsing `● LIVE · END n`), then upcoming, then finished (green `FINAL`). Score cells carry stable ids (`#lgw-led-<mid>-h/-a/-s`) and refresh through the same update path as the rest of the page: admin saves and the public 30s poll both flow through `updateScoreBlock()`, which now mirrors totals onto the board via `updateLed()`. Tab choice persists in `localStorage` alongside the existing sort. Pure-additive: no scoring/data-model changes.
