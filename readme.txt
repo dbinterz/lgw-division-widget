@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.15
+Stable tag: 2026.30.16
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.16 =
+* New: per-match disc override. As well as the whole-championship convention, admins can now set a different disc colour for one side of a single match from that match's date/time editor (Discs: Home / Away, with a "— Default —" option that falls back to the championship convention). Chips update live on save.
+* Change: the disc-colour convention (bulk) and per-match override are now available on EVERY finals competition, not just Group Championships — standard championship finals (singles, pairs, triples, fours, etc.) get the same header "Apply to all" control and per-match overrides.
 
 = 2026.30.15 =
 * New: Finals Week matches now show a coloured "disc" chip (dot + label) beside each entry so viewers can tell which side is which on the green. Admins set the convention per championship from the Finals page header (e.g. Home = Yellow, Away = Blue) via "Apply to all" — it applies to every match at once. Defaults to Red (home) / Yellow (away). Palette: Red, Yellow, Blue, Green, Orange, Brown, Black, White, Pink.

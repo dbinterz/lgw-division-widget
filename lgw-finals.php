@@ -164,7 +164,7 @@ function lgw_finals_disc_chip( $slug ): string {
  * championship at once — the "bulk" convention (e.g. all home = Yellow, all
  * away = Blue). Posts to lgw_gchamp_finals_set_discs; the page reloads on save.
  */
-function lgw_finals_disc_bulk_ctrl( $cid, $home_slug, $away_slug ): string {
+function lgw_finals_disc_bulk_ctrl( $cid, $home_slug, $away_slug, $is_gchamp = true ): string {
     $pal = lgw_finals_disc_palette();
     $sel = function( $name, $current ) use ( $pal ) {
         $out = '<select class="lgw-finals-disc-select" data-side="' . esc_attr( $name ) . '">';
@@ -174,7 +174,7 @@ function lgw_finals_disc_bulk_ctrl( $cid, $home_slug, $away_slug ): string {
         }
         return $out . '</select>';
     };
-    return '<div class="lgw-finals-disc-ctrl" data-champ-id="' . esc_attr( $cid ) . '">'
+    return '<div class="lgw-finals-disc-ctrl" data-champ-id="' . esc_attr( $cid ) . '" data-is-gchamp="' . ( $is_gchamp ? '1' : '0' ) . '">'
          . '<span class="lgw-finals-disc-ctrl-label">Discs:</span>'
          . '<label>Home ' . $sel( 'home', $home_slug ) . '</label>'
          . '<label>Away ' . $sel( 'away', $away_slug ) . '</label>'
@@ -340,7 +340,7 @@ function lgw_finals_shortcode($atts) {
         <div class="lgw-finals-champ" data-champ-id="<?php echo esc_attr($champ_id); ?>">
           <div class="lgw-finals-champ-header">
             <span class="lgw-finals-champ-title"><?php echo esc_html($champ['title'] ?? $champ_id); ?></span>
-            <?php if ($is_gchamp && $is_admin) echo lgw_finals_disc_bulk_ctrl($champ['_gchamp_id'], $disc_home, $disc_away); ?>
+            <?php if ($is_admin) echo lgw_finals_disc_bulk_ctrl($is_gchamp ? $champ['_gchamp_id'] : $champ_id, $disc_home, $disc_away, $is_gchamp); ?>
           </div>
 
           <?php foreach ($by_round as $round_name => $round_matches): ?>
@@ -360,6 +360,13 @@ function lgw_finals_shortcode($atts) {
               $dt      = $match['finals_datetime'] ?? '';
               $rink    = $match['finals_rink']     ?? '';
               $pending = !$home || !$away;
+
+              // Per-match disc override (empty = inherit the championship
+              // convention $disc_home / $disc_away).
+              $ov_home   = sanitize_key($match['finals_disc_home'] ?? '');
+              $ov_away   = sanitize_key($match['finals_disc_away'] ?? '');
+              $eff_home  = $ov_home !== '' ? $ov_home : $disc_home;
+              $eff_away  = $ov_away !== '' ? $ov_away : $disc_away;
 
               // Compute running totals from ends
               $home_running = 0; $away_running = 0;
@@ -423,6 +430,14 @@ function lgw_finals_shortcode($atts) {
                   'ends'       => $ends,
                   'datetime'   => $dt,
                   'rink'       => $rink,
+                  // Per-match disc override slugs ('' = inherit convention);
+                  // discHomeEff/discAwayEff = resolved colour actually shown.
+                  'discHome'    => $ov_home,
+                  'discAway'    => $ov_away,
+                  'discHomeEff' => $eff_home,
+                  'discAwayEff' => $eff_away,
+                  'discDefHome' => $disc_home,
+                  'discDefAway' => $disc_away,
               );
             ?>
             <div class="lgw-finals-match <?php echo $status_cls; ?>"
@@ -470,7 +485,7 @@ function lgw_finals_shortcode($atts) {
                     <?php $hclub = lgw_finals_club_name($home); if ($hclub): ?>
                     <span class="lgw-finals-team-club"><?php echo esc_html($hclub); ?></span>
                     <?php endif; ?>
-                    <?php echo lgw_finals_disc_chip($disc_home); ?>
+                    <?php echo lgw_finals_disc_chip($eff_home); ?>
                   </div>
                 </div>
 
@@ -498,7 +513,7 @@ function lgw_finals_shortcode($atts) {
                     <?php $aclub = lgw_finals_club_name($away); if ($aclub): ?>
                     <span class="lgw-finals-team-club"><?php echo esc_html($aclub); ?></span>
                     <?php endif; ?>
-                    <?php echo lgw_finals_disc_chip($disc_away); ?>
+                    <?php echo lgw_finals_disc_chip($eff_away); ?>
                   </div>
                   <?php if ($away_badge): ?><img src="<?php echo esc_url($away_badge); ?>" class="lgw-finals-badge" alt=""><?php endif; ?>
                 </div>
@@ -730,12 +745,25 @@ function lgw_ajax_finals_save_datetime() {
         wp_send_json_error('Invalid datetime format — use YYYY-MM-DD HH:MM');
     }
 
+    // Optional per-match disc override (only written when the keys are posted;
+    // blank/invalid clears it so the match inherits the championship convention).
+    $pal      = lgw_finals_disc_palette();
+    $set_disc = function( &$slot ) use ( $pal ) {
+        foreach ( array( 'disc_home' => 'finals_disc_home', 'disc_away' => 'finals_disc_away' ) as $pk => $mk ) {
+            if ( ! array_key_exists( $pk, $_POST ) ) continue;
+            $slug = sanitize_key( $_POST[ $pk ] );
+            $slot[ $mk ] = isset( $pal[ $slug ] ) ? $slug : '';
+        }
+    };
+
     // Route: gchamp vs standard champ
     if ( $bracket_key === 'gchamp' ) {
         $champ = get_option('lgw_gchamp_' . $champ_id, array());
         if (!isset($champ['finals_matches'][$match_idx])) wp_send_json_error('Match not found');
-        $champ['finals_matches'][$match_idx]['finals_datetime'] = $datetime;
-        $champ['finals_matches'][$match_idx]['finals_rink']     = $rink;
+        $slot = &$champ['finals_matches'][$match_idx];
+        $slot['finals_datetime'] = $datetime;
+        $slot['finals_rink']     = $rink;
+        $set_disc( $slot );
         update_option('lgw_gchamp_' . $champ_id, $champ);
     } else {
         if ($round_idx < 0) wp_send_json_error('Invalid parameters');
@@ -743,15 +771,49 @@ function lgw_ajax_finals_save_datetime() {
         if (!isset($champ[$bracket_key]['matches'][$round_idx][$match_idx])) {
             wp_send_json_error('Match not found');
         }
-        $champ[$bracket_key]['matches'][$round_idx][$match_idx]['finals_datetime'] = $datetime;
-        $champ[$bracket_key]['matches'][$round_idx][$match_idx]['finals_rink']     = $rink;
+        $slot = &$champ[$bracket_key]['matches'][$round_idx][$match_idx];
+        $slot['finals_datetime'] = $datetime;
+        $slot['finals_rink']     = $rink;
+        $set_disc( $slot );
         update_option('lgw_champ_' . $champ_id, $champ);
     }
+
+    $ov_home  = $slot['finals_disc_home'] ?? '';
+    $ov_away  = $slot['finals_disc_away'] ?? '';
+    $eff_home = $ov_home !== '' ? $ov_home : ( $champ['finals_disc_home'] ?? 'red' );
+    $eff_away = $ov_away !== '' ? $ov_away : ( $champ['finals_disc_away'] ?? 'yellow' );
     wp_send_json_success(array(
-        'formatted' => lgw_finals_format_datetime($datetime),
-        'raw'       => $datetime,
-        'rink'      => $rink,
+        'formatted'   => lgw_finals_format_datetime($datetime),
+        'raw'         => $datetime,
+        'rink'        => $rink,
+        'discHome'    => $ov_home,
+        'discAway'    => $ov_away,
+        'discHomeEff' => $eff_home,
+        'discAwayEff' => $eff_away,
     ));
+}
+
+// ── AJAX: set the home/away disc convention for a whole championship (bulk) ───
+// Works for any finals competition — gchamp (lgw_gchamp_<id>) or standard
+// champ (lgw_champ_<id>) — routed by the is_gchamp flag.
+add_action('wp_ajax_lgw_finals_set_discs', 'lgw_ajax_finals_set_discs');
+function lgw_ajax_finals_set_discs() {
+    check_ajax_referer('lgw_finals_nonce', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+    $champ_id  = sanitize_key($_POST['champ_id'] ?? '');
+    $is_gchamp = !empty($_POST['is_gchamp']);
+    $home      = sanitize_key($_POST['home_disc'] ?? '');
+    $away      = sanitize_key($_POST['away_disc'] ?? '');
+    if (!$champ_id) wp_send_json_error('Missing championship');
+    $pal = lgw_finals_disc_palette();
+    if (!isset($pal[$home]) || !isset($pal[$away])) wp_send_json_error('Unknown disc colour');
+    $okey  = $is_gchamp ? 'lgw_gchamp_' . $champ_id : 'lgw_champ_' . $champ_id;
+    $champ = get_option($okey, array());
+    if (empty($champ)) wp_send_json_error('Championship not found');
+    $champ['finals_disc_home'] = $home;
+    $champ['finals_disc_away'] = $away;
+    update_option($okey, $champ);
+    wp_send_json_success(array('home' => $home, 'away' => $away));
 }
 
 // ── AJAX: save end ────────────────────────────────────────────────────────────
