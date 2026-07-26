@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v2026.30.20 */
+/* LGW Finals Week Widget JS - v2026.30.21 */
 (function () {
   'use strict';
 
@@ -72,59 +72,9 @@
     };
   }
 
-  // ── Ends table renderer (client-side mirror of PHP version) ──────────────────
-  function renderEndsTable(mid, endsArr, home, away, collapsed) {
-    if (!endsArr || !endsArr.length) {
-      return '<div class="lgw-finals-ends-empty">'
-           + (isAdmin ? '<button class="lgw-finals-add-end-btn" data-mid="' + esc(mid) + '">+ Start live scoring</button>' : '')
-           + '</div>';
-    }
-    var ht = 0, at = 0;
-    var rows = '';
-    endsArr.forEach(function(e, i) {
-      var he = parseInt(e[0], 10) || 0;
-      var ae = parseInt(e[1], 10) || 0;
-      ht += he; at += ae;
-      rows += '<tr>'
-            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score' + (he > ae ? ' win' : '') + '">' + he + '</td>'
-            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--running">' + ht + '</td>'
-            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end">' + (i + 1) + '</td>'
-            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--running lgw-finals-ends-td--right">' + at + '</td>'
-            + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score lgw-finals-ends-td--right' + (ae > he ? ' win' : '') + '">' + ae + '</td>'
-            + '</tr>';
-    });
-    var shortHome = shortName(home), shortAway = shortName(away);
-    var isCollapsed = collapsed !== false; // default true
-    var hdr = '<div class="lgw-finals-ends-hdr" data-ends-toggle="' + esc(mid) + '">'
-            + '<span class="lgw-finals-ends-hdr-label">Ends (' + endsArr.length + ')</span>'
-            + '<span class="lgw-finals-ends-hdr-toggle' + (isCollapsed ? ' collapsed' : '') + '">▼</span>'
-            + '</div>';
-    var table = '<table class="lgw-finals-ends-table">'
-              + '<thead><tr>'
-              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--end-score">'  + esc(shortHome) + '</th>'
-              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--running">Tot</th>'
-              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--end">End</th>'
-              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--running lgw-finals-ends-th--right">Tot</th>'
-              + '<th class="lgw-finals-ends-th lgw-finals-ends-th--end-score lgw-finals-ends-th--right">' + esc(shortAway) + '</th>'
-              + '</tr></thead>'
-              + '<tbody>' + rows + '</tbody>'
-              + '<tfoot><tr>'
-              + '<td class="lgw-finals-ends-td lgw-finals-ends-td--total' + (ht > at ? ' win' : '') + '">' + ht + '</td>'
-              + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end"></td>'
-              + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end">Total</td>'
-              + '<td class="lgw-finals-ends-td lgw-finals-ends-td--end"></td>'
-              + '<td class="lgw-finals-ends-td lgw-finals-ends-td--total lgw-finals-ends-td--right' + (at > ht ? ' win' : '') + '">' + at + '</td>'
-              + '</tr></tfoot></table>';
-    var actions = '';
-    if (isAdmin) {
-      actions = '<div class="lgw-finals-ends-actions">'
-              + '<button class="lgw-finals-add-end-btn" data-mid="' + esc(mid) + '">+ Add end</button>'
-              + '<button class="lgw-finals-del-end-btn" data-mid="' + esc(mid) + '">✕ Remove last end</button>'
-              + '<button class="lgw-finals-complete-btn" data-mid="' + esc(mid) + '" data-home-total="' + ht + '" data-away-total="' + at + '">✓ Complete game</button>'
-              + '</div>';
-    }
-    return hdr + '<div class="lgw-finals-ends-body' + (isCollapsed ? ' hidden' : '') + '">' + table + actions + '</div>';
-  }
+  // The scoring-area markup is rendered server-side (lgw_finals_render_scoring_area)
+  // and returned as an HTML fragment by the save_end handlers and the live poll,
+  // so there is no client-side ends-table renderer to keep in sync.
 
   function shortName(entry) {
     if (!entry) return '';
@@ -139,14 +89,15 @@
     var block = qs('.lgw-finals-score-block', matchEl);
     if (!block) return;
 
-    // Totals come from ends, or (summary/quick mode) from an explicit liveTotals
-    // { isLive, ht, at } passed by the caller.
+    // Prefer the server's authoritative totals (baseline + ends) when provided;
+    // only fall back to summing ends locally when no liveTotals are passed
+    // (callers that don't deal with the summary baseline).
     var ht = 0, at = 0, isLiveState = false;
-    if (ends && ends.length) {
-      ends.forEach(function(e) { ht += parseInt(e[0],10)||0; at += parseInt(e[1],10)||0; });
-      isLiveState = true;
-    } else if (liveTotals && liveTotals.isLive) {
+    if (liveTotals && (liveTotals.isLive || liveTotals.ht != null)) {
       ht = parseInt(liveTotals.ht,10)||0; at = parseInt(liveTotals.at,10)||0;
+      isLiveState = !!liveTotals.isLive;
+    } else if (ends && ends.length) {
+      ends.forEach(function(e) { ht += parseInt(e[0],10)||0; at += parseInt(e[1],10)||0; });
       isLiveState = true;
     }
 
@@ -318,6 +269,11 @@
     var payload = m.isGchamp
       ? { champ_id: m.champId, match_idx: m.matchIdx, nonce: m.nonce, end_action: endAction, home_end: he||0, away_end: ae||0 }
       : { champ_id: p.champId, bracket_key: p.bracketKey, round_idx: p.roundIdx, match_idx: p.matchIdx, end_action: endAction, home_end: he||0, away_end: ae||0 };
+    // Summary baseline: which end the score is up to (from the quick-score popup).
+    if (endAction === 'set_total' && pop) {
+      var qe = qs('#lgw-finals-qe', pop);
+      if (qe) payload.summary_ends = qe.value || 0;
+    }
     post(ajaxAction, payload, function(res) {
       if (!res.success) {
         if (msgEl) msgEl.textContent = 'Error: ' + (res.data || 'Unknown');
@@ -327,8 +283,9 @@
       var d = res.data;
       if (matches[mid]) {
         matches[mid].ends = d.ends;
-        matches[mid].liveHome = d.liveHome;
-        matches[mid].liveAway = d.liveAway;
+        matches[mid].curHome = d.homeTotal;
+        matches[mid].curAway = d.awayTotal;
+        matches[mid].curEnd = d.curEnd;
       }
       var m = matches[mid] || {};
       // The server returns the whole scoring-area fragment (ends table, summary
@@ -350,13 +307,15 @@
   function openQuickScore(mid) {
     closePop();
     var m = matches[mid] || {};
-    var lh = (m.liveHome != null ? m.liveHome : '');
-    var la = (m.liveAway != null ? m.liveAway : '');
+    // Prefill with the current running score + end so an admin nudges from there.
+    var lh = (m.curHome != null ? m.curHome : '');
+    var la = (m.curAway != null ? m.curAway : '');
+    var le = (m.curEnd ? m.curEnd : '');
 
     var pop = document.createElement('div');
-    pop.className = 'lgw-finals-pop';
+    pop.className = 'lgw-finals-pop lgw-finals-pop--quick';
     pop.innerHTML =
-      '<div class="lgw-finals-pop-title">Quick score (overall)</div>'
+      '<div class="lgw-finals-pop-title">Update score</div>'
     + '<div class="lgw-finals-pop-row lgw-finals-pop-row--ends">'
     + '<div class="lgw-finals-pop-end-label">' + esc(shortName(m.home || 'Home')) + '</div>'
     + '<input class="lgw-finals-pop-input lgw-finals-pop-input--end" id="lgw-finals-qh" type="number" min="0" max="99" value="' + esc(String(lh)) + '" placeholder="0">'
@@ -364,7 +323,11 @@
     + '<input class="lgw-finals-pop-input lgw-finals-pop-input--end" id="lgw-finals-qa" type="number" min="0" max="99" value="' + esc(String(la)) + '" placeholder="0">'
     + '<div class="lgw-finals-pop-end-label lgw-finals-pop-end-label--right">' + esc(shortName(m.away || 'Away')) + '</div>'
     + '</div>'
-    + '<div class="lgw-finals-pop-hint">Sets the overall live score without entering each end.</div>'
+    + '<div class="lgw-finals-pop-row lgw-finals-pop-row--rink">'
+    + '<label class="lgw-finals-pop-label" for="lgw-finals-qe">Score after end</label>'
+    + '<input class="lgw-finals-pop-input lgw-finals-pop-input--rink" id="lgw-finals-qe" type="number" min="0" max="40" value="' + esc(String(le)) + '" placeholder="e.g. 10">'
+    + '</div>'
+    + '<div class="lgw-finals-pop-hint">Records the overall score as of the given end, as a new line. Ends you add after count on top and continue the numbering.</div>'
     + '<div class="lgw-finals-pop-actions">'
     + '<button class="lgw-finals-pop-save">Update</button>'
     + '<button class="lgw-finals-pop-cancel">Cancel</button>'
@@ -616,28 +579,24 @@
                 }
               }
             }
-            // Update ends table
+            // Update the scoring area from the server-rendered fragment.
             var endsEl = qs('#lgw-ends-' + mid);
-            if (endsEl) {
-              // Preserve collapsed state
-              var body = qs('.lgw-finals-ends-body', endsEl);
-              var wasCollapsed = body && body.classList.contains('hidden');
-              endsEl.innerHTML = renderEndsTable(mid, d.ends, local.home, local.away, wasCollapsed);
+            if (endsEl && d.html !== undefined) {
+              endsEl.innerHTML = d.html;
               bindMatchButtons(endsEl.closest('.lgw-finals-match'));
-            }
-            // If no ends table yet but now has ends, inject one
-            if (d.ends && d.ends.length && !endsEl) {
+            } else if (d.html && d.ends && d.ends.length) {
+              // No scoring area yet but now live — inject one.
               var matchEl = qs('#lgw-fm-' + mid);
               if (matchEl) {
                 var newEndsEl = document.createElement('div');
                 newEndsEl.className = 'lgw-finals-ends';
                 newEndsEl.id = 'lgw-ends-' + mid;
-                newEndsEl.innerHTML = renderEndsTable(mid, d.ends, local.home, local.away);
+                newEndsEl.innerHTML = d.html;
                 matchEl.appendChild(newEndsEl);
                 bindMatchButtons(matchEl);
               }
             }
-            updateScoreBlock(mid, d.homeScore, d.awayScore, d.ends);
+            updateScoreBlock(mid, d.homeScore, d.awayScore, d.ends, { isLive: d.isLive, ht: d.homeTotal, at: d.awayTotal });
           });
         })
         .catch(function() {});
