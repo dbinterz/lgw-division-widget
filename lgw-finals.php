@@ -526,7 +526,6 @@ function lgw_finals_shortcode($atts) {
       isAdmin: lgwFinalsData.isAdmin
     };
     (function(){
-    (function(){
       var wrap = document.currentScript ? document.currentScript.closest('.lgw-finals-wrap') : null;
       if (!wrap) { var ws = document.querySelectorAll('.lgw-finals-wrap'); wrap = ws[ws.length-1]; }
       if (!wrap || wrap.__lgwSortWired) return;

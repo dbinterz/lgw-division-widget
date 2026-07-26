@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.13
+Stable tag: 2026.30.14
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.14 =
+* Fix: "Match not found" (still) on Group Championship finals edits, and dead "by competition / by date" sort tabs. The 2026.30.13 change left a stray, unclosed inline function wrapper in the finals page body, so the whole inline <script> failed to parse ("Unexpected end of input"). That block both sets the fallback match map AND wires the sort/view toggle, so neither ran: gchamp saves fell back to the wrong handler again, and the sort tabs stopped switching. Removed the duplicate wrapper so the block parses and both features work.
 
 = 2026.30.13 =
 * Fix: "Match not found" on Group Championship finals edits — the operative bug. The match map was set on lgwFinalsData in the page body, but wp_localize_script redefines lgwFinalsData in the footer, wiping the map before lgw-finals.js reads it. Every gchamp match then fell through to the standard save handler with a prefixed champ id and failed. The map is now also stashed on a dedicated global that the footer localize never touches, and lgw-finals.js reads from it as a fallback — so date/time, rink, score and end edits route to the correct handler regardless of script order. (The 2026.30.11 and 2026.30.12 fixes were real but masked by this one.)
