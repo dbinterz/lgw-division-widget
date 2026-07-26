@@ -1527,6 +1527,9 @@ function lgw_gchamp_collect_all_entries( array $champ ) {
         foreach ( $day['qualifiers'] ?? array() as $q ) {
             if ( $q !== null && $q !== '' ) $names[ $q ] = true;
         }
+        foreach ( $day['ko_qualifiers'] ?? array() as $q ) {
+            if ( $q !== null && $q !== '' ) $names[ $q ] = true;
+        }
     }
 
     if ( ! empty( $champ['ko_bracket']['matches'] ) && is_array( $champ['ko_bracket']['matches'] ) ) {
@@ -1538,6 +1541,11 @@ function lgw_gchamp_collect_all_entries( array $champ ) {
     foreach ( $champ['qualifiers'] ?? array() as $q ) {
         if ( $q !== null && $q !== '' ) $names[ $q ] = true;
     }
+
+    // Include the Finals Week snapshot so a name still lingering there (e.g. one
+    // renamed before 2026.30.17 carried it through) shows in the rename dropdown
+    // and can be corrected with a resave.
+    $collect_matches( $champ['finals_matches'] ?? array() );
 
     $list = array_keys( $names );
     sort( $list, SORT_STRING | SORT_FLAG_CASE );
