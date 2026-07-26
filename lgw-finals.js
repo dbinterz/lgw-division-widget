@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v2026.30.16 */
+/* LGW Finals Week Widget JS - v2026.30.19 */
 (function () {
   'use strict';
 
@@ -322,9 +322,13 @@
       var endsEl = qs('#lgw-ends-' + mid);
       if (endsEl) {
         endsEl.innerHTML = renderEndsTable(mid, d.ends, m.home, m.away);
-        bindMatchButtons(endsEl.closest('.lgw-finals-match'));
       }
+      // updateScoreBlock replaces the score-block markup (incl. the edit-score
+      // button), so bind AFTER it — otherwise the freshly-created button is left
+      // without a click handler and looks disabled.
       updateScoreBlock(mid, m.homeScore, m.awayScore, d.ends);
+      var matchEl = qs('#lgw-fm-' + mid);
+      if (matchEl) bindMatchButtons(matchEl);
     });
   }
 
