@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.18
+Stable tag: 2026.30.19
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.19 =
+* Fix: the "Enter final score" button stopped working after starting live scoring. Adding/removing an end re-rendered the score block (recreating the edit button) after event handlers were bound, so the new button had no click handler and appeared disabled. Handlers are now bound after the score block is rebuilt.
 
 = 2026.30.18 =
 * Fix: the entry-rename dropdown now also lists names found only in the Finals Week snapshot (finals_matches) and per-day ko_qualifiers. This lets you correct an entry that was renamed before 2026.30.17 — the old spelling left behind in the finals now appears in the dropdown, so a resave (old name → correct name) patches the finals copies.

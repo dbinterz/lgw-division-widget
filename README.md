@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.30.19]
+### Fixed
+- **"Enter final score" button dead after starting live scoring.** In `saveEnd()` the order was: re-render ends table → `bindMatchButtons()` → `updateScoreBlock()`. But `updateScoreBlock()` replaces the score-block markup (including the edit-score ✏️ button), so the freshly-created button was never bound and looked disabled. Now `updateScoreBlock()` runs first and `bindMatchButtons()` binds the whole match element afterward.
+
 ## [2026.30.18]
 ### Fixed
 - **Rename dropdown now surfaces names lingering only in the finals.** `lgw_gchamp_collect_all_entries()` (the source for the rename dropdown) didn't scan `finals_matches` or `days[*]['ko_qualifiers']`, so an entry renamed **before** 2026.30.17 — whose old spelling survived only in those finals structures — couldn't be selected to correct it. Both are now collected, so the old name reappears in the dropdown and a resave (old → correct) patches the leftover finals copies (2026.30.17 already renames those structures on save).
