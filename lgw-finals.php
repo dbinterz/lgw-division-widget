@@ -297,9 +297,10 @@ function lgw_finals_shortcode($atts) {
         <span class="lgw-finals-sort-label">Sort:</span>
         <button type="button" class="lgw-finals-sort-btn is-active" data-sort="competition">By competition</button>
         <button type="button" class="lgw-finals-sort-btn" data-sort="date">By date &amp; rink</button>
+        <button type="button" class="lgw-finals-sort-btn" data-sort="board">📟 Scoreboard</button>
       </div>
 
-      <?php $flat_matches = array(); ?>
+      <?php $flat_matches = array(); $board_matches = array(); ?>
       <div class="lgw-finals-view lgw-finals-view--comp" data-view="competition">
       <?php foreach ($champs as $champ_id => $champ):
         $is_gchamp = ($champ['_type'] ?? '') === 'gchamp';
@@ -411,6 +412,26 @@ function lgw_finals_shortcode($atts) {
                   'has_score'  => $has_score,
                   'pending'    => $pending,
               );
+
+              // Collect a flat record for the LED scoreboard view (summary
+              // scores only). Live matches show the running total; complete
+              // matches the final; scheduled matches a dashed placeholder.
+              if (!$pending) {
+                  $board_matches[] = array(
+                      'mid'       => $mid,
+                      'champ'     => $champ['title'] ?? $champ_id,
+                      'round'     => $m['round_name'],
+                      'dt'        => $dt,
+                      'rink'      => $rink,
+                      'home'      => lgw_finals_player_name($home),
+                      'away'      => lgw_finals_player_name($away),
+                      'hs'        => $has_score ? intval($hs) : ($is_live ? $home_running : null),
+                      'as'        => $has_score ? intval($as) : ($is_live ? $away_running : null),
+                      'has_score' => $has_score,
+                      'is_live'   => $is_live,
+                      'cur_end'   => $cur_end,
+                  );
+              }
 
               // Store data for JS
               $all_js_data[$mid] = array(
@@ -589,6 +610,59 @@ function lgw_finals_shortcode($atts) {
         </div>
         <?php endforeach; endif; ?>
       </div><!-- .lgw-finals-view--date -->
+
+      <?php
+      // ── LED scoreboard view: old-style dark panel showing summary scores
+      // for every scheduled match. Live matches first, then upcoming, then
+      // finished; each group by datetime/rink. Score cells carry stable ids so
+      // lgw-finals.js can refresh them from the same update path as the rest of
+      // the page (admin saves + public poll).
+      usort($board_matches, function($a, $b) {
+          $rank = function($m) { return $m['is_live'] ? 0 : ($m['has_score'] ? 2 : 1); };
+          $ra = $rank($a); $rb = $rank($b);
+          if ($ra !== $rb) return $ra - $rb;
+          $ad = $a['dt'] ?: ''; $bd = $b['dt'] ?: '';
+          if (($ad === '') !== ($bd === '')) return ($ad === '') ? 1 : -1;
+          if ($ad !== $bd) return strcmp($ad, $bd);
+          return strnatcasecmp((string)$a['rink'], (string)$b['rink']);
+      });
+      $led = function($n) {
+          return $n === null ? '––' : str_pad((string)intval($n), 2, '0', STR_PAD_LEFT);
+      };
+      ?>
+      <div class="lgw-finals-view lgw-finals-view--board" data-view="board" style="display:none">
+        <?php if (empty($board_matches)): ?>
+        <p class="lgw-finals-empty">No matches to show yet.</p>
+        <?php else: foreach ($board_matches as $bm):
+          $b_state = $bm['is_live'] ? 'live' : ($bm['has_score'] ? 'final' : 'upcoming');
+        ?>
+        <div class="lgw-finals-led lgw-finals-led--<?php echo $b_state; ?>" data-mid="<?php echo esc_attr($bm['mid']); ?>">
+          <div class="lgw-finals-led-head">
+            <span class="lgw-finals-led-comp"><?php echo esc_html($bm['champ']); ?></span>
+            <span class="lgw-finals-led-round"><?php echo esc_html($bm['round']); ?></span>
+            <?php if ($bm['rink']): ?><span class="lgw-finals-led-rink">Rink <?php echo esc_html($bm['rink']); ?></span><?php endif; ?>
+          </div>
+          <div class="lgw-finals-led-row">
+            <span class="lgw-finals-led-team"><?php echo esc_html($bm['home']); ?></span>
+            <span class="lgw-finals-led-num" data-side="home" id="lgw-led-<?php echo esc_attr($bm['mid']); ?>-h"><?php echo esc_html($led($bm['hs'])); ?></span>
+          </div>
+          <div class="lgw-finals-led-row">
+            <span class="lgw-finals-led-team"><?php echo esc_html($bm['away']); ?></span>
+            <span class="lgw-finals-led-num" data-side="away" id="lgw-led-<?php echo esc_attr($bm['mid']); ?>-a"><?php echo esc_html($led($bm['as'])); ?></span>
+          </div>
+          <div class="lgw-finals-led-foot">
+            <span class="lgw-finals-led-status" id="lgw-led-<?php echo esc_attr($bm['mid']); ?>-s">
+              <?php
+              if ($bm['is_live']) echo '<span class="lgw-finals-led-dot"></span>LIVE' . ($bm['cur_end'] ? ' &middot; END ' . intval($bm['cur_end']) : '');
+              elseif ($bm['has_score']) echo 'FINAL';
+              elseif ($bm['dt']) echo esc_html(lgw_finals_format_datetime($bm['dt']));
+              else echo 'SCHEDULED';
+              ?>
+            </span>
+          </div>
+        </div>
+        <?php endforeach; endif; ?>
+      </div><!-- .lgw-finals-view--board -->
     </div>
 
     <script>
@@ -625,7 +699,7 @@ function lgw_finals_shortcode($atts) {
       }
       var saved = null;
       try { saved = localStorage.getItem(KEY); } catch (e) {}
-      apply(saved === 'date' ? 'date' : 'competition');
+      apply((saved === 'date' || saved === 'board') ? saved : 'competition');
       wrap.querySelectorAll('.lgw-finals-sort-btn').forEach(function(btn){
         btn.addEventListener('click', function(){
           var sort = btn.getAttribute('data-sort');
