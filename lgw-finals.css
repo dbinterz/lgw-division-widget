@@ -538,11 +538,22 @@
   background: var(--lgw-bg, #fff);
 }
 .lgw-finals-pop-input--end {
-  width: 60px;
+  width: 44px;
+  padding: 6px 4px;
   text-align: center;
   font-weight: 700;
-  font-size: 16px;
+  font-size: 15px;
 }
+/* Narrow quick/summary popover with wrapping help text */
+.lgw-finals-pop--quick {
+  min-width: 0;
+  width: 210px;
+}
+.lgw-finals-pop--quick .lgw-finals-pop-hint {
+  white-space: normal;
+  line-height: 1.35;
+}
+.lgw-finals-pop--quick .lgw-finals-pop-input--rink { width: 64px; }
 .lgw-finals-pop-input:focus { outline: none; border-color: var(--lgw-navy, #1a2e5a); }
 .lgw-finals-pop-vs {
   font-size: 16px;

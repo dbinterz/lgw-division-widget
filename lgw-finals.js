@@ -362,7 +362,7 @@
     var le = (m.liveEnds != null ? m.liveEnds : '');
 
     var pop = document.createElement('div');
-    pop.className = 'lgw-finals-pop';
+    pop.className = 'lgw-finals-pop lgw-finals-pop--quick';
     pop.innerHTML =
       '<div class="lgw-finals-pop-title">Summary score</div>'
     + '<div class="lgw-finals-pop-row lgw-finals-pop-row--ends">'
