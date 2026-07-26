@@ -2934,7 +2934,8 @@ function lgw_ajax_gchamp_finals_save_end() {
     $match = &$champ['finals_matches'][$match_idx];
     // Shared live-scoring logic (add / delete_last / reset / set_total) lives in
     // lgw-finals.php so gchamp and standard finals behave identically.
-    lgw_finals_apply_end_action( $match, $action, $home_end, $away_end );
+    $summary_ends = intval( $_POST['summary_ends'] ?? 0 );
+    lgw_finals_apply_end_action( $match, $action, $home_end, $away_end, $summary_ends );
     update_option( 'lgw_gchamp_' . $champ_id, $champ );
     $mid = 'gchamp_' . $champ_id . '--gchamp--0--' . $match_idx;
     wp_send_json_success( lgw_finals_scoring_response( $match, $mid ) );

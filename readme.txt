@@ -72,7 +72,9 @@ Parameters:
 == Changelog ==
 
 = 2026.30.21 =
-* Change: the summary score and end-by-end scoring now work together. The summary (⚡) score acts as a baseline and any ends you add count on top of it (running total = summary + ends), instead of being separate modes. The baseline shows as its own row (Σ) at the top of the ends table. Set/update it any time with ⚡ Set/Update summary; Reset still clears everything.
+* Change: the summary score and end-by-end scoring now work together. The summary (⚡) score acts as a baseline and any ends you add count on top of it (running total = summary + ends), instead of being separate modes. The baseline shows as its own row at the top of the ends table. Set/update it any time with ⚡ Set/Update summary; Reset still clears everything.
+* New: the summary score records which end it is up to ("Score after end N"). The baseline row shows that end number, and any ends you then add continue the numbering from there (end N+1, N+2…).
+* Fix: adding an end no longer wipes the summary from the shown score — the displayed total is now always the summary baseline plus all ends.
 
 = 2026.30.20 =
 * New: quick "summary" live scoring. Each finals match can now be scored either end-by-end (detailed, as before) or by updating the overall score at irregular intervals (⚡ Quick score) — handy when you can't capture every end. One mode per match; switching is a click away.

@@ -139,14 +139,15 @@
     var block = qs('.lgw-finals-score-block', matchEl);
     if (!block) return;
 
-    // Totals come from ends, or (summary/quick mode) from an explicit liveTotals
-    // { isLive, ht, at } passed by the caller.
+    // Prefer the server's authoritative totals (baseline + ends) when provided;
+    // only fall back to summing ends locally when no liveTotals are passed
+    // (callers that don't deal with the summary baseline).
     var ht = 0, at = 0, isLiveState = false;
-    if (ends && ends.length) {
-      ends.forEach(function(e) { ht += parseInt(e[0],10)||0; at += parseInt(e[1],10)||0; });
-      isLiveState = true;
-    } else if (liveTotals && liveTotals.isLive) {
+    if (liveTotals && (liveTotals.isLive || liveTotals.ht != null)) {
       ht = parseInt(liveTotals.ht,10)||0; at = parseInt(liveTotals.at,10)||0;
+      isLiveState = !!liveTotals.isLive;
+    } else if (ends && ends.length) {
+      ends.forEach(function(e) { ht += parseInt(e[0],10)||0; at += parseInt(e[1],10)||0; });
       isLiveState = true;
     }
 
@@ -318,6 +319,11 @@
     var payload = m.isGchamp
       ? { champ_id: m.champId, match_idx: m.matchIdx, nonce: m.nonce, end_action: endAction, home_end: he||0, away_end: ae||0 }
       : { champ_id: p.champId, bracket_key: p.bracketKey, round_idx: p.roundIdx, match_idx: p.matchIdx, end_action: endAction, home_end: he||0, away_end: ae||0 };
+    // Summary baseline: which end the score is up to (from the quick-score popup).
+    if (endAction === 'set_total' && pop) {
+      var qe = qs('#lgw-finals-qe', pop);
+      if (qe) payload.summary_ends = qe.value || 0;
+    }
     post(ajaxAction, payload, function(res) {
       if (!res.success) {
         if (msgEl) msgEl.textContent = 'Error: ' + (res.data || 'Unknown');
@@ -329,6 +335,7 @@
         matches[mid].ends = d.ends;
         matches[mid].liveHome = d.liveHome;
         matches[mid].liveAway = d.liveAway;
+        matches[mid].liveEnds = d.liveEnds;
       }
       var m = matches[mid] || {};
       // The server returns the whole scoring-area fragment (ends table, summary
@@ -352,6 +359,7 @@
     var m = matches[mid] || {};
     var lh = (m.liveHome != null ? m.liveHome : '');
     var la = (m.liveAway != null ? m.liveAway : '');
+    var le = (m.liveEnds != null ? m.liveEnds : '');
 
     var pop = document.createElement('div');
     pop.className = 'lgw-finals-pop';
@@ -364,7 +372,11 @@
     + '<input class="lgw-finals-pop-input lgw-finals-pop-input--end" id="lgw-finals-qa" type="number" min="0" max="99" value="' + esc(String(la)) + '" placeholder="0">'
     + '<div class="lgw-finals-pop-end-label lgw-finals-pop-end-label--right">' + esc(shortName(m.away || 'Away')) + '</div>'
     + '</div>'
-    + '<div class="lgw-finals-pop-hint">Sets a baseline score. Any ends you add count on top of this.</div>'
+    + '<div class="lgw-finals-pop-row lgw-finals-pop-row--rink">'
+    + '<label class="lgw-finals-pop-label" for="lgw-finals-qe">Score after end</label>'
+    + '<input class="lgw-finals-pop-input lgw-finals-pop-input--rink" id="lgw-finals-qe" type="number" min="0" max="40" value="' + esc(String(le)) + '" placeholder="e.g. 10">'
+    + '</div>'
+    + '<div class="lgw-finals-pop-hint">Sets a baseline score after the given end. Any ends you add count on top and continue the numbering.</div>'
     + '<div class="lgw-finals-pop-actions">'
     + '<button class="lgw-finals-pop-save">Update</button>'
     + '<button class="lgw-finals-pop-cancel">Cancel</button>'

@@ -110,7 +110,11 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## [2026.30.21]
 ### Changed
-- **Summary score is now a baseline that coexists with ends** (was one-mode-per-match). Running total = `live_home/live_away` (baseline) + sum(`ends`); the two are no longer mutually exclusive. The baseline renders as the first row (Σ) of the running-total table, and `+ Add end` counts on top of it. `set_total` sets/updates the baseline without clearing ends; `add` appends without clearing the baseline; `reset` clears both. `lgw_finals_baseline()` centralises parsing; `lgw_finals_render_ends_table()` gains `$base_h/$base_a` params; render + `scoring_response` seed running totals from the baseline.
+- **Summary score is now a baseline that coexists with ends** (was one-mode-per-match). Running total = `live_home/live_away` (baseline) + sum(`ends`); the two are no longer mutually exclusive. The baseline renders as the first row of the running-total table, and `+ Add end` counts on top of it. `set_total` sets/updates the baseline without clearing ends; `add` appends without clearing the baseline; `reset` clears both. `lgw_finals_baseline()` centralises parsing; `lgw_finals_render_ends_table()` gains `$base_h/$base_a` params; render + `scoring_response` seed running totals from the baseline.
+### Added
+- **Summary records which end it's up to** (`live_ends`, "Score after end N"). The baseline row shows `≤N`, and subsequently-added ends continue the numbering (`N+1`, `N+2`, …). Threaded through `apply_end_action` (new `$summary_ends` arg), `render_ends_table` (`$base_ends`), the handlers (`summary_ends` POST) and the JS quick-score popover (a "Score after end" field) + response cache.
+### Fixed
+- **Adding an end no longer drops the summary from the displayed score.** `updateScoreBlock()` recomputed the block total from `ends` only, ignoring the baseline; it now prefers the server's authoritative `homeTotal/awayTotal` (baseline + ends) when provided.
 
 ## [2026.30.20]
 ### Added

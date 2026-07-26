@@ -373,7 +373,8 @@ function lgw_finals_shortcode($atts) {
               $live_home = $match['live_home'] ?? null;
               $live_away = $match['live_away'] ?? null;
               list($base_h, $base_a) = lgw_finals_baseline($live_home, $live_away);
-              $has_base = $base_h !== null;
+              $has_base  = $base_h !== null;
+              $base_ends = intval($match['live_ends'] ?? 0);
               $home_running = ($base_h ?? 0);
               $away_running = ($base_a ?? 0);
               foreach ($ends as $end) {
@@ -438,6 +439,7 @@ function lgw_finals_shortcode($atts) {
                   'ends'       => $ends,
                   'liveHome'   => $has_base ? $base_h : null,
                   'liveAway'   => $has_base ? $base_a : null,
+                  'liveEnds'   => $has_base ? $base_ends : null,
                   'datetime'   => $dt,
                   'rink'       => $rink,
                   // Per-match disc override slugs ('' = inherit convention);
@@ -531,7 +533,7 @@ function lgw_finals_shortcode($atts) {
 
               <?php if (!$pending && !$has_score && ($is_admin || $is_live)): ?>
               <div class="lgw-finals-ends" id="lgw-ends-<?php echo esc_attr($mid); ?>">
-                <?php echo lgw_finals_render_scoring_area($ends, $live_home, $live_away, $home, $away, $is_admin, $mid, true); ?>
+                <?php echo lgw_finals_render_scoring_area($ends, $live_home, $live_away, $home, $away, $is_admin, $mid, true, $base_ends); ?>
               </div>
               <?php endif; ?>
 
@@ -666,7 +668,7 @@ function lgw_finals_baseline($live_home, $live_away): array {
 //   - live       : a summary baseline and/or ends → running-total table + toolbar
 //                  (the baseline, if set, is the first row; ends add on top)
 //   - not started: admin sees a start toolbar (+ Start live scoring / Quick score)
-function lgw_finals_render_scoring_area($ends, $live_home, $live_away, $home, $away, $is_admin, $mid, $collapsed = false) {
+function lgw_finals_render_scoring_area($ends, $live_home, $live_away, $home, $away, $is_admin, $mid, $collapsed = false, $live_ends = 0) {
     $ends            = is_array($ends) ? $ends : array();
     list($bh, $ba)   = lgw_finals_baseline($live_home, $live_away);
     $has_base        = $bh !== null;
@@ -677,7 +679,7 @@ function lgw_finals_render_scoring_area($ends, $live_home, $live_away, $home, $a
         // Running totals = baseline + ends.
         $ht = ($bh ?? 0); $at = ($ba ?? 0);
         foreach ($ends as $e) { $ht += intval($e[0] ?? 0); $at += intval($e[1] ?? 0); }
-        $table = lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $collapsed, $bh, $ba);
+        $table = lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $collapsed, $bh, $ba, intval($live_ends));
         if (!$is_admin) return $table;
         $summary_label = $has_base ? '⚡ Update summary' : '⚡ Set summary';
         $actions = '<div class="lgw-finals-ends-actions">'
@@ -702,16 +704,17 @@ function lgw_finals_render_scoring_area($ends, $live_home, $live_away, $home, $a
 // Actions: add (append end) | delete_last | reset (clear all) | set_total (set
 // the summary baseline). The baseline and ends COEXIST — the running total is
 // baseline + sum(ends) — so set_total and add do not clear each other.
-function lgw_finals_apply_end_action(array &$match, string $action, int $he, int $ae): void {
+function lgw_finals_apply_end_action(array &$match, string $action, int $he, int $ae, int $summary_ends = 0): void {
     $ends = $match['ends'] ?? array();
     switch ($action) {
         case 'reset':
             $ends = array();
-            unset($match['live_home'], $match['live_away']);
+            unset($match['live_home'], $match['live_away'], $match['live_ends']);
             break;
         case 'set_total':
             $match['live_home'] = max(0, $he);
             $match['live_away'] = max(0, $ae);
+            $match['live_ends'] = max(0, $summary_ends);
             break;
         case 'delete_last':
             if (!empty($ends)) array_pop($ends);
@@ -732,6 +735,7 @@ function lgw_finals_scoring_response(array $match, string $mid): array {
     $la            = $match['live_away'] ?? null;
     list($bh, $ba) = lgw_finals_baseline($lh, $la);
     $has_base      = $bh !== null;
+    $le            = intval($match['live_ends'] ?? 0);
     // Running total = baseline + ends.
     $ht = ($bh ?? 0); $at = ($ba ?? 0);
     foreach ($ends as $e) { $ht += intval($e[0] ?? 0); $at += intval($e[1] ?? 0); }
@@ -742,27 +746,32 @@ function lgw_finals_scoring_response(array $match, string $mid): array {
         'endCount'  => count($ends),
         'liveHome'  => $has_base ? $bh : null,
         'liveAway'  => $has_base ? $ba : null,
+        'liveEnds'  => $has_base ? $le : null,
         'isLive'    => ($has_base || !empty($ends)) ? 1 : 0,
-        'html'      => lgw_finals_render_scoring_area($ends, $lh, $la, $match['home'] ?? '', $match['away'] ?? '', true, $mid, false),
+        'html'      => lgw_finals_render_scoring_area($ends, $lh, $la, $match['home'] ?? '', $match['away'] ?? '', true, $mid, false, $le),
     );
 }
 
 // ── Helper: render ends table ─────────────────────────────────────────────────
-function lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $collapsed = false, $base_h = null, $base_a = null) {
-    $ends     = is_array($ends) ? $ends : array();
-    $has_base = $base_h !== null;
+function lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $collapsed = false, $base_h = null, $base_a = null, $base_ends = 0) {
+    $ends      = is_array($ends) ? $ends : array();
+    $has_base  = $base_h !== null;
+    $base_ends = max(0, intval($base_ends));
     if (empty($ends) && !$has_base) return '';
     $home_total = 0; $away_total = 0;
     $rows = '';
 
-    // Summary baseline shows as the first row; ends accumulate on top of it.
+    // Summary baseline shows as the first row; ends accumulate on top of it. The
+    // "End" cell states which end the summary is up to (if known), so added ends
+    // continue the numbering from there.
     if ($has_base) {
         $bh = intval($base_h); $ba = intval($base_a);
         $home_total += $bh; $away_total += $ba;
+        $summary_cell = $base_ends > 0 ? ('≤' . $base_ends) : 'Σ';
         $rows .= '<tr class="lgw-finals-ends-tr--summary">'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score' . ($bh > $ba ? ' win' : '') . '">' . $bh . '</td>'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--running">' . $home_total . '</td>'
-               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end" title="Summary baseline">Σ</td>'
+               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end" title="Summary' . ($base_ends > 0 ? ' — score after end ' . $base_ends : ' baseline') . '">' . esc_html($summary_cell) . '</td>'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--running lgw-finals-ends-td--right">' . $away_total . '</td>'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score lgw-finals-ends-td--right' . ($ba > $bh ? ' win' : '') . '">' . $ba . '</td>'
                . '</tr>';
@@ -772,10 +781,11 @@ function lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $col
         $he = intval($end[0] ?? 0);
         $ae = intval($end[1] ?? 0);
         $home_total += $he; $away_total += $ae;
+        $end_no = $base_ends + $i + 1;
         $rows .= '<tr>'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score' . ($he > $ae ? ' win' : '') . '">' . $he . '</td>'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--running">' . $home_total . '</td>'
-               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end">' . ($i + 1) . '</td>'
+               . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end">' . $end_no . '</td>'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--running lgw-finals-ends-td--right">' . $away_total . '</td>'
                . '<td class="lgw-finals-ends-td lgw-finals-ends-td--end-score lgw-finals-ends-td--right' . ($ae > $he ? ' win' : '') . '">' . $ae . '</td>'
                . '</tr>';
@@ -959,7 +969,8 @@ function lgw_ajax_finals_save_end() {
         $mid   = $champ_id . '--' . $bracket_key . '--' . $round_idx . '--' . $match_idx;
     }
 
-    lgw_finals_apply_end_action($match, $action_type, $home_end, $away_end);
+    $summary_ends = intval($_POST['summary_ends'] ?? 0);
+    lgw_finals_apply_end_action($match, $action_type, $home_end, $away_end, $summary_ends);
 
     update_option( $bracket_key === 'gchamp' ? 'lgw_gchamp_' . $champ_id : 'lgw_champ_' . $champ_id, $champ );
 
