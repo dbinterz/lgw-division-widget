@@ -375,6 +375,20 @@ function lgw_finals_shortcode($atts) {
                   $away_running += intval($end[1] ?? 0);
               }
 
+              // Summary (quick-score) live total — used when a match is scored
+              // by overall updates instead of end-by-end. Mutually exclusive
+              // with $ends (one mode per match).
+              $live_home = $match['live_home'] ?? null;
+              $live_away = $match['live_away'] ?? null;
+              $has_live_total = empty($ends)
+                  && $live_home !== null && $live_home !== ''
+                  && $live_away !== null && $live_away !== '';
+              if ($has_live_total) {
+                  $home_running = intval($live_home);
+                  $away_running = intval($live_away);
+              }
+              $is_live = !$has_score && (!empty($ends) || $has_live_total);
+
               // Club badge lookup
               $home_badge = ''; $away_badge = '';
               foreach ($team_badges as $team => $url) {
@@ -391,7 +405,8 @@ function lgw_finals_shortcode($atts) {
               }
 
               $status_cls = $pending ? 'lgw-finals-match--pending'
-                          : ($has_score ? 'lgw-finals-match--complete' : 'lgw-finals-match--upcoming');
+                          : ($has_score ? 'lgw-finals-match--complete'
+                          : ($is_live ? 'lgw-finals-match--live' : 'lgw-finals-match--upcoming'));
 
               // Collect a flat record for the "by date & rink" view
               $flat_matches[] = array(
@@ -428,6 +443,8 @@ function lgw_finals_shortcode($atts) {
                   'homeScore'  => $hs,
                   'awayScore'  => $as,
                   'ends'       => $ends,
+                  'liveHome'   => $has_live_total ? intval($live_home) : null,
+                  'liveAway'   => $has_live_total ? intval($live_away) : null,
                   'datetime'   => $dt,
                   'rink'       => $rink,
                   // Per-match disc override slugs ('' = inherit convention);
@@ -494,7 +511,7 @@ function lgw_finals_shortcode($atts) {
                     <span class="lgw-finals-score lgw-finals-score--home<?php echo $hs > $as ? ' lgw-finals-score--win' : ''; ?>"><?php echo intval($hs); ?></span>
                     <span class="lgw-finals-score-sep">–</span>
                     <span class="lgw-finals-score lgw-finals-score--away<?php echo $as > $hs ? ' lgw-finals-score--win' : ''; ?>"><?php echo intval($as); ?></span>
-                  <?php elseif (!empty($ends)): ?>
+                  <?php elseif ($is_live): ?>
                     <span class="lgw-finals-score lgw-finals-score--live"><?php echo $home_running; ?></span>
                     <span class="lgw-finals-score-sep">–</span>
                     <span class="lgw-finals-score lgw-finals-score--live"><?php echo $away_running; ?></span>
@@ -519,15 +536,9 @@ function lgw_finals_shortcode($atts) {
                 </div>
               </div>
 
-              <?php if (!empty($ends)): ?>
+              <?php if (!$pending && !$has_score && ($is_admin || $is_live)): ?>
               <div class="lgw-finals-ends" id="lgw-ends-<?php echo esc_attr($mid); ?>">
-                <?php echo lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, true); ?>
-              </div>
-              <?php elseif ($is_admin && !$has_score && !$pending): ?>
-              <div class="lgw-finals-ends" id="lgw-ends-<?php echo esc_attr($mid); ?>">
-                <div class="lgw-finals-ends-empty">
-                  <button class="lgw-finals-add-end-btn" data-mid="<?php echo esc_attr($mid); ?>">+ Start live scoring</button>
-                </div>
+                <?php echo lgw_finals_render_scoring_area($ends, $live_home, $live_away, $home, $away, $is_admin, $mid, true); ?>
               </div>
               <?php endif; ?>
 
@@ -647,6 +658,113 @@ function lgw_finals_format_datetime($dt) {
     return date('D j M Y, H:i', $ts);
 }
 
+// ── Helper: render the whole live-scoring area for a match ───────────────────
+// Single source of truth for the inner HTML of the `.lgw-finals-ends` container,
+// used both on first render and as the fragment the save_end AJAX handlers
+// return. Three mutually-exclusive states (one mode per match):
+//   - detailed  : $ends non-empty  → running-total table + toolbar
+//   - summary   : $live_home/$live_away set (no ends) → quick total + toolbar
+//   - not started: admin sees a start toolbar (+ Add end / Quick score)
+function lgw_finals_render_scoring_area($ends, $live_home, $live_away, $home, $away, $is_admin, $mid, $collapsed = false) {
+    $ends       = is_array($ends) ? $ends : array();
+    $has_ends   = !empty($ends);
+    $has_live   = !$has_ends && $live_home !== null && $live_home !== '' && $live_away !== null && $live_away !== '';
+    $mid_a      = esc_attr($mid);
+
+    // Reset + Complete buttons (shared). Complete carries the current totals.
+    $reset_btn = '<button class="lgw-finals-reset-btn" data-mid="' . $mid_a . '">↺ Reset</button>';
+
+    if ($has_ends) {
+        $ht = 0; $at = 0;
+        foreach ($ends as $e) { $ht += intval($e[0] ?? 0); $at += intval($e[1] ?? 0); }
+        $table = lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $collapsed);
+        if (!$is_admin) return $table;
+        $actions = '<div class="lgw-finals-ends-actions">'
+                 . '<button class="lgw-finals-add-end-btn" data-mid="' . $mid_a . '">+ Add end</button>'
+                 . '<button class="lgw-finals-del-end-btn" data-mid="' . $mid_a . '">✕ Remove last end</button>'
+                 . $reset_btn
+                 . '<button class="lgw-finals-complete-btn" data-mid="' . $mid_a . '" data-home-total="' . $ht . '" data-away-total="' . $at . '">✓ Complete game</button>'
+                 . '</div>';
+        return $table . $actions;
+    }
+
+    if ($has_live) {
+        $lh = intval($live_home); $la = intval($live_away);
+        $panel = '<div class="lgw-finals-summary">'
+               . '<span class="lgw-finals-summary-label">Live (summary)</span>'
+               . '<span class="lgw-finals-summary-score"><span class="lgw-finals-summary-val' . ($lh > $la ? ' win' : '') . '">' . $lh . '</span>'
+               . '<span class="lgw-finals-summary-sep">–</span>'
+               . '<span class="lgw-finals-summary-val' . ($la > $lh ? ' win' : '') . '">' . $la . '</span></span>'
+               . '</div>';
+        if (!$is_admin) return $panel;
+        $actions = '<div class="lgw-finals-ends-actions">'
+                 . '<button class="lgw-finals-quick-btn" data-mid="' . $mid_a . '">⚡ Update score</button>'
+                 . $reset_btn
+                 . '<button class="lgw-finals-complete-btn" data-mid="' . $mid_a . '" data-home-total="' . $lh . '" data-away-total="' . $la . '">✓ Complete game</button>'
+                 . '</div>';
+        return $panel . $actions;
+    }
+
+    // Not started.
+    if (!$is_admin) return '';
+    return '<div class="lgw-finals-ends-empty">'
+         . '<button class="lgw-finals-add-end-btn" data-mid="' . $mid_a . '">+ Start live scoring</button>'
+         . '<button class="lgw-finals-quick-btn" data-mid="' . $mid_a . '">⚡ Quick score</button>'
+         . '</div>';
+}
+
+// ── Helper: apply a live-scoring action to a match slot (by reference) ───────
+// Actions: add (append end) | delete_last | reset (clear all) | set_total
+// (summary/quick score). Ends and the summary total are mutually exclusive.
+function lgw_finals_apply_end_action(array &$match, string $action, int $he, int $ae): void {
+    $ends = $match['ends'] ?? array();
+    switch ($action) {
+        case 'reset':
+            $ends = array();
+            unset($match['live_home'], $match['live_away']);
+            break;
+        case 'set_total':
+            $ends = array();
+            $match['live_home'] = max(0, $he);
+            $match['live_away'] = max(0, $ae);
+            break;
+        case 'delete_last':
+            if (!empty($ends)) array_pop($ends);
+            break;
+        default: // add
+            $ends[] = array(max(0, $he), max(0, $ae));
+            unset($match['live_home'], $match['live_away']);
+            break;
+    }
+    $match['ends'] = array_values($ends);
+}
+
+// ── Helper: build the AJAX response for a live-scoring change ─────────────────
+// Returns totals + the re-rendered scoring-area HTML fragment so the browser
+// can swap it in wholesale (no divergent client-side rebuild).
+function lgw_finals_scoring_response(array $match, string $mid): array {
+    $ends     = $match['ends'] ?? array();
+    $lh       = $match['live_home'] ?? null;
+    $la       = $match['live_away'] ?? null;
+    $has_live = empty($ends) && $lh !== null && $lh !== '' && $la !== null && $la !== '';
+    $ht = 0; $at = 0;
+    if (!empty($ends)) {
+        foreach ($ends as $e) { $ht += intval($e[0] ?? 0); $at += intval($e[1] ?? 0); }
+    } elseif ($has_live) {
+        $ht = intval($lh); $at = intval($la);
+    }
+    return array(
+        'ends'      => array_values($ends),
+        'homeTotal' => $ht,
+        'awayTotal' => $at,
+        'endCount'  => count($ends),
+        'liveHome'  => $has_live ? intval($lh) : null,
+        'liveAway'  => $has_live ? intval($la) : null,
+        'isLive'    => (!empty($ends) || $has_live) ? 1 : 0,
+        'html'      => lgw_finals_render_scoring_area($ends, $lh, $la, $match['home'] ?? '', $match['away'] ?? '', true, $mid, false),
+    );
+}
+
 // ── Helper: render ends table ─────────────────────────────────────────────────
 function lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $collapsed = false) {
     if (empty($ends)) return '';
@@ -688,16 +806,9 @@ function lgw_finals_render_ends_table($ends, $home, $away, $is_admin, $mid, $col
            . '<td class="lgw-finals-ends-td lgw-finals-ends-td--total lgw-finals-ends-td--right' . ($away_total > $home_total ? ' win' : '') . '">' . $away_total . '</td>'
            . '</tr></tfoot></table>';
 
-    $actions = '';
-    if ($is_admin) {
-        $actions = '<div class="lgw-finals-ends-actions">'
-                 . '<button class="lgw-finals-add-end-btn" data-mid="' . esc_attr($mid) . '">+ Add end</button>'
-                 . '<button class="lgw-finals-del-end-btn" data-mid="' . esc_attr($mid) . '">✕ Remove last end</button>'
-                 . '<button class="lgw-finals-complete-btn" data-mid="' . esc_attr($mid) . '" data-home-total="' . $home_total . '" data-away-total="' . $away_total . '">✓ Complete game</button>'
-                 . '</div>';
-    }
-
-    return $hdr . '<div class="' . $body_class . '">' . $table . $actions . '</div>';
+    // Toolbar/actions are added by lgw_finals_render_scoring_area(); this helper
+    // returns just the header + table so it can be reused without buttons.
+    return $hdr . '<div class="' . $body_class . '">' . $table . '</div>';
 }
 
 // ── Helper: short name for ends table header ──────────────────────────────────
@@ -826,7 +937,7 @@ function lgw_ajax_finals_save_end() {
     $bracket_key = sanitize_key($_POST['bracket_key'] ?? '');
     $round_idx   = intval($_POST['round_idx']         ?? -1);
     $match_idx   = intval($_POST['match_idx']         ?? -1);
-    $action_type = sanitize_key($_POST['end_action']  ?? 'add'); // add | delete_last
+    $action_type = sanitize_key($_POST['end_action']  ?? 'add'); // add | delete_last | reset | set_total
     $home_end    = intval($_POST['home_end']           ?? 0);
     $away_end    = intval($_POST['away_end']           ?? 0);
 
@@ -838,6 +949,7 @@ function lgw_ajax_finals_save_end() {
         $champ = get_option('lgw_gchamp_' . $champ_id, array());
         if (!isset($champ['finals_matches'][$match_idx])) wp_send_json_error('Match not found');
         $match = &$champ['finals_matches'][$match_idx];
+        $mid   = 'gchamp_' . $champ_id . '--gchamp--0--' . $match_idx;
     } else {
         if ($round_idx < 0) wp_send_json_error('Invalid parameters');
         $champ = get_option('lgw_champ_' . $champ_id, array());
@@ -845,30 +957,14 @@ function lgw_ajax_finals_save_end() {
             wp_send_json_error('Match not found');
         }
         $match = &$champ[$bracket_key]['matches'][$round_idx][$match_idx];
+        $mid   = $champ_id . '--' . $bracket_key . '--' . $round_idx . '--' . $match_idx;
     }
 
-    $ends  = $match['ends'] ?? array();
-
-    if ($action_type === 'delete_last') {
-        if (!empty($ends)) array_pop($ends);
-    } else {
-        $ends[] = array(max(0, $home_end), max(0, $away_end));
-    }
-
-    $match['ends'] = $ends;
-
-    // Recompute running totals
-    $ht = 0; $at = 0;
-    foreach ($ends as $e) { $ht += $e[0]; $at += $e[1]; }
+    lgw_finals_apply_end_action($match, $action_type, $home_end, $away_end);
 
     update_option( $bracket_key === 'gchamp' ? 'lgw_gchamp_' . $champ_id : 'lgw_champ_' . $champ_id, $champ );
 
-    wp_send_json_success(array(
-        'ends'       => $ends,
-        'homeTotal'  => $ht,
-        'awayTotal'  => $at,
-        'endCount'   => count($ends),
-    ));
+    wp_send_json_success( lgw_finals_scoring_response($match, $mid) );
 }
 
 // ── AJAX: save final score ────────────────────────────────────────────────────

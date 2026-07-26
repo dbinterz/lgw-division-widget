@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v2026.30.19 */
+/* LGW Finals Week Widget JS - v2026.30.20 */
 (function () {
   'use strict';
 
@@ -133,14 +133,22 @@
   }
 
   // ── Update score block in DOM ────────────────────────────────────────────────
-  function updateScoreBlock(mid, hs, as_score, ends) {
+  function updateScoreBlock(mid, hs, as_score, ends, liveTotals) {
     var matchEl = qs('#lgw-fm-' + mid);
     if (!matchEl) return;
     var block = qs('.lgw-finals-score-block', matchEl);
     if (!block) return;
 
-    var ht = 0, at = 0;
-    (ends || []).forEach(function(e) { ht += parseInt(e[0],10)||0; at += parseInt(e[1],10)||0; });
+    // Totals come from ends, or (summary/quick mode) from an explicit liveTotals
+    // { isLive, ht, at } passed by the caller.
+    var ht = 0, at = 0, isLiveState = false;
+    if (ends && ends.length) {
+      ends.forEach(function(e) { ht += parseInt(e[0],10)||0; at += parseInt(e[1],10)||0; });
+      isLiveState = true;
+    } else if (liveTotals && liveTotals.isLive) {
+      ht = parseInt(liveTotals.ht,10)||0; at = parseInt(liveTotals.at,10)||0;
+      isLiveState = true;
+    }
 
     var editBtn = isAdmin ? '<button class="lgw-finals-edit-score" data-mid="' + esc(mid) + '" title="Enter score">✏️</button>' : '';
 
@@ -151,7 +159,7 @@
                       + editBtn;
       matchEl.classList.remove('lgw-finals-match--upcoming', 'lgw-finals-match--live');
       matchEl.classList.add('lgw-finals-match--complete');
-    } else if (ends && ends.length) {
+    } else if (isLiveState) {
       block.innerHTML = '<span class="lgw-finals-score lgw-finals-score--live">' + ht + '</span>'
                       + '<span class="lgw-finals-score-sep">–</span>'
                       + '<span class="lgw-finals-score lgw-finals-score--live">' + at + '</span>'
@@ -317,18 +325,60 @@
       }
       if (pop) closePop();
       var d = res.data;
-      if (matches[mid]) { matches[mid].ends = d.ends; }
+      if (matches[mid]) {
+        matches[mid].ends = d.ends;
+        matches[mid].liveHome = d.liveHome;
+        matches[mid].liveAway = d.liveAway;
+      }
       var m = matches[mid] || {};
+      // The server returns the whole scoring-area fragment (ends table, summary
+      // panel, or start toolbar) so client and server never diverge.
       var endsEl = qs('#lgw-ends-' + mid);
-      if (endsEl) {
-        endsEl.innerHTML = renderEndsTable(mid, d.ends, m.home, m.away);
+      if (endsEl && d.html !== undefined) {
+        endsEl.innerHTML = d.html;
       }
       // updateScoreBlock replaces the score-block markup (incl. the edit-score
       // button), so bind AFTER it — otherwise the freshly-created button is left
       // without a click handler and looks disabled.
-      updateScoreBlock(mid, m.homeScore, m.awayScore, d.ends);
+      updateScoreBlock(mid, m.homeScore, m.awayScore, d.ends, { isLive: d.isLive, ht: d.homeTotal, at: d.awayTotal });
       var matchEl = qs('#lgw-fm-' + mid);
       if (matchEl) bindMatchButtons(matchEl);
+    });
+  }
+
+  // ── Quick (summary) score popover ────────────────────────────────────────────
+  function openQuickScore(mid) {
+    closePop();
+    var m = matches[mid] || {};
+    var lh = (m.liveHome != null ? m.liveHome : '');
+    var la = (m.liveAway != null ? m.liveAway : '');
+
+    var pop = document.createElement('div');
+    pop.className = 'lgw-finals-pop';
+    pop.innerHTML =
+      '<div class="lgw-finals-pop-title">Quick score (overall)</div>'
+    + '<div class="lgw-finals-pop-row lgw-finals-pop-row--ends">'
+    + '<div class="lgw-finals-pop-end-label">' + esc(shortName(m.home || 'Home')) + '</div>'
+    + '<input class="lgw-finals-pop-input lgw-finals-pop-input--end" id="lgw-finals-qh" type="number" min="0" max="99" value="' + esc(String(lh)) + '" placeholder="0">'
+    + '<span class="lgw-finals-pop-vs">–</span>'
+    + '<input class="lgw-finals-pop-input lgw-finals-pop-input--end" id="lgw-finals-qa" type="number" min="0" max="99" value="' + esc(String(la)) + '" placeholder="0">'
+    + '<div class="lgw-finals-pop-end-label lgw-finals-pop-end-label--right">' + esc(shortName(m.away || 'Away')) + '</div>'
+    + '</div>'
+    + '<div class="lgw-finals-pop-hint">Sets the overall live score without entering each end.</div>'
+    + '<div class="lgw-finals-pop-actions">'
+    + '<button class="lgw-finals-pop-save">Update</button>'
+    + '<button class="lgw-finals-pop-cancel">Cancel</button>'
+    + '</div>'
+    + '<div class="lgw-finals-pop-msg"></div>';
+
+    positionPop(pop, mid);
+    qs('#lgw-finals-qh', pop).focus();
+    qs('.lgw-finals-pop-cancel', pop).addEventListener('click', closePop);
+    qs('.lgw-finals-pop-save', pop).addEventListener('click', function() {
+      saveEnd(mid, 'set_total', qs('#lgw-finals-qh', pop).value, qs('#lgw-finals-qa', pop).value, pop);
+    });
+    pop.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); qs('.lgw-finals-pop-save', pop).click(); }
     });
   }
 
@@ -487,6 +537,18 @@
         if (!m.ends || !m.ends.length) return;
         if (!confirm('Remove the last end?')) return;
         saveEnd(mid, 'delete_last', 0, 0, null);
+      });
+    });
+    // Quick (summary) score — set the overall live total without ends
+    qsa('.lgw-finals-quick-btn', matchEl).forEach(function(btn) {
+      btn.addEventListener('click', function(e) { e.stopPropagation(); openQuickScore(btn.dataset.mid); });
+    });
+    // Reset — clear all live scoring (ends or summary) back to not started
+    qsa('.lgw-finals-reset-btn', matchEl).forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (!confirm('Reset live scoring for this match? This clears all ends / the summary score.')) return;
+        saveEnd(btn.dataset.mid, 'reset', 0, 0, null);
       });
     });
     // Complete game — pre-fills score from running totals

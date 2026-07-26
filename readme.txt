@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.19
+Stable tag: 2026.30.20
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.30.20 =
+* New: quick "summary" live scoring. Each finals match can now be scored either end-by-end (detailed, as before) or by updating the overall score at irregular intervals (⚡ Quick score) — handy when you can't capture every end. One mode per match; switching is a click away.
+* New: Reset button for live scoring (↺ Reset) — clears all ends or the summary score and returns the match to "not started", without touching the schedule.
+* The match toolbar now offers: + Add end (detailed), ⚡ Quick score (summary), ↺ Reset, and ✓ Complete game. Works on all finals competitions (Group Championships and standard championships).
 
 = 2026.30.19 =
 * Fix: the "Enter final score" button stopped working after starting live scoring. Adding/removing an end re-rendered the score block (recreating the edit button) after event handlers were bound, so the new button had no click handler and appeared disabled. Handlers are now bound after the score block is rebuilt.
