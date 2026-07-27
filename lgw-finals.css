@@ -841,11 +841,14 @@
   right: 0;
   top: 0;
   z-index: -1;
-  color: inherit;
-  opacity: .13;
   text-shadow: none;
   pointer-events: none;
 }
+/* Amber ghost behind live digits, green ghost behind completed finals. Explicit
+   rgba (not inherit+opacity) so the green ghost is actually visible on the dark
+   panel rather than washing out. */
+.lgw-finals-led--live .lgw-finals-led-num::before  { color: rgba(255,107,26,.16); }
+.lgw-finals-led--final .lgw-finals-led-num::before { color: rgba(72,224,138,.2); }
 .lgw-finals-led-foot {
   margin-top: 8px;
   padding-top: 8px;

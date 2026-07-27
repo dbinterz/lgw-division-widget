@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.0]
+### Changed
+- **Ghost unlit-segment now visible on completed finals.** The `::before "88"` ghost applied to both live and final all along, but `color: inherit` at 13% washed out the green final digits. Switched to explicit rgba — amber `rgba(255,107,26,.16)` for live, green `rgba(72,224,138,.2)` for final — so finished games keep the lit-panel look.
+
 ## [2026.30.23]
 ### Added
 - **DSEG7 seven-segment webfont on the LED scoreboard** (SIL OFL, bundled under `fonts/dseg/`; two `@font-face` weights, `url()` resolved relative to `lgw-finals.css`). Digits render as a real 7-seg display, with a **ghost unlit-segment** layer — a faint all-lit `88` via `::before` at 13% opacity behind the live/final numbers.
