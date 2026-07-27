@@ -1,3 +1,4 @@
-# Local working files (root only) — data exports and built plugin zips
+# Local working files (root only) — data exports, source docs, built plugin zips
 /*.csv
 /*.zip
+/*.pdf

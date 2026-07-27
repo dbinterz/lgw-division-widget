@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.1]
+### Added
+- **Conditions of Play tab** on `[lgw_finals]` (📜). A fourth tab beside competition / date / scoreboard rendering admin-editable rich text, stored **per season** as option `lgw_finals_conditions_<season>` and seeded from `lgw_finals_conditions_default()` (IBA Championships Stage 1 & 2 Conditions of Play 2026). Admins get an inline edit toggle → textarea → AJAX `lgw_finals_save_conditions` (nonce `lgw_finals_nonce`, `manage_options`, `wp_kses` against `lgw_finals_conditions_allowed_html()` — `h3/h4/p/ul/ol/li/strong/em/a` etc.). Tab choice persists in `localStorage` alongside the existing sort.
+
 ## [2026.31.0]
 ### Changed
 - **Ghost unlit-segment now visible on completed finals.** The `::before "88"` ghost applied to both live and final all along, but `color: inherit` at 13% washed out the green final digits. Switched to explicit rgba — amber `rgba(255,107,26,.16)` for live, green `rgba(72,224,138,.2)` for final — so finished games keep the lit-panel look.

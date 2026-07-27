@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.31.0
+Stable tag: 2026.31.1
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.1 =
+* New: Conditions of Play tab on the Finals Week page. Shows the championship conditions of play as readable, mobile-friendly text; seeded with the IBA Stage 1 & 2 Conditions of Play. Admins can edit it inline (per season) with a simple HTML editor — no code change or release needed to update it each year.
 
 = 2026.31.0 =
 * Improved: the ghost seven-segment effect now shows behind completed final scores too (green), not just live matches, so finished games still read as a lit scoreboard.
