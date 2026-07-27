@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.30.23
+Stable tag: 2026.31.0
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.0 =
+* Improved: the ghost seven-segment effect now shows behind completed final scores too (green), not just live matches, so finished games still read as a lit scoreboard.
 
 = 2026.30.23 =
 * New: the LED scoreboard now uses a proper seven-segment display font (DSEG7, bundled) with a faint "ghost" of the unlit segments behind each score, so it reads like a real electronic scoreboard.
