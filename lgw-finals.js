@@ -1,4 +1,4 @@
-/* LGW Finals Week Widget JS - v2026.30.22 */
+/* LGW Finals Week Widget JS - v2026.31.1 */
 (function () {
   'use strict';
 
@@ -670,6 +670,55 @@
     if (cancel) {
       var cf = cancel.closest('.lgw-gchamp-finals-seed-form, .lgw-gchamp-finals-occ-form');
       if (cf) { cf.style.display = 'none'; var b = cf.parentNode && cf.parentNode.querySelector('.lgw-gchamp-finals-seed-btn, .lgw-gchamp-finals-occ-btn'); if (b) b.style.display = ''; }
+      return;
+    }
+
+    // Conditions of Play: edit / save / cancel (admin only).
+    var cEdit = e.target.closest('.lgw-finals-cond-edit');
+    if (cEdit) {
+      var cView = cEdit.closest('.lgw-finals-view--conditions');
+      if (cView) {
+        var ed = qs('.lgw-finals-cond-editor', cView);
+        var bd = qs('.lgw-finals-cond-body', cView);
+        if (ed) ed.style.display = '';
+        if (bd) bd.style.display = 'none';
+        cEdit.style.display = 'none';
+      }
+      return;
+    }
+    var cCancel = e.target.closest('.lgw-finals-cond-cancel');
+    if (cCancel) {
+      var cv = cCancel.closest('.lgw-finals-view--conditions');
+      if (cv) {
+        qs('.lgw-finals-cond-editor', cv).style.display = 'none';
+        qs('.lgw-finals-cond-body', cv).style.display = '';
+        var eb = qs('.lgw-finals-cond-edit', cv); if (eb) eb.style.display = '';
+      }
+      return;
+    }
+    var cSave = e.target.closest('.lgw-finals-cond-save');
+    if (cSave) {
+      var cv2 = cSave.closest('.lgw-finals-view--conditions');
+      if (!cv2) return;
+      var ta = qs('.lgw-finals-cond-text', cv2);
+      var st = qs('.lgw-finals-cond-status', cv2);
+      var wrapEl = cSave.closest('.lgw-finals-wrap');
+      var season = wrapEl ? (wrapEl.getAttribute('data-season') || '') : '';
+      cSave.disabled = true;
+      if (st) st.textContent = 'Saving…';
+      post('lgw_finals_save_conditions', { nonce: nonce, season: season, content: ta.value }, function (res) {
+        cSave.disabled = false;
+        if (res && res.success) {
+          qs('.lgw-finals-cond-body', cv2).innerHTML = res.data.html;
+          qs('.lgw-finals-cond-editor', cv2).style.display = 'none';
+          qs('.lgw-finals-cond-body', cv2).style.display = '';
+          var eb2 = qs('.lgw-finals-cond-edit', cv2); if (eb2) eb2.style.display = '';
+          if (st) st.textContent = '';
+        } else {
+          if (st) st.textContent = '';
+          alert('Error: ' + ((res && res.data) || 'Unknown'));
+        }
+      });
       return;
     }
 

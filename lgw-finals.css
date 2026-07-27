@@ -876,4 +876,65 @@
 .lgw-finals-led--live .lgw-finals-led-status { color: #ff6b6b; }
 .lgw-finals-led--final .lgw-finals-led-num { color: #48e08a; text-shadow: 0 0 6px rgba(72,224,138,.7), 0 0 14px rgba(72,224,138,.4); }
 .lgw-finals-led--final .lgw-finals-led-status { color: #48e08a; }
+
+/* ── Conditions of Play view ─────────────────────────────────────────────── */
+.lgw-finals-cond-toolbar { margin-bottom: 12px; }
+.lgw-finals-cond-edit {
+  background: var(--lgw-navy, #16324f);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 7px 13px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lgw-finals-cond-body {
+  line-height: 1.55;
+  color: #1f2a36;
+  max-width: 820px;
+}
+.lgw-finals-cond-body h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--lgw-navy, #16324f);
+  margin: 22px 0 8px;
+  padding-bottom: 5px;
+  border-bottom: 2px solid #e4e9ef;
+}
+.lgw-finals-cond-body h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #33475b;
+  margin: 14px 0 4px;
+}
+.lgw-finals-cond-body ul,
+.lgw-finals-cond-body ol { margin: 6px 0 12px; padding-left: 22px; }
+.lgw-finals-cond-body li { margin: 4px 0; }
+.lgw-finals-cond-body p { margin: 8px 0; }
+.lgw-finals-cond-body > *:first-child { margin-top: 0; }
+.lgw-finals-cond-hint { font-size: 12px; color: #64748b; margin: 0 0 8px; }
+.lgw-finals-cond-hint code { background: #eef2f6; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+.lgw-finals-cond-text {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px;
+  border: 1px solid #c7d0da;
+  border-radius: 6px;
+  resize: vertical;
+}
+.lgw-finals-cond-actions { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
+.lgw-finals-cond-save {
+  background: #2f9e6b; color: #fff; border: none; border-radius: 5px;
+  padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.lgw-finals-cond-save:disabled { opacity: .6; cursor: default; }
+.lgw-finals-cond-cancel {
+  background: none; border: 1px solid #c7d0da; border-radius: 5px;
+  padding: 7px 14px; font-size: 13px; cursor: pointer; color: #33475b;
+}
+.lgw-finals-cond-status { font-size: 12px; color: #64748b; }
 .lgw-finals-led--upcoming .lgw-finals-led-num { color: #46586a; text-shadow: none; }

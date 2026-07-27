@@ -298,6 +298,7 @@ function lgw_finals_shortcode($atts) {
         <button type="button" class="lgw-finals-sort-btn is-active" data-sort="competition">By competition</button>
         <button type="button" class="lgw-finals-sort-btn" data-sort="date">By date &amp; rink</button>
         <button type="button" class="lgw-finals-sort-btn" data-sort="board">📟 Scoreboard</button>
+        <button type="button" class="lgw-finals-sort-btn" data-sort="conditions">📜 Conditions of Play</button>
       </div>
 
       <?php $flat_matches = array(); $board_matches = array(); ?>
@@ -671,6 +672,30 @@ function lgw_finals_shortcode($atts) {
         </div>
         <?php endforeach; endif; ?>
       </div><!-- .lgw-finals-view--board -->
+
+      <?php
+      // ── Conditions of Play view: admin-editable rich text (per season). ──
+      $conditions_html = lgw_finals_get_conditions($season);
+      ?>
+      <div class="lgw-finals-view lgw-finals-view--conditions" data-view="conditions" style="display:none">
+        <?php if ($is_admin): ?>
+        <div class="lgw-finals-cond-toolbar">
+          <button type="button" class="lgw-finals-cond-edit">✏️ Edit conditions</button>
+        </div>
+        <?php endif; ?>
+        <div class="lgw-finals-cond-body"><?php echo wp_kses($conditions_html, lgw_finals_conditions_allowed_html()); ?></div>
+        <?php if ($is_admin): ?>
+        <div class="lgw-finals-cond-editor" style="display:none">
+          <p class="lgw-finals-cond-hint">Basic HTML allowed: <code>&lt;h3&gt; &lt;h4&gt; &lt;p&gt; &lt;ul&gt;/&lt;ol&gt;/&lt;li&gt; &lt;strong&gt; &lt;em&gt; &lt;a&gt;</code>. Saved for the <strong><?php echo esc_html($season); ?></strong> season only.</p>
+          <textarea class="lgw-finals-cond-text" rows="20" spellcheck="false"><?php echo esc_textarea($conditions_html); ?></textarea>
+          <div class="lgw-finals-cond-actions">
+            <button type="button" class="lgw-finals-cond-save">Save</button>
+            <button type="button" class="lgw-finals-cond-cancel">Cancel</button>
+            <span class="lgw-finals-cond-status"></span>
+          </div>
+        </div>
+        <?php endif; ?>
+      </div><!-- .lgw-finals-view--conditions -->
     </div>
 
     <script>
@@ -707,7 +732,7 @@ function lgw_finals_shortcode($atts) {
       }
       var saved = null;
       try { saved = localStorage.getItem(KEY); } catch (e) {}
-      apply((saved === 'date' || saved === 'board') ? saved : 'competition');
+      apply((saved === 'date' || saved === 'board' || saved === 'conditions') ? saved : 'competition');
       wrap.querySelectorAll('.lgw-finals-sort-btn').forEach(function(btn){
         btn.addEventListener('click', function(){
           var sort = btn.getAttribute('data-sort');
@@ -727,6 +752,124 @@ function lgw_finals_format_datetime($dt) {
     $ts = strtotime($dt);
     if (!$ts) return $dt;
     return date('D j M Y, H:i', $ts);
+}
+
+// ── Conditions of Play ───────────────────────────────────────────────────────
+// Admin-editable rich text shown in the "Conditions of Play" finals tab.
+// Stored per-season as option lgw_finals_conditions_<season> (sanitised HTML);
+// seeded from lgw_finals_conditions_default() the first time it's shown.
+
+// Whitelist of tags admins may use (passed to wp_kses on save AND render).
+function lgw_finals_conditions_allowed_html() {
+    return array(
+        'p'      => array(),
+        'br'     => array(),
+        'strong' => array(), 'b' => array(),
+        'em'     => array(), 'i' => array(),
+        'u'      => array(),
+        'h3'     => array(), 'h4' => array(),
+        'ul'     => array(), 'ol' => array(), 'li' => array(),
+        'a'      => array('href' => array(), 'title' => array(), 'target' => array(), 'rel' => array()),
+    );
+}
+
+// Stored conditions HTML for a season, or the default seed if never edited.
+function lgw_finals_get_conditions($season) {
+    $stored = get_option('lgw_finals_conditions_' . sanitize_key($season), null);
+    if ($stored === null || $stored === '') return lgw_finals_conditions_default();
+    return $stored;
+}
+
+// Default seed: the IBA Championships Stage 1 & 2 Conditions of Play 2026.
+function lgw_finals_conditions_default() {
+    return <<<'HTML'
+<p>The IBA Championships (hereafter "the Championships") will be adopted by each member Association at Stage 1, will also apply at Stage 2, and shall comprise:</p>
+
+<h3>Singles — Open, Under 18 (Youth) and Under 25</h3>
+<ul>
+<li>Under 18 (Youth) — competitors must be under 18 years of age on 1st April of the season in which they are competing.</li>
+<li>Under 25 — competitors must be under 25 years of age on 1st April of the season in which they are competing.</li>
+<li>Each player shall play with a set of 4 bowls (matched set), singly and in turn.</li>
+<li>All singles games are played on a <strong>first player to 21 shots</strong> basis.</li>
+<li>Substitutes in singles are not allowed.</li>
+</ul>
+
+<h3>Pairs — Open, Under 25 and Over 55</h3>
+<ul>
+<li>Open Pairs — each player shall play with a set of 4 bowls (matched set), singly and in turn.</li>
+<li>Under 25 Pairs — competitors must be under 25 years of age on 1st April of the season in which they are competing.</li>
+<li>Over 55 Pairs — competitors must be 55 years of age, or over, on 1st April of the season in which they are competing.</li>
+<li>Under 25 Pairs / Over 55 Pairs — each player shall play with a set of 3 bowls from a matched set of 4, singly and in turn.</li>
+</ul>
+
+<h3>Triples — Open</h3>
+<ul>
+<li>Each player shall play with a set of 3 bowls from a matched set of 4, singly and in turn.</li>
+</ul>
+
+<h3>Fours — Open and Senior</h3>
+<ul>
+<li>Senior Fours — competitors must be 55 years of age or over on 1st April of the season in which they are competing.</li>
+<li>Each player shall play with a set of 2 bowls from a matched set of 4, singly and in turn.</li>
+</ul>
+
+<h3>In all Pairs, Triples and Fours competitions</h3>
+<ul>
+<li>Each match will consist of 18 ends.</li>
+<li>In the event of a tie, an extra end(s) shall be played until a winner is determined.</li>
+<li>Substitutes in Pairs, Triples and Fours will be determined as per Championship Rules.</li>
+</ul>
+
+<h3>Restricting the movement of players during play</h3>
+<p>After delivering their first bowl, players will only be allowed to walk up to the head under the following circumstances:</p>
+<h4>Singles</h4>
+<ul>
+<li>The opponents: after delivery of their third and fourth bowls.</li>
+</ul>
+<h4>Pairs (each player playing four bowls)</h4>
+<ul>
+<li>The leads: after delivery of their third and fourth bowls.</li>
+<li>The skips: after delivery of their second, third and fourth bowls.</li>
+</ul>
+<h4>Pairs (each player playing three bowls)</h4>
+<ul>
+<li>The leads: after delivery of their third bowl.</li>
+<li>The skips: after delivery of their second and third bowls.</li>
+</ul>
+<h4>Triples (each player playing three bowls)</h4>
+<ul>
+<li>The leads: after delivery of their third bowl.</li>
+<li>The seconds: after delivery of their second and third bowls.</li>
+<li>The skips: after delivery of each of their second and third bowls.</li>
+</ul>
+<h4>Fours (each player playing two bowls)</h4>
+<ul>
+<li>The leads: after the second player in their team has delivered their second bowl.</li>
+<li>The seconds: after delivery of their second bowl.</li>
+<li>The thirds: after delivery of their second bowl.</li>
+<li>The skips: after delivery of each of their bowls.</li>
+</ul>
+
+<h3>Other conditions</h3>
+<ol>
+<li>To ensure the schedule runs smoothly and all games are completed as planned, a maximum time limit of 3 hours 30 minutes (including trial ends) will be strictly enforced. Each match will commence at the same time as indicated by the senior umpire on duty.</li>
+<li>Play must be continuous — players must play without undue delay and not in a way that prevents their opponents from completing the match within the time limit. Slow play will be monitored by umpires in conjunction with the Controlling Body.</li>
+</ol>
+HTML;
+}
+
+// ── AJAX: save conditions of play (per season) ───────────────────────────────
+add_action('wp_ajax_lgw_finals_save_conditions', 'lgw_ajax_finals_save_conditions');
+function lgw_ajax_finals_save_conditions() {
+    check_ajax_referer('lgw_finals_nonce', 'nonce');
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorised');
+    $season = sanitize_key($_POST['season'] ?? '');
+    if (!$season) wp_send_json_error('Missing season');
+    // wp_unslash before kses (WP slashes POST); allow only the whitelisted tags.
+    $raw   = wp_unslash($_POST['content'] ?? '');
+    $clean = wp_kses($raw, lgw_finals_conditions_allowed_html());
+    update_option('lgw_finals_conditions_' . $season, $clean, false);
+    wp_send_json_success(array('html' => $clean));
 }
 
 // ── Helper: normalise a match's live-scoring items ───────────────────────────
