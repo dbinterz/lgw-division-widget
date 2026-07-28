@@ -71,6 +71,7 @@ jobs:
           cp lgw-div-cache.php       lgw-division-widget/
           cp lgw-clubs.php           lgw-division-widget/
           cp lgw-club-access.php     lgw-division-widget/
+          cp lgw-entry.php           lgw-division-widget/
           cp readme.txt              lgw-division-widget/
           cp README.md               lgw-division-widget/
           zip -r "$ZIPNAME" lgw-division-widget/
@@ -79,7 +80,7 @@ jobs:
 
       - name: Verify zip manifest
         run: |
-          EXPECTED="lgw-division-widget.php lgw-gchamp.php lgw-multichamp.php lgw-export.php lgw-seasons.php lgw-div-cache.php lgw-clubs.php lgw-club-access.php lgw-scorecards.php lgw-scorecard.js lgw-scorecard.css lgw-cup.php lgw-cup.js lgw-cup.css lgw-champ.php lgw-champ.js lgw-champ.css lgw-draw.php lgw-widget.js lgw-widget.css lgw-admin.js lgw-admin.css lgw-sc-admin.php lgw-players.php lgw-drive.php lgw-sheets.php lgw-pdf.php lgw-logo.svg fonts/dseg/DSEG7Classic-Bold.woff2 fonts/dseg/DSEG7Classic-Regular.woff2 readme.txt README.md"
+          EXPECTED="lgw-division-widget.php lgw-gchamp.php lgw-multichamp.php lgw-export.php lgw-seasons.php lgw-div-cache.php lgw-clubs.php lgw-club-access.php lgw-entry.php lgw-scorecards.php lgw-scorecard.js lgw-scorecard.css lgw-cup.php lgw-cup.js lgw-cup.css lgw-champ.php lgw-champ.js lgw-champ.css lgw-draw.php lgw-widget.js lgw-widget.css lgw-admin.js lgw-admin.css lgw-sc-admin.php lgw-players.php lgw-drive.php lgw-sheets.php lgw-pdf.php lgw-logo.svg fonts/dseg/DSEG7Classic-Bold.woff2 fonts/dseg/DSEG7Classic-Regular.woff2 readme.txt README.md"
           MISSING=0
           for f in $EXPECTED; do
             if ! unzip -l "${{ env.ZIPNAME }}" | grep -q "$f"; then

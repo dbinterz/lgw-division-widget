@@ -89,6 +89,8 @@ function lgw_ajax_save_club() {
     $fac_bar         = ! empty( $_POST['fac_bar'] );
     $fac_changing    = ! empty( $_POST['fac_changing'] );
     $can_submit      = ! empty( $_POST['can_submit'] );
+    $entry_policy_raw = wp_unslash( $_POST['entry_policy'] ?? '' );
+    $entry_policy    = in_array( $entry_policy_raw, array( 'open', 'club_admin' ), true ) ? $entry_policy_raw : '';
 
     if ( $name === '' ) wp_send_json_error( 'Club name cannot be empty.' );
 
@@ -112,6 +114,7 @@ function lgw_ajax_save_club() {
         'website'     => $website,
         'colors'      => $club_colors,
         'can_submit'  => $can_submit,
+        'entry_policy' => $entry_policy,
         'contacts'    => $contacts,
         'facilities'  => array(
             'greens'      => $fac_greens,
@@ -301,6 +304,7 @@ function lgw_clubs_import_rows( array $rows ) {
                 'website'    => $website,
                 'colors'     => array( '#1a2e5a' ),
                 'can_submit' => false,
+                'entry_policy' => '',
                 'contacts'   => $contacts,
                 'facilities' => array(
                     'greens' => 0, 'rinks' => 0, 'floodlights' => false,
@@ -472,6 +476,7 @@ function lgw_clubs_admin_page() {
                 'name'       => $c['name'],
                 'pin_set'    => ! empty( $c['pin'] ),
                 'can_submit' => ! empty( $c['can_submit'] ),
+                'entry_policy' => $c['entry_policy'] ?? '',
                 'address'    => $c['address']  ?? '',
                 'website'    => $c['website']  ?? '',
                 'badge_url'  => $bl ? $bl['url']  : '',
@@ -497,6 +502,7 @@ function lgw_clubs_render_form( $club, $slug, $badge_info, $is_new = false ) {
     $website     = $club ? ( $club['website'] ?? '' ) : '';
     $has_pin     = $club && ! empty( $club['pin'] );
     $can_submit  = $club ? ! empty( $club['can_submit'] ) : false;
+    $entry_policy = $club ? ( $club['entry_policy'] ?? '' ) : '';
     $badge_url   = $badge_info ? ( $badge_info['url']  ?? '' ) : '';
     $badge_type  = $badge_info ? ( $badge_info['type'] ?? 'club' ) : 'club';
     $club_colors_raw = $club ? ( $club['colors'] ?? ( $club['color'] ? array( $club['color'] ) : array() ) ) : array();
@@ -657,6 +663,17 @@ function lgw_clubs_render_form( $club, $slug, $badge_info, $is_new = false ) {
                             This club can submit scorecards
                         </label>
                         <p class="description" style="margin-top:4px">When the global mode is <em>Admin Only</em>, this club can still submit. Has no effect when the global mode is <em>Disabled</em>.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="entry_policy_<?php echo esc_attr( $slug ?? 'new' ); ?>">Championship entry policy</label></th>
+                    <td>
+                        <select name="entry_policy" id="entry_policy_<?php echo esc_attr( $slug ?? 'new' ); ?>">
+                            <option value=""<?php selected( $entry_policy, '' ); ?>>Use league default</option>
+                            <option value="open"<?php selected( $entry_policy, 'open' ); ?>>Open — players may self-enter</option>
+                            <option value="club_admin"<?php selected( $entry_policy, 'club_admin' ); ?>>Club admin only — approved admins enter on behalf</option>
+                        </select>
+                        <p class="description" style="margin-top:4px">Who may submit championship entries naming this club via <code>[lgw_champ_entry]</code>.</p>
                     </td>
                 </tr>
             </table>
@@ -869,6 +886,7 @@ function lgw_clubs_inline_script() { ?>
         var website  = club ? club.website  : '';
         var pinSet    = club ? club.pin_set   : false;
         var canSubmit = club ? !!club.can_submit : false;
+        var entryPolicy = club ? (club.entry_policy || '') : '';
         var badgeUrl  = club ? club.badge_url : '';
         var badgeType= club ? club.badge_type : 'club';
         var clubColorsArr = club ? (club.colors || []) : [];
@@ -958,6 +976,14 @@ function lgw_clubs_inline_script() { ?>
         '<tr><th><label>Allow submission</label></th><td>' +
             '<label><input type="checkbox" name="can_submit" value="1"' + (canSubmit ? ' checked' : '') + '> This club can submit scorecards</label>' +
             '<p class="description" style="margin-top:4px">When the global mode is <em>Admin Only</em>, this club can still submit. Has no effect when the global mode is <em>Disabled</em>.</p>' +
+        '</td></tr>' +
+        '<tr><th><label>Championship entry policy</label></th><td>' +
+            '<select name="entry_policy">' +
+                '<option value=""' + (entryPolicy === '' ? ' selected' : '') + '>Use league default</option>' +
+                '<option value="open"' + (entryPolicy === 'open' ? ' selected' : '') + '>Open — players may self-enter</option>' +
+                '<option value="club_admin"' + (entryPolicy === 'club_admin' ? ' selected' : '') + '>Club admin only — approved admins enter on behalf</option>' +
+            '</select>' +
+            '<p class="description" style="margin-top:4px">Who may submit championship entries naming this club via [lgw_champ_entry].</p>' +
         '</td></tr>' +
         '</table></div>' +
 
@@ -1235,6 +1261,7 @@ function lgw_clubs_inline_script() { ?>
         club.badge_type= (form.querySelector('[name="club_badge_type"]') || {}).value || 'club';
         club.pin_set    = true; // conservative — might have been set
         club.can_submit = !!(form.querySelector('[name="can_submit"]') || {}).checked;
+        club.entry_policy = (form.querySelector('[name="entry_policy"]') || {}).value || '';
         club.facilities = {
             greens:      parseInt((form.querySelector('[name="fac_greens"]')  || {}).value || 0),
             rinks:       parseInt((form.querySelector('[name="fac_rinks"]')   || {}).value || 0),

@@ -108,6 +108,13 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.3]
+### Added
+- **Championship entry form + ledger.** New module `lgw-entry.php` introduces the `lgw_entry` CPT (the ledger: players, club, discipline, status `pending_payment|paid|confirmed|withdrawn|refunded`, amount, payment ref, audit log) and the `[lgw_champ_entry champ="..."]` front-end shortcode. Players self-enter (login-gated) instead of an admin pasting into the gchamp textarea. A confirmed/paid entry is **projected** into the existing `lgw_gchamp_<id>.entries[]` (+ `entry_preferences` keyed by the entry string) by `lgw_entry_project()`, so the draw/bracket engine is untouched. Pre-draw only; post-draw entries are flagged for manual placement.
+- **Per-club entry policy.** Each club record gains an `entry_policy` (`open` = players may self-enter | `club_admin` = approved club admins only), resolved by `lgw_entry_policy_for_club()` with precedence: per-champ override → per-club → league default option `lgw_entry_default_policy`. Approved-admin checks reuse `lgw_user_can_submit_for()`.
+- **Stripe Checkout (raw REST, no SDK).** When a champ has a fee, `lgw_entry_stripe_create_session()` creates a Checkout Session via `wp_remote_post` and the entrant is redirected to hosted checkout. A `register_rest_route('lgw/v1','/stripe-webhook')` endpoint verifies the `Stripe-Signature` HMAC manually, re-checks amount/currency, and flips `pending_payment → paid` idempotently. Secrets via options or `LGW_STRIPE_SECRET_KEY` / `LGW_STRIPE_WEBHOOK_SECRET` constants. Free entries confirm immediately; admins can mark paid offline.
+- **LGW → Entries admin screen.** Per-champ entries list with Confirm / Mark paid / Withdraw / Refund row actions, per-champ fee/deadline/capacity/policy config (option `lgw_entry_cfg_<champ>`, kept separate from the gchamp option), and a Stripe/policy settings box.
+
 ## [2026.31.2]
 ### Fixed
 - **Orphaned concessions could not be cleared from the fixture modal.** The normal concession clear path is keyed on `home||away||date`; postponing + rescheduling a conceded fixture changes the row date, so the modal's computed key no longer matched the concession's stored key (original date). Result: the overlay entry (`lgw_concessions`), auto-created 50-0 scorecard (`lgw_sc_concession=1`), score override (`lgw_score_overrides`) and cached fixture were stranded with no UI to remove them (e.g. a phantom confirmed result showing 0-0).
