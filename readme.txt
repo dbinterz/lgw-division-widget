@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.31.1
+Stable tag: 2026.31.2
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.2 =
+* Fixed: concessions could become stranded with no way to clear them from the fixture modal. When a conceded fixture was postponed and rescheduled, the row's date changed so the modal could no longer match the concession (which was keyed to the original date) — leaving an orphaned 50-0 scorecard, score override and cached result behind (e.g. showing a phantom result with no score). Added an admin "Force-clear concession" button in the fixture modal that removes every concession artifact for the fixture across all dates (overlay entry, auto-created scorecard, score overrides and cached result).
 
 = 2026.31.1 =
 * New: Conditions of Play tab on the Finals Week page. Shows the championship conditions of play as readable, mobile-friendly text; seeded with the IBA Stage 1 & 2 Conditions of Play. Admins can edit it inline (per season) with a simple HTML editor — no code change or release needed to update it each year.

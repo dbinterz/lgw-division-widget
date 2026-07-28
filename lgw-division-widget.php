@@ -2,7 +2,7 @@
 /**
  * Plugin Name: League Game Widget
  * Description: Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Fetches live data from Google Sheets CSV. Supports per-club passphrase authentication, two-party scorecard confirmation, photo/Excel parsing via AI, player appearance tracking, sponsor branding, and animated cup bracket draws.
- * Version: 2026.31.1
+ * Version: 2026.31.2
  * Author: dbinterz
  * Plugin URI: https://github.com/dbinterz/lgw-division-widget
  * GitHub Plugin URI: https://github.com/dbinterz/lgw-division-widget
@@ -11,7 +11,7 @@
  */
 
 define('LGW_PLUGIN_FILE', __FILE__);
-define('LGW_VERSION', '2026.31.1');
+define('LGW_VERSION', '2026.31.2');
 define('LGW_SETUP_PAGE', 'lgw-league-setup'); // page slug for League Setup admin page
 
 
@@ -791,6 +791,83 @@ function lgw_ajax_save_concession() {
         'conceding_team' => $conceding_team,
         'scorecard_id'   => $post_id,
     ));
+}
+
+// ── Force-clear concession (orphan recovery) ─────────────────────────────────
+// The normal clear path is keyed on home||away||date. If a fixture is postponed
+// and rescheduled, the row's date changes so the modal's computed key no longer
+// matches the concession's stored key (original date), leaving the overlay,
+// auto-created 50-0 scorecard and score override orphaned with no UI to clear
+// them. This handler matches by team names across ALL dates and wipes every
+// concession artifact for the pair.
+add_action('wp_ajax_lgw_force_clear_concession', 'lgw_ajax_force_clear_concession');
+function lgw_ajax_force_clear_concession() {
+    check_ajax_referer('lgw_submit_nonce', 'nonce');
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Not authorised');
+    }
+
+    $home_raw = sanitize_text_field(wp_unslash($_POST['home'] ?? ''));
+    $away_raw = sanitize_text_field(wp_unslash($_POST['away'] ?? ''));
+    $division = sanitize_text_field(wp_unslash($_POST['division'] ?? ''));
+    if (!$home_raw || !$away_raw) {
+        wp_send_json_error('Missing fixture details');
+    }
+
+    $prefix  = strtolower($home_raw) . '||' . strtolower($away_raw) . '||';
+    $removed = array();
+
+    // 1. Overlay entries for this pair (any date)
+    $map = lgw_get_concessions();
+    foreach ($map as $k => $v) {
+        if (strpos($k, $prefix) === 0) {
+            unset($map[$k]);
+            $removed['concessions'][] = $k;
+        }
+    }
+    update_option('lgw_concessions', $map);
+
+    // 2. Auto-created concession scorecards for this pair (any date)
+    $cards = get_posts(array(
+        'post_type'      => 'lgw_scorecard',
+        'post_status'    => 'any',
+        'posts_per_page' => -1,
+        'fields'         => 'ids',
+        'meta_query'     => array(
+            array('key' => 'lgw_sc_concession', 'value' => '1'),
+        ),
+    ));
+    foreach ($cards as $cid) {
+        $mk = get_post_meta($cid, 'lgw_match_key', true);
+        if (is_string($mk) && strpos($mk, $prefix) === 0) {
+            wp_update_post(array('ID' => $cid, 'post_status' => 'trash'));
+            $removed['scorecards'][] = $cid;
+        }
+    }
+
+    // 3. Score overrides for this pair (any date/csv_url)
+    $overrides = lgw_get_option_array('lgw_score_overrides');
+    $changed   = false;
+    foreach ($overrides as $ok => $ov) {
+        if (strcasecmp($ov['home'] ?? '', $home_raw) === 0
+         && strcasecmp($ov['away'] ?? '', $away_raw) === 0) {
+            unset($overrides[$ok]);
+            $changed = true;
+            $removed['overrides'][] = $ok;
+        }
+    }
+    if ($changed) update_option('lgw_score_overrides', $overrides);
+
+    // 4. Wipe the cached fixture back to unplayed
+    if (function_exists('lgw_cache_wipe_fixture_result')) {
+        $season_id = function_exists('lgw_get_active_season_id') ? lgw_get_active_season_id() : '';
+        if ($season_id && $division) {
+            lgw_cache_wipe_fixture_result($home_raw, $away_raw, $season_id, $division);
+            $removed['cache_wiped'] = true;
+        }
+    }
+
+    wp_send_json_success(array('action' => 'force_clear', 'removed' => $removed));
 }
 
 // ── Null & Void ──────────────────────────────────────────────────────────────

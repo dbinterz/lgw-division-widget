@@ -108,6 +108,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.2]
+### Fixed
+- **Orphaned concessions could not be cleared from the fixture modal.** The normal concession clear path is keyed on `home||away||date`; postponing + rescheduling a conceded fixture changes the row date, so the modal's computed key no longer matched the concession's stored key (original date). Result: the overlay entry (`lgw_concessions`), auto-created 50-0 scorecard (`lgw_sc_concession=1`), score override (`lgw_score_overrides`) and cached fixture were stranded with no UI to remove them (e.g. a phantom confirmed result showing 0-0).
+### Added
+- **Force-clear concession** admin button in the fixture modal (played and unplayed views). New AJAX `lgw_force_clear_concession` (nonce `lgw_submit_nonce`, `manage_options`) matches by team names across **all** dates and wipes every concession artifact for the pair — overlay entries, concession scorecards, score overrides — then wipes the cached fixture back to unplayed. Idempotent; page reloads on success.
+
 ## [2026.31.1]
 ### Added
 - **Conditions of Play tab** on `[lgw_finals]` (📜). A fourth tab beside competition / date / scoreboard rendering admin-editable rich text, stored **per season** as option `lgw_finals_conditions_<season>` and seeded from `lgw_finals_conditions_default()` (IBA Championships Stage 1 & 2 Conditions of Play 2026). Admins get an inline edit toggle → textarea → AJAX `lgw_finals_save_conditions` (nonce `lgw_finals_nonce`, `manage_options`, `wp_kses` against `lgw_finals_conditions_allowed_html()` — `h3/h4/p/ul/ol/li/strong/em/a` etc.). Tab choice persists in `localStorage` alongside the existing sort.
