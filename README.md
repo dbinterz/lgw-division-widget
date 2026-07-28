@@ -108,6 +108,12 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.4]
+### Added
+- **Common championship engine abstraction.** New module `lgw-champ-engine.php` introduces the `LGW_Champ_Engine` interface with two adapters — `LGW_Gchamp_Engine` (new group-knockout store `lgw_gchamp_<id>`) and `LGW_Champ_Engine_Legacy` (section-bracket store `lgw_champ_<id>`) — plus a resolver `lgw_champ_engine($id)`, `lgw_champ_engine_list()` and shared `lgw_champ_engine_norm()`. Callers speak one vocabulary (`exists`/`get`/`draw_started`/`append_entry`/`remove_entry`/`list`) and never branch on the storage back-end. Adding a future engine = one new class, zero caller edits.
+### Changed
+- **Entry form now supports the legacy champ engine, not just gchamp.** `lgw-entry.php` was hard-wired to `lgw_gchamp_*`; the real NIPGL championships run on the legacy `lgw_champ_*` engine, so `[lgw_champ_entry champ="..."]` returned "Championship not found" for all of them (#28). `lgw_entry_get_champ()`, `lgw_entry_project()`, `lgw_entry_unproject()`, `lgw_entry_norm()` and the admin championship picker now route through `lgw-champ-engine.php`. Legacy engine: appends to `entries[]` pre-draw only (draw-started detected via `section_*_draw_version` / `*_draw_in_progress` / `final_*`); sections are **not** rebuilt on append (the champ draw step rebuilds from `entries[]`, and `lgw_champ_build_sections()` shuffles); no preferences (old engine has none). `lgw-champ.php`/`lgw-gchamp.php` are unchanged — the adapters wrap their storage from outside.
+
 ## [2026.31.3]
 ### Added
 - **Championship entry form + ledger.** New module `lgw-entry.php` introduces the `lgw_entry` CPT (the ledger: players, club, discipline, status `pending_payment|paid|confirmed|withdrawn|refunded`, amount, payment ref, audit log) and the `[lgw_champ_entry champ="..."]` front-end shortcode. Players self-enter (login-gated) instead of an admin pasting into the gchamp textarea. A confirmed/paid entry is **projected** into the existing `lgw_gchamp_<id>.entries[]` (+ `entry_preferences` keyed by the entry string) by `lgw_entry_project()`, so the draw/bracket engine is untouched. Pre-draw only; post-draw entries are flagged for manual placement.
