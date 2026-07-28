@@ -2,3 +2,6 @@
 /*.csv
 /*.zip
 /*.pdf
+
+# PHPUnit local cache
+tests/.phpunit.result.cache

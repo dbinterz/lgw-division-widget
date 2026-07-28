@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.31.2
+Stable tag: 2026.31.3
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.3 =
+* New: Championship entry form. Players can now self-enter championships (or approved club admins can enter on their behalf) via the `[lgw_champ_entry champ="..."]` shortcode, instead of an admin hand-pasting entries into the textarea. Each entry becomes a structured ledger record (status, amount, payment reference, audit trail) and a confirmed/paid entry is projected into the existing championship draw automatically — the draw/bracket engine is unchanged.
+* New: Per-club entry policy (Clubs screen) — some clubs can allow players to self-enter while others restrict entry to approved club administrators. A league-wide default and per-championship override are also available.
+* New: Optional online entry payment via Stripe Checkout. When a championship has an entry fee, entrants are taken to secure hosted checkout and the entry is confirmed automatically on payment (webhook-verified). Free entries are confirmed immediately, and admins can mark entries paid offline as a fallback. Admins manage entries, fees, deadlines and capacity from a new LGW → Entries screen.
 
 = 2026.31.2 =
 * Fixed: concessions could become stranded with no way to clear them from the fixture modal. When a conceded fixture was postponed and rescheduled, the row's date changed so the modal could no longer match the concession (which was keyed to the original date) — leaving an orphaned 50-0 scorecard, score override and cached result behind (e.g. showing a phantom result with no score). Added an admin "Force-clear concession" button in the fixture modal that removes every concession artifact for the fixture across all dates (overlay entry, auto-created scorecard, score overrides and cached result).
