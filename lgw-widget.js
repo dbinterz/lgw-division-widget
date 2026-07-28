@@ -1,4 +1,4 @@
-/* LGW Division Widget JS - v5.6 */
+/* LGW Division Widget JS - v2026.31.2 */
 (function(){
   'use strict';
 
@@ -1747,18 +1747,30 @@ function getTeamShape(team){
       var pdKeyFx = (home+'||'+away+'||'+date).toLowerCase();
       var ceFx    = concessions[pdKeyFx] || null;
       var concessionFxPanel = '';
-      if(effectiveAdmin && ceFx){
-        var concedingNameFx = ceFx.conceding_team === 'home' ? home : away;
-        concessionFxPanel =
-          '<div class="lgw-concede-panel" id="lgw-concede-panel">'
-          +'<div class="lgw-conceded-notice" style="margin-bottom:8px">'
-          +'<span class="fx-conceded-pill" style="font-size:13px;padding:4px 14px">'
-          +'&#x1F3F3;&#xFE0F; Conceded by <strong>'+concedingNameFx+'</strong></span></div>'
-          +'<div style="display:flex;gap:8px;margin-bottom:8px">'
-          +'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-clear">&#x274C; Clear concession</button>'
-          +'</div>'
-          +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
-          +'</div>';
+      if(effectiveAdmin){
+        var forceBtnFx = '<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-force"'
+          +' title="Remove any orphaned concession, override or 50-0 scorecard for this fixture across all dates (recovery for postponed/rescheduled fixtures)">&#x1F9F9; Force-clear concession</button>';
+        if(ceFx){
+          var concedingNameFx = ceFx.conceding_team === 'home' ? home : away;
+          concessionFxPanel =
+            '<div class="lgw-concede-panel" id="lgw-concede-panel">'
+            +'<div class="lgw-conceded-notice" style="margin-bottom:8px">'
+            +'<span class="fx-conceded-pill" style="font-size:13px;padding:4px 14px">'
+            +'&#x1F3F3;&#xFE0F; Conceded by <strong>'+concedingNameFx+'</strong></span></div>'
+            +'<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
+            +'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-clear">&#x274C; Clear concession</button>'
+            +forceBtnFx
+            +'</div>'
+            +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+            +'</div>';
+        } else {
+          // No concession keyed to this date — offer force-clear for orphan recovery only.
+          concessionFxPanel =
+            '<div class="lgw-concede-panel" id="lgw-concede-panel">'
+            +'<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'+forceBtnFx+'</div>'
+            +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
+            +'</div>';
+        }
       }
 
       var nvFx = nullVoids[pdKeyFx] || null;
@@ -1859,9 +1871,10 @@ function getTeamShape(team){
           +'<input type="radio" name="lgw-concede-side" id="lgw-concede-away" value="away"'+(concedingSide2==='away'?' checked':'')+'>'+away+'</label>'
           +'</div>'
           +'<p style="font-size:12px;color:#888;margin:6px 0 8px" id="lgw-concede-note">'+(isConceded2?'':'Penalty: winner receives <strong>'+maxPts+' pts</strong> and a 50–0 victory; conceding team loses <strong>'+maxPts+' pts</strong>.')+'</p>'
-          +'<div style="display:flex;gap:8px;">'
+          +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
           +'<button class="lgw-btn lgw-btn-primary lgw-btn-sm" id="lgw-concede-save">Save</button>'
           +(isConceded2?'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-clear">&#x274C; Clear concession</button>':'')
+          +'<button class="lgw-btn lgw-btn-secondary lgw-btn-sm" id="lgw-concede-force" title="Remove any orphaned concession, override or 50-0 scorecard for this fixture across all dates (recovery for postponed/rescheduled fixtures)">&#x1F9F9; Force-clear</button>'
           +'</div>'
           +'<p id="lgw-concede-status" class="lgw-notice" style="display:none;margin-top:6px"></p>'
           +'</div>';
@@ -2080,6 +2093,40 @@ function getTeamShape(team){
         };
         xhr.send(fd);
       }
+
+      // Force-clear (orphan recovery): matches by team names across all dates,
+      // wipes overlay + override + 50-0 scorecard + cache, then reloads.
+      var forceBtn = document.getElementById('lgw-concede-force');
+      if(forceBtn) forceBtn.addEventListener('click', function(){
+        if(!confirm('Force-clear ALL concession data for '+home+' v '+away+'?\n\n'
+          +'This removes the concession overlay, any auto-created 50‑0 scorecard, '
+          +'score overrides and the cached result — across every date. Use this to '
+          +'recover a fixture stranded after a postponement/reschedule.\n\nContinue?')) return;
+        forceBtn.disabled = true; forceBtn.textContent = '⏳';
+        var fd = new FormData();
+        fd.append('action',   'lgw_force_clear_concession');
+        fd.append('nonce',    (typeof lgwData !== 'undefined' ? lgwData.scNonce : ''));
+        fd.append('home',     home);
+        fd.append('away',     away);
+        fd.append('division', division || '');
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', (typeof lgwData !== 'undefined' ? lgwData.ajaxUrl : '/wp-admin/admin-ajax.php'));
+        xhr.onload = function(){
+          var r; try { r = JSON.parse(xhr.responseText || '{}'); } catch(e){ r = {}; }
+          if(r.success){
+            showPostponeStatus(statusEl, '✅ Cleared — reloading…', 'success');
+            setTimeout(function(){ location.reload(); }, 600);
+          } else {
+            forceBtn.disabled = false; forceBtn.textContent = '🧹 Force-clear concession';
+            showPostponeStatus(statusEl, '❌ ' + (r.data || 'Force-clear failed'), 'error');
+          }
+        };
+        xhr.onerror = function(){
+          forceBtn.disabled = false; forceBtn.textContent = '🧹 Force-clear concession';
+          showPostponeStatus(statusEl, '❌ Network error', 'error');
+        };
+        xhr.send(fd);
+      });
 
       // Bind buttons — clear-only in no-checkbox mode, full set in normal mode
       if(clearBtn) clearBtn.addEventListener('click', function(){ doSave('clear'); });
