@@ -42,7 +42,15 @@ const LGW_ENTRY_META_PAYREF     = 'lgw_entry_payment_ref';
 const LGW_ENTRY_META_BY         = 'lgw_entry_submitted_by';
 const LGW_ENTRY_META_CREATED    = 'lgw_entry_created';
 const LGW_ENTRY_META_UPDATED    = 'lgw_entry_updated';
-const LGW_ENTRY_META_PROJECTED  = 'lgw_entry_projected';  // '1' once written into gchamp entries[]
+const LGW_ENTRY_META_PROJECTED  = 'lgw_entry_projected';  // '1' once written into the championship entries[]
+
+// Hard dependency: the championship-engine abstraction (lgw-champ-engine.php).
+// The module loader loads it before this file; require defensively so the
+// projection layer is always available regardless of load context (and so unit
+// tests can load lgw-entry.php standalone).
+if ( ! function_exists( 'lgw_champ_engine' ) && file_exists( __DIR__ . '/lgw-champ-engine.php' ) ) {
+	require_once __DIR__ . '/lgw-champ-engine.php';
+}
 
 // ── CPT: the ledger (mirrors lgw_scorecard) ──────────────────────────────────
 add_action( 'init', 'lgw_entry_register_cpt' );
@@ -78,6 +86,12 @@ function lgw_entry_player_count( $discipline ) {
 function lgw_entry_get_champ( $champ_id ) {
 	$champ_id = sanitize_key( $champ_id );
 	if ( $champ_id === '' ) return false;
+	// Engine-agnostic: resolves gchamp or legacy champ (lgw-champ-engine.php).
+	if ( function_exists( 'lgw_champ_engine' ) ) {
+		$engine = lgw_champ_engine( $champ_id );
+		return $engine ? ( $engine->get( $champ_id ) ?: false ) : false;
+	}
+	// Fallback if the engine module is absent — gchamp only.
 	$champ = get_option( 'lgw_gchamp_' . $champ_id, array() );
 	return ( is_array( $champ ) && isset( $champ['title'] ) ) ? $champ : false;
 }
@@ -229,8 +243,9 @@ function lgw_entry_is_duplicate( $champ_id, $entry_string ) {
 	return false;
 }
 
-/** Normalise an entry string for comparison (delegates to gchamp's normaliser when present). */
+/** Normalise an entry string for comparison (shared with the champ-engine layer). */
 function lgw_entry_norm( $s ) {
+	if ( function_exists( 'lgw_champ_engine_norm' ) ) return lgw_champ_engine_norm( $s );
 	if ( function_exists( 'lgw_gchamp_norm_entry' ) ) return strtolower( lgw_gchamp_norm_entry( $s ) );
 	return strtolower( preg_replace( '/\s+/', ' ', trim( (string) $s ) ) );
 }
@@ -248,77 +263,46 @@ function lgw_entry_project( $entry_id ) {
 	$string   = get_post_meta( $entry_id, LGW_ENTRY_META_STRING, true );
 	if ( ! $champ_id || ! $string ) return new WP_Error( 'lgw_entry', 'Entry is missing champ or string.' );
 
-	$opt   = 'lgw_gchamp_' . sanitize_key( $champ_id );
-	$champ = get_option( $opt, array() );
-	if ( ! is_array( $champ ) || ! isset( $champ['title'] ) ) return new WP_Error( 'lgw_entry', 'Championship not found.' );
+	$engine = lgw_champ_engine( $champ_id );
+	if ( ! $engine ) return new WP_Error( 'lgw_entry', 'Championship not found.' );
 
-	if ( ! empty( $champ['draw_complete'] ) ) {
-		// Draw already run — appending would require a re-draw (wipes scores).
-		update_post_meta( $entry_id, LGW_ENTRY_META_PROJECTED, 'needs_placement' );
-		lgw_audit_log( $entry_id, 'project_deferred', 'Draw already complete — needs manual placement by an admin.' );
-		return true;
-	}
+	$prefs = get_post_meta( $entry_id, LGW_ENTRY_META_PREFS, true );
+	$res   = $engine->append_entry( $champ_id, $string, is_array( $prefs ) ? $prefs : array() );
 
-	$norm    = lgw_entry_norm( $string );
-	$entries = $champ['entries'] ?? array();
-	foreach ( $entries as $e ) {
-		if ( lgw_entry_norm( $e ) === $norm ) { // already present — mark projected, done
-			update_post_meta( $entry_id, LGW_ENTRY_META_PROJECTED, '1' );
+	if ( is_wp_error( $res ) ) {
+		if ( $res->get_error_code() === 'draw_started' ) {
+			// Draw already run — appending would require a re-draw (wipes scores).
+			update_post_meta( $entry_id, LGW_ENTRY_META_PROJECTED, 'needs_placement' );
+			lgw_audit_log( $entry_id, 'project_deferred', 'Draw already started — needs manual placement by an admin.' );
 			return true;
 		}
-	}
-	$entries[]         = $string;
-	$champ['entries']  = array_values( $entries );
-
-	// Preferences — key by the entry STRING, only fields the champ collects.
-	$prefs = get_post_meta( $entry_id, LGW_ENTRY_META_PREFS, true );
-	if ( is_array( $prefs ) && ! empty( $prefs ) ) {
-		$allowed = $champ['preference_fields'] ?? array();
-		$store   = array();
-		foreach ( array( 'date', 'location' ) as $f ) {
-			if ( in_array( $f, $allowed, true ) && ! empty( $prefs[ $f ] ) ) $store[ $f ] = $prefs[ $f ];
-		}
-		if ( $store ) {
-			$champ['entry_preferences']            = $champ['entry_preferences'] ?? array();
-			$champ['entry_preferences'][ $string ] = $store;
-		}
+		return $res;
 	}
 
-	update_option( $opt, $champ );
 	update_post_meta( $entry_id, LGW_ENTRY_META_PROJECTED, '1' );
-	lgw_audit_log( $entry_id, 'projected', 'Added "' . $string . '" to ' . $champ_id . ' entries.' );
+	lgw_audit_log( $entry_id, 'projected', 'Added "' . $string . '" to ' . $champ_id . ' (' . $engine->name() . ') entries.' );
 	return true;
 }
 
 /**
  * Remove an entry-string from its championship's entries[] (+ preferences).
- * Pre-draw only; post-draw removal must go through the gchamp withdraw handler.
+ * Pre-draw only; post-draw removal must go through the championship's own tool.
  */
 function lgw_entry_unproject( $entry_id ) {
 	$champ_id = get_post_meta( $entry_id, LGW_ENTRY_META_CHAMP, true );
 	$string   = get_post_meta( $entry_id, LGW_ENTRY_META_STRING, true );
 	if ( ! $champ_id || ! $string ) return;
 
-	$opt   = 'lgw_gchamp_' . sanitize_key( $champ_id );
-	$champ = get_option( $opt, array() );
-	if ( ! is_array( $champ ) ) return;
+	$engine = lgw_champ_engine( $champ_id );
+	if ( ! $engine ) return;
 
-	if ( ! empty( $champ['draw_complete'] ) ) {
-		lgw_audit_log( $entry_id, 'unproject_deferred', 'Draw complete — remove via the championship’s withdraw tool.' );
-		update_post_meta( $entry_id, LGW_ENTRY_META_PROJECTED, '0' );
+	$res = $engine->remove_entry( $champ_id, $string );
+	update_post_meta( $entry_id, LGW_ENTRY_META_PROJECTED, '0' );
+
+	if ( is_wp_error( $res ) ) {
+		lgw_audit_log( $entry_id, 'unproject_deferred', 'Draw started — remove via the championship’s withdraw tool.' );
 		return;
 	}
-
-	$norm = lgw_entry_norm( $string );
-	if ( isset( $champ['entries'] ) && is_array( $champ['entries'] ) ) {
-		$champ['entries'] = array_values( array_filter( $champ['entries'], function ( $e ) use ( $norm ) {
-			return lgw_entry_norm( $e ) !== $norm;
-		} ) );
-	}
-	if ( isset( $champ['entry_preferences'][ $string ] ) ) unset( $champ['entry_preferences'][ $string ] );
-
-	update_option( $opt, $champ );
-	update_post_meta( $entry_id, LGW_ENTRY_META_PROJECTED, '0' );
 	lgw_audit_log( $entry_id, 'unprojected', 'Removed "' . $string . '" from ' . $champ_id . ' entries.' );
 }
 
@@ -865,15 +849,9 @@ function lgw_entry_admin_page() {
 	$champ_id = sanitize_key( $_GET['champ'] ?? '' );
 	echo '<div class="wrap"><h1>Championship Entries</h1>';
 
-	// Championship picker (SQL scan, same pattern as lgw_gchamp_list_section).
-	global $wpdb;
-	$rows    = $wpdb->get_results( "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'lgw_gchamp_%' ORDER BY option_name" );
-	$champs  = array();
-	foreach ( $rows as $r ) {
-		$id  = substr( $r->option_name, strlen( 'lgw_gchamp_' ) );
-		$val = maybe_unserialize( $r->option_value );
-		if ( is_array( $val ) && isset( $val['title'] ) ) $champs[ $id ] = $val['title'];
-	}
+	// Championship picker — every engine (gchamp + legacy champ), via the adapter.
+	$champs = array();
+	foreach ( lgw_champ_engine_list() as $row ) $champs[ $row['id'] ] = $row['title'];
 
 	echo '<p><label>Championship: <select onchange="location.href=this.value">';
 	echo '<option value="' . esc_url( admin_url( 'admin.php?page=lgw-entries' ) ) . '">— choose —</option>';
