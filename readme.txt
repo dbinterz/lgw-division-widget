@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.31.4
+Stable tag: 2026.31.5
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,10 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.5 =
+* New: Bulk championship entry for club administrators. A new `[lgw_champ_bulk_entry champ="..."]` shortcode lets an approved club administrator enter their whole club's entrants at once — one per line (or comma-separated for singles), with the players in a team event separated by "/" (e.g. "A Smith / B Jones" for a pair). Duplicates and unreadable lines are skipped and reported back. When the championship has a fee, the whole batch is paid in a single secure Stripe checkout.
+* New: Player-list validation with a capitation warning. When someone enters, any name not found in that club's tracked player list is flagged back to the entrant — "unregistered players may affect your club's capitation fees" — so spelling mistakes and unregistered players are caught at entry. The warning never blocks the entry.
 
 = 2026.31.4 =
 * New: Championship entry forms now work for BOTH championship systems. The entry form previously only recognised championships built with the newer group-knockout system; it now also serves the long-standing section-bracket championships (Singles, Pairs, Fours, etc.), so `[lgw_champ_entry champ="..."]` works for every championship. Behaviour is identical: free entries confirm immediately, and confirmed entries appear in the championship's entry list automatically before the draw is run. Entries received after the draw has started are flagged for manual placement rather than reshaping the draw.

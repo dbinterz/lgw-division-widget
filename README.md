@@ -108,6 +108,11 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.5]
+### Added
+- **Bulk club entry (club admins only).** New `[lgw_champ_bulk_entry champ="..."]` shortcode + `lgw_entry_bulk_submit` AJAX. `lgw_entry_parse_bulk()` parses a textarea: entries newline-separated (singles also comma-separated); team members within an entry separated by `/` → mapped to the canonical `A & B, Club` via `lgw_entry_build_string()`. Gated by `lgw_entry_user_may_bulk()` (approved club admin via `lgw_user_can_submit_for()`, or `manage_options`); the club picker only lists clubs the user administers. Duplicates and wrong-member-count lines are skipped and reported. Free champs confirm + project immediately; **paid champs use one combined Stripe Checkout for the whole batch** — `lgw_entry_stripe_create_batch_session()` (one line-item per entry, tagged with a `lgw_entry_batch` id), and `lgw_entry_stripe_webhook_finish_batch()` confirms every pending row in the batch together after re-verifying the paid total against the **sum** of the batch's ledger amounts (idempotent, client-amount never trusted).
+- **Player-list validation / capitation warning.** `lgw_entry_unknown_players()` checks each entered name against the club's tracked players (`lgw_players` table, matched via `lgw_clean_player_name()`); unmatched names are returned to the entrant as a non-blocking warning ("unregistered players may affect your club's capitation fees") and audit-logged on the entry. Applies to both single and bulk entry. Degrades to a no-op if the players module is absent, so it never blocks entry.
+
 ## [2026.31.4]
 ### Added
 - **Common championship engine abstraction.** New module `lgw-champ-engine.php` introduces the `LGW_Champ_Engine` interface with two adapters — `LGW_Gchamp_Engine` (new group-knockout store `lgw_gchamp_<id>`) and `LGW_Champ_Engine_Legacy` (section-bracket store `lgw_champ_<id>`) — plus a resolver `lgw_champ_engine($id)`, `lgw_champ_engine_list()` and shared `lgw_champ_engine_norm()`. Callers speak one vocabulary (`exists`/`get`/`draw_started`/`append_entry`/`remove_entry`/`list`) and never branch on the storage back-end. Adding a future engine = one new class, zero caller edits.
