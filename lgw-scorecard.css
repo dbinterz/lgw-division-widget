@@ -128,6 +128,19 @@
 .lgw-ca-box select:focus,.lgw-ca-box textarea:focus{outline:none;border-color:#1a2e5a}
 .lgw-ca-box .lgw-hint{font-size:12px;color:#667 !important;margin-top:4px}
 
+/* ── Championship entry forms ([lgw_champ_entry] / [lgw_champ_bulk_entry]) ─────── */
+/* Content-page cards that sit on the site's normal (light) background. Pin the
+   light palette so browser/OS dark-mode doesn't flip only the card to #1e1e2e —
+   a harsh dark panel against a white page, with our grey helper text unreadable.
+   Same reasoning as .lgw-ca-box above. */
+.lgw-entry-card.lgw-submit-card{background:#fff !important;color:#1a2e5a !important;font-family:'Saira',Arial,sans-serif}
+.lgw-entry-card,.lgw-entry-card input,.lgw-entry-card select,.lgw-entry-card textarea,.lgw-entry-card button,.lgw-entry-card legend{font-family:'Saira',Arial,sans-serif}
+.lgw-entry-card h3{color:#1a2e5a !important}
+.lgw-entry-card p,.lgw-entry-card small,.lgw-entry-card legend span{color:inherit}
+.lgw-entry-card .lgw-form-row label{color:#1a2e5a !important}
+.lgw-entry-card input,.lgw-entry-card select,.lgw-entry-card textarea{background:#fff !important;color:#1a2e5a !important;border-color:#d0d5e8 !important}
+.lgw-entry-card .lgw-bulk-comp{border-color:#e2e2e2 !important}
+
 /* ── Mobile ──────────────────────────────────────────────────────────────────── */
 @media(max-width:480px){
   .lgw-submit-card{padding:16px}
