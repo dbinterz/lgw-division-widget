@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.31.6
+Stable tag: 2026.31.7
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,11 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.7 =
+* Improved: Bulk entry now covers multiple competitions at once. The `[lgw_champ_bulk_entry]` shortcode accepts a list of championships (e.g. `champ="singles,pairs,fours"`) and shows a single form — you pick your club ONCE, enter each competition's entrants in its own box, and submit everything with one "Enter & pay" button. All paid entries across every competition go into a SINGLE secure Stripe checkout — one payment for the whole club, instead of a separate charge per competition. Free competitions confirm immediately; blank competitions are skipped. A single-championship shortcode still works exactly as before.
+* New: Live running total on the bulk entry form. As you type, each competition shows its entry count and subtotal, and a basket line totals the fees across every competition — the "Enter & pay" button shows the exact amount (e.g. "Enter & pay £43.00") before you check out.
+* Fixed: Championship entry forms kept a clean white card and the plugin's normal font, so they no longer flip to a harsh dark panel (or a mismatched monospace font) when your browser or device is set to dark mode.
 
 = 2026.31.6 =
 * New: Reactivate an archived season. The Seasons admin now has a "⏮ Make Active" button on each archived season. Clicking it archives the current active season and makes the chosen season active again — useful when a season was archived early or by mistake. Scorecard season tags are left untouched; front-end display, Quick Score Entry and Sheets writeback follow the reactivated season's divisions.

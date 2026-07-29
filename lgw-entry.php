@@ -29,6 +29,7 @@ const LGW_ENTRY_CPT = 'lgw_entry';
 
 // Ledger meta keys
 const LGW_ENTRY_META_CHAMP      = 'lgw_entry_champ';
+// v2026.31.7 — bulk entry supports multiple competitions in one basket / payment.
 const LGW_ENTRY_META_DISCIPLINE = 'lgw_entry_discipline';
 const LGW_ENTRY_META_PLAYERS    = 'lgw_entry_players';
 const LGW_ENTRY_META_CLUB       = 'lgw_entry_club';
@@ -404,11 +405,12 @@ function lgw_entry_shortcode( $atts ) {
 
 	// Reuse the scorecard palette (this page may carry only this shortcode).
 	if ( ! wp_style_is( 'lgw-scorecard', 'registered' ) ) {
-		wp_register_style( 'lgw-scorecard', plugin_dir_url( LGW_PLUGIN_FILE ) . 'lgw-scorecard.css', array(), LGW_VERSION );
+		wp_register_style( 'lgw-scorecard', plugin_dir_url( LGW_PLUGIN_FILE ) . 'lgw-scorecard.css', array( 'lgw-saira' ), LGW_VERSION );
 	}
+	wp_enqueue_style( 'lgw-saira', 'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null );
 	wp_enqueue_style( 'lgw-scorecard' );
 
-	$open  = '<div class="lgw-submit-card" style="max-width:520px">';
+	$open  = '<div class="lgw-submit-card lgw-entry-card" style="max-width:520px">';
 	$champ = lgw_entry_get_champ( $champ_id );
 	if ( ! $champ ) {
 		return $open . '<div class="lgw-notice lgw-notice-error">Championship not found.</div></div>';
@@ -438,7 +440,7 @@ function lgw_entry_shortcode( $atts ) {
 		: '';
 
 	ob_start(); ?>
-	<div class="lgw-submit-card" style="max-width:520px">
+	<div class="lgw-submit-card lgw-entry-card" style="max-width:520px">
 		<h3>Enter <?php echo $title; ?></h3>
 		<p style="font-size:13px;color:#555;margin:0 0 12px"><?php echo esc_html( ucfirst( $discipline ) ); ?> — enter <?php echo $n_players === 1 ? 'your name' : 'all ' . (int) $n_players . ' player names'; ?>, your club and contact email.</p>
 		<?php echo $fee_note; // phpcs:ignore ?>
@@ -716,51 +718,64 @@ function lgw_entry_bulk_clubs_for_user( $uid = null ) {
 
 add_shortcode( 'lgw_champ_bulk_entry', 'lgw_entry_bulk_shortcode' );
 function lgw_entry_bulk_shortcode( $atts ) {
-	$atts     = shortcode_atts( array( 'champ' => '' ), $atts, 'lgw_champ_bulk_entry' );
-	$champ_id = sanitize_key( $atts['champ'] );
+	// `champ` accepts a single id OR a comma/space-separated list of competitions.
+	$atts = shortcode_atts( array( 'champ' => '' ), $atts, 'lgw_champ_bulk_entry' );
 
 	if ( ! wp_style_is( 'lgw-scorecard', 'registered' ) ) {
-		wp_register_style( 'lgw-scorecard', plugin_dir_url( LGW_PLUGIN_FILE ) . 'lgw-scorecard.css', array(), LGW_VERSION );
+		wp_register_style( 'lgw-scorecard', plugin_dir_url( LGW_PLUGIN_FILE ) . 'lgw-scorecard.css', array( 'lgw-saira' ), LGW_VERSION );
 	}
+	wp_enqueue_style( 'lgw-saira', 'https://fonts.googleapis.com/css2?family=Saira:wght@400;600;700&display=swap', array(), null );
 	wp_enqueue_style( 'lgw-scorecard' );
 
-	$open  = '<div class="lgw-submit-card" style="max-width:560px">';
-	$champ = lgw_entry_get_champ( $champ_id );
-	if ( ! $champ ) return $open . '<div class="lgw-notice lgw-notice-error">Championship not found.</div></div>';
-	$title = esc_html( $champ['title'] );
+	$open = '<div class="lgw-submit-card lgw-entry-card" style="max-width:560px">';
+
+	// Resolve the requested competitions (de-duped, order preserved).
+	$champs = array();
+	foreach ( preg_split( '/[,\s]+/', (string) $atts['champ'] ) as $raw ) {
+		$id = sanitize_key( $raw );
+		if ( $id === '' || isset( $champs[ $id ] ) ) continue;
+		$c = lgw_entry_get_champ( $id );
+		if ( $c ) $champs[ $id ] = $c;
+	}
+	if ( empty( $champs ) ) return $open . '<div class="lgw-notice lgw-notice-error">Championship not found.</div></div>';
+
+	$first   = reset( $champs );
+	$heading = count( $champs ) === 1 ? 'Bulk entry — ' . esc_html( $first['title'] ) : 'Bulk entry';
 
 	if ( ! is_user_logged_in() ) {
-		return $open . '<h3>Bulk entry — ' . $title . '</h3><p>Please log in as a club administrator to enter.</p>'
+		return $open . '<h3>' . $heading . '</h3><p>Please log in as a club administrator to enter.</p>'
 			. '<p><a class="lgw-btn lgw-btn-primary" href="' . esc_url( wp_login_url( get_permalink() ) ) . '">Log in</a></p></div>';
 	}
 
 	$clubs = lgw_entry_bulk_clubs_for_user();
 	if ( empty( $clubs ) ) {
-		return $open . '<h3>Bulk entry — ' . $title . '</h3>'
+		return $open . '<h3>' . $heading . '</h3>'
 			. '<div class="lgw-notice lgw-notice-info">Bulk entry is for approved club administrators. Your account is not an administrator for any club — please use the standard entry form, or contact the league office.</div></div>';
 	}
 
-	list( $win_open, $win_reason ) = lgw_entry_window( $champ_id );
-	if ( ! $win_open ) {
-		return $open . '<h3>Bulk entry — ' . $title . '</h3><div class="lgw-notice lgw-notice-info">' . esc_html( $win_reason ) . '</div></div>';
+	// Keep only competitions whose entry window is open; remember why the rest are closed.
+	$openable = array();
+	$closed   = array();
+	foreach ( $champs as $id => $c ) {
+		list( $wo, $wr ) = lgw_entry_window( $id );
+		if ( $wo ) $openable[ $id ] = $c; else $closed[ $id ] = $wr;
+	}
+	if ( empty( $openable ) ) {
+		$reason = count( $champs ) === 1 ? reset( $closed ) : 'Entries are not open for these championships.';
+		return $open . '<h3>' . $heading . '</h3><div class="lgw-notice lgw-notice-info">' . esc_html( $reason ) . '</div></div>';
 	}
 
-	$cfg        = lgw_entry_cfg( $champ_id );
-	$discipline = $champ['discipline'] ?? 'singles';
-	$need       = lgw_entry_player_count( $discipline );
-	$nonce      = wp_create_nonce( 'lgw_entry_submit' );
-	$placeholder = $need === 1
-		? "One name per line (or comma-separated):\nA Smith\nB Jones\nC McKee"
-		: "One team per line, players separated by \"/\":\nA Smith / B Jones\nC McKee / D Watt";
-	$fee_note = $cfg['fee'] > 0
-		? '<div class="lgw-notice lgw-notice-info">Entry fee: <strong>' . esc_html( lgw_entry_format_money( $cfg['fee'], $cfg['currency'] ) ) . '</strong> per entry — you will be taken to a single secure checkout for the whole batch after submitting.</div>'
-		: '';
+	$nonce   = wp_create_nonce( 'lgw_entry_submit' );
+	$any_fee = false;
+	foreach ( $openable as $id => $c ) { if ( lgw_entry_cfg( $id )['fee'] > 0 ) { $any_fee = true; break; } }
 
 	ob_start(); ?>
-	<div class="lgw-submit-card" style="max-width:560px">
-		<h3>Bulk entry — <?php echo $title; ?></h3>
-		<p style="font-size:13px;color:#555;margin:0 0 12px"><?php echo esc_html( ucfirst( $discipline ) ); ?> — enter your club's entrants, one per line.<?php if ( $need > 1 ) echo ' Separate the ' . (int) $need . ' players in each entry with "/".'; ?></p>
-		<?php echo $fee_note; // phpcs:ignore ?>
+	<div class="lgw-submit-card lgw-entry-card" style="max-width:560px">
+		<h3><?php echo $heading; ?></h3>
+		<p style="font-size:13px;color:#555;margin:0 0 12px">Enter your club's entrants for <?php echo count( $openable ) === 1 ? 'this competition' : 'each competition'; ?>, one per line. Leave a competition blank to skip it.</p>
+		<?php if ( $any_fee ) : ?>
+			<div class="lgw-notice lgw-notice-info">Fees are shown per competition below. You'll be taken to a <strong>single secure checkout</strong> covering every paid entry in one payment.</div>
+		<?php endif; ?>
 		<form id="lgw-bulk-form">
 			<div class="lgw-form-row">
 				<label for="lgw-bulk-club">Club</label>
@@ -768,29 +783,94 @@ function lgw_entry_bulk_shortcode( $atts ) {
 					<?php foreach ( $clubs as $c ) printf( '<option value="%s">%s</option>', esc_attr( $c ), esc_html( $c ) ); ?>
 				</select>
 			</div>
-			<div class="lgw-form-row">
-				<label for="lgw-bulk-entries">Entrants</label>
-				<textarea id="lgw-bulk-entries" name="entries" rows="8" required placeholder="<?php echo esc_attr( $placeholder ); ?>" style="width:100%;font-family:monospace"></textarea>
-			</div>
+			<?php foreach ( $openable as $id => $c ) :
+				$disc   = $c['discipline'] ?? 'singles';
+				$need   = lgw_entry_player_count( $disc );
+				$fcfg   = lgw_entry_cfg( $id );
+				$feetxt = $fcfg['fee'] > 0 ? lgw_entry_format_money( $fcfg['fee'], $fcfg['currency'] ) . ' per entry' : 'Free';
+				$ph     = $need === 1
+					? "One name per line (or comma-separated):\nA Smith\nB Jones\nC McKee"
+					: "One team per line, players separated by \"/\":\nA Smith / B Jones\nC McKee / D Watt";
+			?>
+			<fieldset class="lgw-bulk-comp" style="border:1px solid #e2e2e2;border-radius:6px;padding:10px 14px 12px;margin:0 0 12px">
+				<legend style="font-weight:600;padding:0 6px;font-size:13px"><?php echo esc_html( $c['title'] ); ?> <span style="font-weight:400;color:#777"> — <?php echo esc_html( ucfirst( $disc ) ); ?> · <?php echo esc_html( $feetxt ); ?></span></legend>
+				<?php if ( $need > 1 ) : ?><p style="font-size:12px;color:#777;margin:0 0 6px">Separate the <?php echo (int) $need; ?> players in each entry with "/".</p><?php endif; ?>
+				<textarea name="entries[<?php echo esc_attr( $id ); ?>]" rows="5" placeholder="<?php echo esc_attr( $ph ); ?>" style="width:100%;font-family:inherit"
+					data-champ="<?php echo esc_attr( $id ); ?>" data-fee="<?php echo (int) $fcfg['fee']; ?>" data-cur="<?php echo esc_attr( $fcfg['currency'] ); ?>" data-need="<?php echo (int) $need; ?>"></textarea>
+				<div class="lgw-bulk-sub" data-champ="<?php echo esc_attr( $id ); ?>" style="font-size:12px;color:#555;margin-top:4px;text-align:right">0 entries</div>
+			</fieldset>
+			<?php endforeach; ?>
+			<?php if ( ! empty( $closed ) ) : ?>
+				<p style="font-size:12px;color:#999;margin:-4px 0 12px">Not open for entry: <?php echo esc_html( implode( ', ', array_map( function( $id ) use ( $champs ) { return $champs[ $id ]['title']; }, array_keys( $closed ) ) ) ); ?>.</p>
+			<?php endif; ?>
 			<div class="lgw-form-row">
 				<label for="lgw-bulk-contact">Contact email</label>
 				<input type="email" id="lgw-bulk-contact" name="contact" value="<?php echo esc_attr( wp_get_current_user()->user_email ); ?>" required>
 			</div>
-			<p style="margin:0"><button type="submit" class="lgw-btn lgw-btn-primary"><?php echo $cfg['fee'] > 0 ? 'Submit &amp; pay' : 'Submit entries'; ?></button></p>
+			<?php if ( $any_fee ) : ?>
+			<div id="lgw-bulk-basket" style="border-top:1px solid #e2e2e2;margin:4px 0 12px;padding-top:10px;display:flex;justify-content:space-between;align-items:baseline">
+				<span style="color:#555;font-size:14px"><span id="lgw-bulk-count">0</span> paid entr<span id="lgw-bulk-count-suffix">ies</span> · total</span>
+				<strong id="lgw-bulk-total" style="font-size:17px;color:#1a2e5a"><?php echo esc_html( lgw_entry_format_money( 0, 'gbp' ) ); ?></strong>
+			</div>
+			<?php endif; ?>
+			<p style="margin:0"><button type="submit" class="lgw-btn lgw-btn-primary"><span id="lgw-bulk-btnlabel"><?php echo $any_fee ? 'Enter &amp; pay' : 'Enter entries'; ?></span></button></p>
 			<p id="lgw-bulk-msg" role="status" aria-live="polite" style="margin:12px 0 0"></p>
 		</form>
 	</div>
 	<script>
 	(function(){
 		var f=document.getElementById('lgw-bulk-form'); if(!f) return;
+
+		// ── Live basket: count valid entries per competition and total the fees ──
+		var SYM={gbp:'£',eur:'€',usd:'$'};
+		var DEFLABEL=<?php echo wp_json_encode( $any_fee ? 'Enter & pay' : 'Enter entries' ); ?>;
+		function money(p,cur){cur=(cur||'gbp').toLowerCase();var s=SYM[cur]||(cur.toUpperCase()+' ');return s+(p/100).toFixed(2);}
+		// Mirror lgw_entry_parse_bulk(): newline units; singles also comma-split; teams need N "/"-separated members.
+		function countEntries(txt,need){
+			var n=0;
+			txt.split(/\n/).forEach(function(line){
+				line=line.trim(); if(!line) return;
+				(need===1 ? line.split(',') : [line]).forEach(function(u){
+					if(need===1){ if(u.trim()!=='') n++; return; }
+					var mem=u.split('/').map(function(x){return x.trim();}).filter(Boolean);
+					if(mem.length===need) n++;
+				});
+			});
+			return n;
+		}
+		function recalc(){
+			var totals={}, paidCount=0;
+			f.querySelectorAll('textarea[data-champ]').forEach(function(t){
+				var fee=parseInt(t.getAttribute('data-fee'),10)||0;
+				var need=parseInt(t.getAttribute('data-need'),10)||1;
+				var cur=t.getAttribute('data-cur')||'gbp';
+				var n=countEntries(t.value,need);
+				var el=f.querySelector('.lgw-bulk-sub[data-champ="'+t.getAttribute('data-champ')+'"]');
+				if(el){ el.textContent = n+(n===1?' entry':' entries')+(fee>0?' · '+money(fee*n,cur):''); }
+				if(fee>0){ totals[cur]=(totals[cur]||0)+fee*n; paidCount+=n; }
+			});
+			var curs=Object.keys(totals);
+			var totEl=document.getElementById('lgw-bulk-total');
+			if(totEl){ totEl.textContent = curs.length ? curs.map(function(c){return money(totals[c],c);}).join(' + ') : money(0,'gbp'); }
+			var cEl=document.getElementById('lgw-bulk-count'); if(cEl) cEl.textContent=paidCount;
+			var sEl=document.getElementById('lgw-bulk-count-suffix'); if(sEl) sEl.textContent=(paidCount===1?'y':'ies');
+			var lbl=document.getElementById('lgw-bulk-btnlabel');
+			if(lbl){ lbl.textContent = (curs.length===1) ? (DEFLABEL+' '+money(totals[curs[0]],curs[0])) : DEFLABEL; }
+		}
+		f.querySelectorAll('textarea[data-champ]').forEach(function(t){ t.addEventListener('input',recalc); });
+		recalc();
+
 		f.addEventListener('submit',function(e){
 			e.preventDefault();
 			var msg=document.getElementById('lgw-bulk-msg');
+			var hasText=false;
+			f.querySelectorAll('textarea[name^="entries["]').forEach(function(t){ if(t.value.trim()!=='') hasText=true; });
+			if(!hasText){ msg.className='lgw-notice lgw-notice-error'; msg.textContent='⚠️ Please enter at least one entrant in a competition above.'; return; }
 			msg.className='lgw-notice lgw-notice-info'; msg.textContent='Submitting…';
 			var btn=f.querySelector('button[type=submit]'); if(btn) btn.disabled=true;
 			var data=new FormData(f);
 			data.append('action','lgw_entry_bulk_submit');
-			data.append('champ',<?php echo wp_json_encode( $champ_id ); ?>);
+			data.append('champs',<?php echo wp_json_encode( implode( ',', array_keys( $openable ) ) ); ?>);
 			data.append('nonce',<?php echo wp_json_encode( $nonce ); ?>);
 			data.append('return_url', window.location.href);
 			fetch(<?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>,{method:'POST',credentials:'same-origin',body:data})
@@ -831,14 +911,20 @@ function lgw_ajax_entry_bulk_submit() {
 	$uid = get_current_user_id();
 	if ( get_transient( 'lgw_entry_rl_' . $uid ) ) wp_send_json_error( 'Please wait a moment before submitting again.' );
 
-	$champ_id = sanitize_key( $_POST['champ'] ?? '' );
-	$champ    = lgw_entry_get_champ( $champ_id );
-	if ( ! $champ ) wp_send_json_error( 'Championship not found.' );
+	// Competition list: new `champs` (comma/space list) or legacy single `champ`.
+	$raw_list  = wp_unslash( $_POST['champs'] ?? ( $_POST['champ'] ?? '' ) );
+	$champ_ids = array();
+	foreach ( preg_split( '/[,\s]+/', (string) $raw_list ) as $r ) {
+		$id = sanitize_key( $r );
+		if ( $id !== '' && ! in_array( $id, $champ_ids, true ) ) $champ_ids[] = $id;
+	}
+	if ( empty( $champ_ids ) ) wp_send_json_error( 'No championship specified.' );
 
-	list( $win_open, $win_reason ) = lgw_entry_window( $champ_id );
-	if ( ! $win_open ) wp_send_json_error( $win_reason );
+	// Per-competition entrant text: new assoc array entries[<champ>], or legacy scalar.
+	$entries_in = $_POST['entries'] ?? '';
+	if ( ! is_array( $entries_in ) ) $entries_in = array( $champ_ids[0] => $entries_in );
 
-	// Club must be configured, and the user must be an approved admin for it.
+	// Club selected once, and the user must be an approved admin for it.
 	$configured = wp_list_pluck( lgw_get_clubs(), 'name' );
 	$club_in    = sanitize_text_field( wp_unslash( $_POST['club'] ?? '' ) );
 	$club       = '';
@@ -851,76 +937,99 @@ function lgw_ajax_entry_bulk_submit() {
 	$contact = sanitize_text_field( wp_unslash( $_POST['contact'] ?? '' ) );
 	if ( ! is_email( $contact ) ) wp_send_json_error( 'Please enter a valid contact email.' );
 
-	$discipline = $champ['discipline'] ?? 'singles';
-	$parsed     = lgw_entry_parse_bulk( wp_unslash( $_POST['entries'] ?? '' ), $discipline );
-	if ( empty( $parsed['entries'] ) ) {
-		$detail = $parsed['errors'] ? lgw_entry_bulk_detail_html( array( 'errors' => $parsed['errors'] ) ) : '';
-		wp_send_json_error( array( 'message' => 'No valid entries found.', 'detail_html' => $detail ) );
-	}
+	$batch      = 'b' . wp_generate_password( 16, false );
+	$created    = array(); // all created entry ids (free + paid)
+	$paid_ids   = array(); // ids needing payment → the single checkout basket
+	$currencies = array(); // distinct currencies among paid entries
+	$by_champ   = array(); // champ_id => [ids] for the admin notification
+	$dupes      = array();
+	$warns      = array();
+	$errors     = array();
 
-	$cfg     = lgw_entry_cfg( $champ_id );
-	$paid    = $cfg['fee'] > 0;
-	$batch   = 'b' . wp_generate_password( 16, false );
-	$created = array();
-	$dupes   = array();
-	$warns   = array();
+	foreach ( $champ_ids as $cid ) {
+		$champ = lgw_entry_get_champ( $cid );
+		if ( ! $champ ) continue;
+		list( $win_open ) = lgw_entry_window( $cid );
+		if ( ! $win_open ) continue; // silently skip closed comps (form only offered open ones)
 
-	foreach ( $parsed['entries'] as $ent ) {
-		$string = lgw_entry_build_string( $ent['players'], $club );
-		if ( lgw_entry_is_duplicate( $champ_id, $string ) ) { $dupes[] = $string; continue; }
+		$text = trim( (string) wp_unslash( $entries_in[ $cid ] ?? '' ) );
+		if ( $text === '' ) continue; // competition left blank
 
-		$entry_id = lgw_entry_create( array(
-			'champ'      => $champ_id,
-			'discipline' => $discipline,
-			'players'    => $ent['players'],
-			'club'       => $club,
-			'string'     => $string,
-			'contact'    => $contact,
-			'prefs'      => array(),
-			'amount'     => $paid ? $cfg['fee'] : 0,
-			'currency'   => $cfg['currency'],
-			'status'     => $paid ? 'pending_payment' : 'confirmed',
-			'uid'        => $uid,
-		) );
-		if ( is_wp_error( $entry_id ) ) continue;
-		update_post_meta( $entry_id, LGW_ENTRY_META_BATCH, $batch );
+		$disc   = $champ['discipline'] ?? 'singles';
+		$parsed = lgw_entry_parse_bulk( $text, $disc );
+		foreach ( $parsed['errors'] as $er ) $errors[] = $champ['title'] . ' — ' . $er;
+		if ( empty( $parsed['entries'] ) ) continue;
 
-		$unknown = lgw_entry_unknown_players( $club, $ent['players'] );
-		if ( $unknown ) {
-			lgw_audit_log( $entry_id, 'capitation_warning', 'Not in club player list: ' . implode( '; ', $unknown ) );
-			$warns[ $string ] = $unknown;
+		$cfg  = lgw_entry_cfg( $cid );
+		$paid = $cfg['fee'] > 0;
+
+		foreach ( $parsed['entries'] as $ent ) {
+			$string = lgw_entry_build_string( $ent['players'], $club );
+			if ( lgw_entry_is_duplicate( $cid, $string ) ) { $dupes[] = $string; continue; }
+
+			$entry_id = lgw_entry_create( array(
+				'champ'      => $cid,
+				'discipline' => $disc,
+				'players'    => $ent['players'],
+				'club'       => $club,
+				'string'     => $string,
+				'contact'    => $contact,
+				'prefs'      => array(),
+				'amount'     => $paid ? $cfg['fee'] : 0,
+				'currency'   => $cfg['currency'],
+				'status'     => $paid ? 'pending_payment' : 'confirmed',
+				'uid'        => $uid,
+			) );
+			if ( is_wp_error( $entry_id ) ) continue;
+			update_post_meta( $entry_id, LGW_ENTRY_META_BATCH, $batch );
+
+			$unknown = lgw_entry_unknown_players( $club, $ent['players'] );
+			if ( $unknown ) {
+				lgw_audit_log( $entry_id, 'capitation_warning', 'Not in club player list: ' . implode( '; ', $unknown ) );
+				$warns[ $string ] = $unknown;
+			}
+			if ( $paid ) {
+				$paid_ids[] = $entry_id;
+				$currencies[ strtolower( $cfg['currency'] ) ] = 1;
+			} else {
+				lgw_entry_project( $entry_id );
+				lgw_entry_email_entrant( $entry_id );
+			}
+			$created[]           = $entry_id;
+			$by_champ[ $cid ][]  = $entry_id;
 		}
-		if ( ! $paid ) {
-			lgw_entry_project( $entry_id );
-			lgw_entry_email_entrant( $entry_id );
-		}
-		$created[] = $entry_id;
 	}
 
 	if ( empty( $created ) ) {
 		wp_send_json_error( array(
 			'message'     => 'No new entries were added.',
-			'detail_html' => lgw_entry_bulk_detail_html( array( 'dupes' => $dupes, 'errors' => $parsed['errors'] ) ),
+			'detail_html' => lgw_entry_bulk_detail_html( array( 'dupes' => $dupes, 'errors' => $errors ) ),
 		) );
 	}
 
 	set_transient( 'lgw_entry_rl_' . $uid, 1, 30 );
-	$detail_html = lgw_entry_bulk_detail_html( array( 'warns' => $warns, 'dupes' => $dupes, 'errors' => $parsed['errors'] ) );
+	$detail_html = lgw_entry_bulk_detail_html( array( 'warns' => $warns, 'dupes' => $dupes, 'errors' => $errors ) );
+	lgw_entry_notify_admins_bulk_multi( $club, $by_champ, $batch );
 
-	if ( $paid ) {
+	if ( ! empty( $paid_ids ) ) {
+		// One Stripe basket requires one currency across the paid entries.
+		if ( count( $currencies ) > 1 ) {
+			wp_send_json_error( array(
+				'message'     => 'These competitions use different currencies and cannot be combined in one payment — please enter them separately.',
+				'detail_html' => $detail_html,
+			) );
+		}
 		$return_url = wp_validate_redirect( esc_url_raw( wp_unslash( $_POST['return_url'] ?? '' ) ), home_url( '/' ) );
-		$url        = lgw_entry_stripe_create_batch_session( $batch, $champ_id, $created, $return_url );
-		lgw_entry_notify_admins_bulk( $champ_id, $club, $created, $batch );
+		$url        = lgw_entry_stripe_create_batch_session( $batch, $champ_ids[0], $paid_ids, $return_url );
 		if ( is_wp_error( $url ) ) {
 			wp_send_json_error( array(
-				'message'     => count( $created ) . ' entries saved as pending payment, but checkout could not start — please contact the league office. (' . esc_html( $url->get_error_message() ) . ')',
+				'message'     => count( $paid_ids ) . ' ' . ( count( $paid_ids ) === 1 ? 'entry' : 'entries' ) . ' saved as pending payment, but checkout could not start — please contact the league office. (' . esc_html( $url->get_error_message() ) . ')',
 				'detail_html' => $detail_html,
 			) );
 		}
 		wp_send_json_success( array( 'checkout_url' => $url, 'detail_html' => $detail_html ) );
 	}
 
-	lgw_entry_notify_admins_bulk( $champ_id, $club, $created, $batch );
 	wp_send_json_success( array(
 		'message'     => count( $created ) . ' ' . ( count( $created ) === 1 ? 'entry' : 'entries' ) . ' received for ' . esc_html( $club ) . '.',
 		'detail_html' => $detail_html,
@@ -946,15 +1055,30 @@ function lgw_entry_bulk_detail_html( array $parts ) {
 	return $html;
 }
 
-/** Notify admins of a bulk submission (one email for the batch). */
-function lgw_entry_notify_admins_bulk( $champ_id, $club, array $entry_ids, $batch ) {
-	$champ = lgw_entry_get_champ( $champ_id );
-	$title = $champ ? $champ['title'] : $champ_id;
-	$lines = array();
-	foreach ( $entry_ids as $id ) $lines[] = ' - ' . get_post_meta( $id, LGW_ENTRY_META_STRING, true );
-	$status = lgw_entry_cfg( $champ_id )['fee'] > 0 ? 'pending payment' : 'confirmed';
-	$body   = count( $entry_ids ) . " bulk entries submitted for {$title} by {$club} (batch {$batch}, {$status}):\n\n" . implode( "\n", $lines ) . "\n";
-	wp_mail( lgw_entry_admin_recipients(), '[LGW] Bulk entries — ' . $title, $body );
+/**
+ * Notify admins of a bulk submission (one email for the whole batch), grouped by
+ * competition. $by_champ maps champ_id => [entry ids].
+ */
+function lgw_entry_notify_admins_bulk_multi( $club, array $by_champ, $batch ) {
+	if ( empty( $by_champ ) ) return;
+	$total    = 0;
+	$sections = array();
+	$titles   = array();
+	foreach ( $by_champ as $cid => $ids ) {
+		$champ    = lgw_entry_get_champ( $cid );
+		$title    = $champ ? $champ['title'] : $cid;
+		$titles[] = $title;
+		$status   = lgw_entry_cfg( $cid )['fee'] > 0 ? 'pending payment' : 'confirmed';
+		$lines    = array();
+		foreach ( $ids as $id ) $lines[] = ' - ' . get_post_meta( $id, LGW_ENTRY_META_STRING, true );
+		$total     += count( $ids );
+		$sections[] = "{$title} ({$status}):\n" . implode( "\n", $lines );
+	}
+	$subject = count( $titles ) === 1
+		? '[LGW] Bulk entries — ' . $titles[0]
+		: '[LGW] Bulk entries — ' . count( $titles ) . ' competitions';
+	$body = "{$total} bulk entries submitted by {$club} (batch {$batch}):\n\n" . implode( "\n\n", $sections ) . "\n";
+	wp_mail( lgw_entry_admin_recipients(), $subject, $body );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1044,22 +1168,28 @@ function lgw_entry_stripe_create_batch_session( $batch, $champ_id, array $entry_
 	$secret = lgw_entry_stripe_secret();
 	if ( ! $secret ) return new WP_Error( 'lgw_stripe', 'Stripe is not configured.' );
 
-	$champ    = lgw_entry_get_champ( $champ_id );
-	$title    = $champ ? $champ['title'] : $champ_id;
 	$currency = get_post_meta( $entry_ids[0], LGW_ENTRY_META_CURRENCY, true ) ?: 'gbp';
 
-	$line_items = array();
-	$total      = 0;
+	// A batch may span several competitions — title each line item by the entry's
+	// own championship so the Stripe receipt itemises across competitions.
+	$title_cache = array();
+	$line_items  = array();
+	$total       = 0;
 	foreach ( $entry_ids as $id ) {
 		$amount = intval( get_post_meta( $id, LGW_ENTRY_META_AMOUNT, true ) );
 		if ( $amount <= 0 ) continue;
+		$cid = get_post_meta( $id, LGW_ENTRY_META_CHAMP, true );
+		if ( ! isset( $title_cache[ $cid ] ) ) {
+			$c = lgw_entry_get_champ( $cid );
+			$title_cache[ $cid ] = $c ? $c['title'] : ( $cid ?: $champ_id );
+		}
 		$total       += $amount;
 		$line_items[] = array(
 			'quantity'   => 1,
 			'price_data' => array(
 				'currency'     => $currency,
 				'unit_amount'  => $amount,
-				'product_data' => array( 'name' => $title . ' — ' . get_post_meta( $id, LGW_ENTRY_META_STRING, true ) ),
+				'product_data' => array( 'name' => $title_cache[ $cid ] . ' — ' . get_post_meta( $id, LGW_ENTRY_META_STRING, true ) ),
 			),
 		);
 	}
