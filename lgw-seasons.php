@@ -1,7 +1,7 @@
 <?php
 /**
  * LGW Seasons — multi-season archive and management.
- * v7.1.27
+ * v2026.31.6
  *
  * Data model
  * ----------
@@ -60,6 +60,42 @@ function lgw_get_season_by_id($id) {
         if ($s['id'] === $id) return $s;
     }
     return null;
+}
+
+/**
+ * Pure reactivation transform: promote an archived season to active and demote
+ * whatever is currently active. Returns array('seasons' => [...], 'divisions' =>
+ * [...]) with the reactivated season's divisions, or null if $target_id does not
+ * exist or is already the active season. Does not touch scorecard season tags.
+ * Extracted so it can be unit-tested without WordPress ($_POST / redirects).
+ */
+function lgw_seasons_make_active($seasons, $target_id) {
+    if (!$target_id) return null;
+
+    $target_divs = null;
+    foreach ($seasons as &$s) {
+        if ($s['id'] === $target_id) {
+            if (!empty($s['active'])) return null; // already active — nothing to do
+            $target_divs = $s['divisions'] ?? array();
+        }
+    }
+    unset($s);
+
+    if ($target_divs === null) return null; // target not found
+
+    foreach ($seasons as &$s) {
+        $s['active'] = ($s['id'] === $target_id);
+    }
+    unset($s);
+
+    // Active first, then descending by ID (matches the backload sort)
+    usort($seasons, function($a, $b) {
+        if (!empty($a['active'])) return -1;
+        if (!empty($b['active'])) return 1;
+        return strcmp($b['id'], $a['id']);
+    });
+
+    return array('seasons' => $seasons, 'divisions' => $target_divs);
 }
 
 /** Return CSV URL for a given division name in a given season. */
@@ -236,6 +272,30 @@ function lgw_seasons_handle_posts() {
         exit;
     }
 
+    // ── Revert: make an archived season active again ──────────────────────────
+    if (isset($_POST['lgw_revert_season']) && check_admin_referer('lgw_seasons_nonce')) {
+        $target_id = sanitize_text_field($_POST['lgw_revert_id'] ?? '');
+        if (!$target_id) {
+            wp_redirect(admin_url('admin.php?page=lgw-seasons&error=missing_id'));
+            exit;
+        }
+
+        $result = lgw_seasons_make_active(lgw_get_seasons(), $target_id);
+        if ($result === null) {
+            // Target missing or already active
+            wp_redirect(admin_url('admin.php?page=lgw-seasons&error=not_found'));
+            exit;
+        }
+
+        update_option('lgw_seasons', $result['seasons']);
+
+        // Point Drive/Sheets writeback + Quick Score Entry at the now-active season
+        lgw_seasons_sync_to_drive($result['divisions']);
+
+        wp_redirect(admin_url('admin.php?page=lgw-seasons&reverted=1'));
+        exit;
+    }
+
     // ── Add or update backloaded (historical) season ─────────────────────────
     if (isset($_POST['lgw_add_archived_season']) && check_admin_referer('lgw_seasons_nonce')) {
         $id          = sanitize_text_field($_POST['lgw_backload_id']       ?? '');
@@ -383,6 +443,9 @@ function lgw_seasons_admin_page() {
     <?php if (isset($_GET['deleted'])): ?>
         <div class="notice notice-success is-dismissible"><p>Season deleted.</p></div>
     <?php endif; ?>
+    <?php if (isset($_GET['reverted'])): ?>
+        <div class="notice notice-success is-dismissible"><p>Season reactivated. The previously active season has been archived, and front-end display &amp; score writeback now target the reactivated season.</p></div>
+    <?php endif; ?>
     <?php if (isset($_GET['error'])): ?>
         <div class="notice notice-error is-dismissible"><p>
         <?php
@@ -390,6 +453,7 @@ function lgw_seasons_admin_page() {
         if ($err === 'missing_ids')   echo 'Season IDs are required.';
         elseif ($err === 'missing_id') echo 'Season ID is required.';
         elseif ($err === 'duplicate_id') echo 'A season with ID <strong>' . esc_html($_GET['id'] ?? '') . '</strong> already exists.';
+        elseif ($err === 'not_found') echo 'That season could not be found, or is already active.';
         else echo esc_html($err);
         ?>
         </p></div>
@@ -576,6 +640,13 @@ function lgw_seasons_admin_page() {
                         data-id="<?php echo esc_attr($s['id']); ?>"
                         data-label="<?php echo esc_attr($s['label']); ?>"
                         data-nonce="<?php echo esc_attr($bf_nonce); ?>">🔄 Backfill Players</button>
+                <form method="post" style="display:inline;margin:0">
+                    <?php wp_nonce_field('lgw_seasons_nonce'); ?>
+                    <input type="hidden" name="lgw_revert_id" value="<?php echo esc_attr($s['id']); ?>">
+                    <button type="submit" name="lgw_revert_season" class="button button-small"
+                            style="color:#0a6b2a;border-color:#0a6b2a"
+                            onclick="return confirm('Make <?php echo esc_js($s['label']); ?> the active season again?\n\nThe current active season will be archived. Front-end display and score writeback will switch to <?php echo esc_js($s['label']); ?>.')">⏮ Make Active</button>
+                </form>
                 <button type="button" class="button button-small lgw-edit-archived-btn"
                         data-id="<?php echo esc_attr($s['id']); ?>">Edit</button>
                 <?php

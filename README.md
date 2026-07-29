@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.6]
+### Added
+- **Reactivate an archived season.** New `lgw_revert_season` POST handler in `lgw-seasons.php` + a "⏮ Make Active" button on each archived-season row. Demotes the current active season to archived (`active => false`) and promotes the chosen season (`active => true`), then re-sorts (active first, then descending by ID) and calls `lgw_seasons_sync_to_drive()` so Drive/Sheets writeback and Quick Score Entry follow the reactivated season's divisions. Guarded: the target must exist and be archived (never the active one); scorecard `lgw_sc_season` tags are left untouched (no un-stamping). Confirmation dialog on click; `reverted=1` success notice; `not_found` error path.
+
 ## [2026.31.5]
 ### Added
 - **Bulk club entry (club admins only).** New `[lgw_champ_bulk_entry champ="..."]` shortcode + `lgw_entry_bulk_submit` AJAX. `lgw_entry_parse_bulk()` parses a textarea: entries newline-separated (singles also comma-separated); team members within an entry separated by `/` → mapped to the canonical `A & B, Club` via `lgw_entry_build_string()`. Gated by `lgw_entry_user_may_bulk()` (approved club admin via `lgw_user_can_submit_for()`, or `manage_options`); the club picker only lists clubs the user administers. Duplicates and wrong-member-count lines are skipped and reported. Free champs confirm + project immediately; **paid champs use one combined Stripe Checkout for the whole batch** — `lgw_entry_stripe_create_batch_session()` (one line-item per entry, tagged with a `lgw_entry_batch` id), and `lgw_entry_stripe_webhook_finish_batch()` confirms every pending row in the batch together after re-verifying the paid total against the **sum** of the batch's ledger amounts (idempotent, client-amount never trusted).
