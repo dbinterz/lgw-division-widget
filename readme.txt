@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.31.5
+Stable tag: 2026.31.6
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.6 =
+* New: Reactivate an archived season. The Seasons admin now has a "⏮ Make Active" button on each archived season. Clicking it archives the current active season and makes the chosen season active again — useful when a season was archived early or by mistake. Scorecard season tags are left untouched; front-end display, Quick Score Entry and Sheets writeback follow the reactivated season's divisions.
 
 = 2026.31.5 =
 * New: Bulk championship entry for club administrators. A new `[lgw_champ_bulk_entry champ="..."]` shortcode lets an approved club administrator enter their whole club's entrants at once — one per line (or comma-separated for singles), with the players in a team event separated by "/" (e.g. "A Smith / B Jones" for a pair). Duplicates and unreadable lines are skipped and reported back. When the championship has a fee, the whole batch is paid in a single secure Stripe checkout.
