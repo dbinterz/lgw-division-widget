@@ -1136,11 +1136,17 @@ function lgw_entry_stripe_create_session( $entry_id, $return_url ) {
 		),
 	);
 
+	// Idempotency-Key makes a retried POST (e.g. after a network blip on the
+	// response) return the SAME session instead of creating a second charge.
+	// Keyed by the entry + amount so a genuine re-quote at a new fee is distinct.
+	$idem = 'lgw-entry-' . $entry_id . '-' . $amount;
+
 	$res = wp_remote_post( 'https://api.stripe.com/v1/checkout/sessions', array(
 		'timeout' => 20,
 		'headers' => array(
-			'Authorization' => 'Bearer ' . $secret,
-			'Content-Type'  => 'application/x-www-form-urlencoded',
+			'Authorization'   => 'Bearer ' . $secret,
+			'Content-Type'    => 'application/x-www-form-urlencoded',
+			'Idempotency-Key' => $idem,
 		),
 		'body'    => $body, // WP encodes nested arrays as line_items[0][price_data][...] — Stripe's format.
 	) );
@@ -1209,11 +1215,16 @@ function lgw_entry_stripe_create_batch_session( $batch, $champ_id, array $entry_
 		'line_items'          => $line_items,
 	);
 
+	// One Checkout session per basket → key idempotency on the batch id, so a
+	// retried submission returns the same session rather than charging twice.
+	$idem = 'lgw-batch-' . $batch;
+
 	$res = wp_remote_post( 'https://api.stripe.com/v1/checkout/sessions', array(
 		'timeout' => 20,
 		'headers' => array(
-			'Authorization' => 'Bearer ' . $secret,
-			'Content-Type'  => 'application/x-www-form-urlencoded',
+			'Authorization'   => 'Bearer ' . $secret,
+			'Content-Type'    => 'application/x-www-form-urlencoded',
+			'Idempotency-Key' => $idem,
 		),
 		'body'    => $body,
 	) );

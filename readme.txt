@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.31.8
+Stable tag: 2026.31.9
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.9 =
+* Improved: Championship entry payments are now retry-safe. Each Stripe Checkout session is created with an idempotency key (per basket / per entry), so if the network hiccups while starting a payment the club is never charged twice — Stripe returns the same checkout instead of opening a second one.
 
 = 2026.31.8 =
 * Fixed: Scorecard player-name suggestions no longer cut off at three. When you submit a scorecard and a typed name is close to several roster names, the "Did you mean:" prompt now lists up to eight matches instead of only the first three — so the correct player can't be dropped off the list when there are lots of similar names.
