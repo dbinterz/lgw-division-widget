@@ -3,7 +3,7 @@ Contributors: dbinterz
 Tags: bowls, sports, league table, fixtures, google sheets
 Requires at least: 5.0
 Tested up to: 6.5
-Stable tag: 2026.31.7
+Stable tag: 2026.31.8
 License: GPLv2 or later
 
 Mobile-friendly league tables, fixtures, and scorecard submission for bowls leagues. Powered by Google Sheets CSV.
@@ -70,6 +70,9 @@ Parameters:
 4. Add the shortcode to each division page
 
 == Changelog ==
+
+= 2026.31.8 =
+* Fixed: Scorecard player-name suggestions no longer cut off at three. When you submit a scorecard and a typed name is close to several roster names, the "Did you mean:" prompt now lists up to eight matches instead of only the first three — so the correct player can't be dropped off the list when there are lots of similar names.
 
 = 2026.31.7 =
 * Improved: Bulk entry now covers multiple competitions at once. The `[lgw_champ_bulk_entry]` shortcode accepts a list of championships (e.g. `champ="singles,pairs,fours"`) and shows a single form — you pick your club ONCE, enter each competition's entrants in its own box, and submit everything with one "Enter & pay" button. All paid entries across every competition go into a SINGLE secure Stripe checkout — one payment for the whole club, instead of a separate charge per competition. Free competitions confirm immediately; blank competitions are skipped. A single-championship shortcode still works exactly as before.

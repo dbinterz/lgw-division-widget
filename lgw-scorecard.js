@@ -1,4 +1,4 @@
-/* LGW Scorecard JS - v5.18.3 */
+/* LGW Scorecard JS - v2026.31.8 */
 (function(){
   'use strict';
 
@@ -3466,7 +3466,7 @@ function lgwShowImportReview(formEl, homeTeam, awayTeam) {
       var sugHtml = '';
       if (issue.suggestions.length) {
         sugHtml = '<span class="lgw-ir-label">Did you mean: </span>';
-        issue.suggestions.slice(0,3).forEach(function(s) {
+        issue.suggestions.slice(0, LGW_MAX_NAME_SUGGESTIONS).forEach(function(s) {
           sugHtml += '<button type="button" class="lgw-ir-accept" data-idx="'+idx+'" data-name="'+s.name.replace(/"/g,'&quot;')+'">✓ '+s.name+'</button> ';
         });
         sugHtml += '<span class="lgw-ir-or">or</span> ';
@@ -3638,6 +3638,11 @@ function lgwLevenshtein(a, b) {
   return dp[m][n];
 }
 
+// Max fuzzy name suggestions to display. Matches are exact-category (initial/
+// nickname/typo), not noisy fuzz, so show plenty — the right name should never
+// be truncated off the list. Flex-wrap keeps the row usable on mobile.
+var LGW_MAX_NAME_SUGGESTIONS = 8;
+
 function lgwFuzzyPlayerMatch(typed, knownNames) {
   var results = [];
   var tl = typed.trim().toLowerCase();
@@ -3718,7 +3723,7 @@ function lgwCheckNewPlayer(inp, formEl) {
   var html = '';
   if (suggestions.length) {
     html += '<span class="lgw-npd-msg">New name "<strong>' + val + '</strong>" — did you mean:</span>';
-    suggestions.slice(0, 3).forEach(function(s) {
+    suggestions.slice(0, LGW_MAX_NAME_SUGGESTIONS).forEach(function(s) {
       html += '<button class="lgw-npd-btn lgw-npd-suggest" data-name="' + s.name.replace(/"/g,'&quot;') + '">'
             + '✓ ' + s.name + '</button>';
     });
