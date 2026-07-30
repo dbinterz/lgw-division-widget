@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.9]
+### Changed
+- **Stripe Checkout session creation is now idempotent.** Both `lgw_entry_stripe_create_session()` (single entry) and `lgw_entry_stripe_create_batch_session()` (bulk basket) now send an `Idempotency-Key` header on the `POST /v1/checkout/sessions` call — `lgw-entry-<id>-<amount>` and `lgw-batch-<batch>` respectively. A retried request (e.g. after a dropped response) returns the *same* Checkout Session instead of creating a second one, so a club can't be double-charged; the key includes the amount/batch so a genuine re-quote is still distinct. Aligns the outbound leg with the Stripe "accept a one-time payment" blueprint (product/price → Checkout `mode=payment` → `checkout.session.completed` webhook); the inbound webhook + the full outbound request shape are both proven offline via `rest_do_request` + `pre_http_request` interception. No behaviour change when Stripe isn't configured.
+
 ## [2026.31.8]
 ### Fixed
 - **Scorecard fuzzy name suggestions no longer capped at 3.** Both "Did you mean:" surfaces in `lgw-scorecard.js` — the import/review issue resolver (`.lgw-ir-accept`) and the inline new-name dialog (`.lgw-npd-suggest`) — hard-sliced `suggestions.slice(0, 3)`, so with more than three similar roster names the correct one could be truncated off before the user saw it. `lgwFuzzyPlayerMatch()` returns only exact-category matches (initial ↔ full first name, nickname, Levenshtein ≤ 2 typo), not noisy fuzz, so the cap was arbitrary truncation rather than ranking. Introduced a shared `LGW_MAX_NAME_SUGGESTIONS = 8` constant used at both sites; flex-wrap keeps the list usable on mobile.
