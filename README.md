@@ -108,6 +108,10 @@ The plugin parses the standard LGW scorecard Excel template. Cells with unresolv
 
 ## Changelog
 
+## [2026.31.8]
+### Fixed
+- **Scorecard fuzzy name suggestions no longer capped at 3.** Both "Did you mean:" surfaces in `lgw-scorecard.js` — the import/review issue resolver (`.lgw-ir-accept`) and the inline new-name dialog (`.lgw-npd-suggest`) — hard-sliced `suggestions.slice(0, 3)`, so with more than three similar roster names the correct one could be truncated off before the user saw it. `lgwFuzzyPlayerMatch()` returns only exact-category matches (initial ↔ full first name, nickname, Levenshtein ≤ 2 typo), not noisy fuzz, so the cap was arbitrary truncation rather than ranking. Introduced a shared `LGW_MAX_NAME_SUGGESTIONS = 8` constant used at both sites; flex-wrap keeps the list usable on mobile.
+
 ## [2026.31.7]
 ### Changed
 - **Multi-competition bulk entry — one club, one basket, one payment.** `[lgw_champ_bulk_entry champ="a,b,c"]` now accepts a comma/space list of championships and renders a single form: one club selector, one contact field, a per-competition `entries[<champ>]` textarea (only competitions whose entry window is open are shown; closed ones listed as skipped), and one global **"Enter & pay"** button. `lgw_ajax_entry_bulk_submit` reads `champs` (with legacy single `champ`/scalar `entries` fallback), assigns **one shared batch id across all competitions**, creates ledger rows per comp (free → confirmed+projected+emailed immediately; paid → `pending_payment`), then opens a **single** Stripe Checkout over every paid entry via `lgw_entry_stripe_create_batch_session()`. That session now titles each line item by the entry's own championship (per-entry `title_cache`) so the receipt itemises across competitions. Guard: mixed currencies across paid comps are rejected (one Stripe session = one currency). Admin notification consolidated into `lgw_entry_notify_admins_bulk_multi()` — one email grouped by competition. Webhook confirmation (`lgw_entry_stripe_webhook_finish_batch`) was already batch-keyed and champ-agnostic, so it confirms the whole multi-comp batch unchanged. Single-championship usage is unchanged.
